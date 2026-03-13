@@ -17,6 +17,9 @@ Current repository state:
 - containerized Python runtime for the new bot process,
 - TOML bootstrap configuration loaded at startup,
 - single-process async application skeleton,
+- SQLite database initialized on startup,
+- bootstrap persistence for channels, endpoints, management targets, and runtime settings,
+- database tables prepared for radio packets, messages, commands, node adverts, and management snapshots,
 - built-in HTTP server with `GET /healthz` and `GET /` status endpoints,
 - bind-mount friendly Docker Compose setup for `config`, `data`, and `logs`.
 
@@ -25,7 +28,6 @@ What is not implemented yet:
 - RS232Bridge transport client,
 - MeshCore packet codec,
 - command handling,
-- SQLite persistence,
 - admin UI,
 - repeater management sessions.
 
@@ -49,10 +51,13 @@ Tracked bootstrap configuration lives in `config/config.toml`.
 
 The current config defines:
 
+- bot identity at the application level,
 - HTTP bind host and port,
 - service name,
 - log level,
-- paths for data and logs.
+- storage paths,
+- initial channel list,
+- future endpoint and management target sections.
 
 The file is safe to version because it contains no credentials and no production endpoint details.
 
@@ -74,6 +79,8 @@ Once the stack is up, the container serves:
 
 - `http://127.0.0.1:8080/healthz`
 - `http://127.0.0.1:8080/`
+
+The startup path creates the SQLite database automatically and seeds configuration snapshots into it.
 
 ## Historical references
 
@@ -99,6 +106,7 @@ meshcore-bot/
 		__main__.py
 		app.py
 		config.py
+		database.py
 	.gitignore
 	Dockerfile
 	docker-compose.yml

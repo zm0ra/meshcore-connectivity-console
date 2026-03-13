@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 
 from .config import AppConfig
+from .database import BotDatabase
 
 
 class BotApplication:
@@ -15,9 +16,11 @@ class BotApplication:
         self.started_at = datetime.now(tz=UTC)
         self._shutdown_event = asyncio.Event()
         self._http_server: asyncio.base_events.Server | None = None
+        self.database = BotDatabase(config.storage.database_path)
 
     async def run(self) -> None:
         self._prepare_directories()
+        self.database.bootstrap_from_config(self.config)
         self.logger.info("starting %s", self.config.service.name)
 
         self._http_server = await asyncio.start_server(
@@ -112,20 +115,28 @@ class BotApplication:
             "status": "ok",
             "service": self.config.service.name,
             "started_at": self.started_at.isoformat(),
+            "database": self.database.snapshot_overview(),
         }
 
     def _root_payload(self) -> dict[str, object]:
         return {
             "service": self.config.service.name,
+            "bot": {
+                "name": self.config.bot.name,
+                "reply_prefix": self.config.bot.reply_prefix,
+                "command_prefix": self.config.bot.command_prefix,
+            },
             "status": "bootstrap",
             "started_at": self.started_at.isoformat(),
             "http": {
                 "healthz": "/healthz",
             },
+            "persistence": self.database.snapshot_overview(),
             "next_steps": [
                 "RS232Bridge transport client",
                 "MeshCore packet codec",
                 "runtime state model",
-                "persistence and API",
+                "radio ingestion",
+                "command execution",
             ],
         }
