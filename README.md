@@ -1,30 +1,107 @@
 # meshcore-bot
 
-Greenfield rebuild of the MeshCore TCP bot.
+Versioned rebuild of a MeshCore bot that targets repeaters exposing the XIAO WiFi RS232Bridge TCP wrapper.
 
-This repository starts from zero after the previous implementation in `meshcore-tcp-bot` became unsafe to evolve due to missing version history.
+The previous implementation lived in a separate repository without usable version history. This repository starts from a clean baseline and every change is tracked from the first commit.
 
-## Working mode
+## Purpose
 
-- `meshcore-tcp-bot` is treated as a read-only historical reference.
-- New implementation work happens only in this repository.
-- Every change must be versioned in git.
-- High-risk runtime experiments are not done here without a clear test and rollback plan.
+The target system is a bot that connects to one or more MeshCore repeaters over the raw TCP bridge, decodes real MeshCore packets, reacts on selected public channels, and later extends into private datagrams, repeater management, persistence, and a web control surface.
 
-## Reference sources
+This repository does not claim that all of that already exists. The current codebase is the first runtime foundation for that rebuild.
 
-Primary historical references live outside this repo:
+## Current implementation
 
+Current repository state:
+
+- containerized Python runtime for the new bot process,
+- TOML bootstrap configuration loaded at startup,
+- single-process async application skeleton,
+- built-in HTTP server with `GET /healthz` and `GET /` status endpoints,
+- bind-mount friendly Docker Compose setup for `config`, `data`, and `logs`.
+
+What is not implemented yet:
+
+- RS232Bridge transport client,
+- MeshCore packet codec,
+- command handling,
+- SQLite persistence,
+- admin UI,
+- repeater management sessions.
+
+## Process model
+
+The rebuild starts with one process, not multiple workers.
+
+That is the safer default for this project because transport, packet decoding, runtime state, and HTTP status reporting all depend on the same in-memory state and tight ordering. Splitting them too early would add queues, delivery semantics, and failure modes before the protocol layer is stable.
+
+Recommended approach:
+
+- keep one main process until raw transport, packet parsing, and runtime state are stable,
+- add separate workers only when there is a proven boundary with clear contracts,
+- the first realistic split, if needed later, is an optional web/API process and separate background jobs for slow management polling.
+
+At this stage, separate workers are not recommended.
+
+## Configuration
+
+Tracked bootstrap configuration lives in `config/config.toml`.
+
+The current config defines:
+
+- HTTP bind host and port,
+- service name,
+- log level,
+- paths for data and logs.
+
+The file is safe to version because it contains no credentials and no production endpoint details.
+
+## Docker
+
+Build and run the current environment:
+
+```bash
+docker compose up --build
+```
+
+The compose setup exposes port `8080` and mounts:
+
+- `./config` to `/app/config`,
+- `./data` to `/app/data`,
+- `./logs` to `/app/logs`.
+
+Once the stack is up, the container serves:
+
+- `http://127.0.0.1:8080/healthz`
+- `http://127.0.0.1:8080/`
+
+## Historical references
+
+The old implementation is kept outside this repository as reference material only. It is used to recover protocol behavior and scope, not as an active runtime base.
+
+Primary references:
+
+- `../meshcore-tcp-bot/README.md`
 - `../meshcore-tcp-bot/MESHCORE_TCP_BOT_SPECIFICATION.md`
 - `../meshcore-tcp-bot/AI_ISSUES.md`
 - `../_clones/MeshCore-upstream`
 - `../_clones/meshcore-xiao-wifi-serial2tcp-upstream`
 - `../_clones/meshcore-bot-agessaman`
 
-## Current goal
+## Repository layout
 
-Build a new implementation from scratch with:
-
-- explicit protocol boundaries,
-- strict separation of transport, packet logic, runtime, persistence, and UI,
-- reproducible commits from the first step onward.
+```text
+meshcore-bot/
+	config/
+		config.toml
+	meshcore_bot/
+		__init__.py
+		__main__.py
+		app.py
+		config.py
+	.gitignore
+	Dockerfile
+	docker-compose.yml
+	pyproject.toml
+	README.md
+```
