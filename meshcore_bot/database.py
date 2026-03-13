@@ -66,7 +66,7 @@ def _default_command_settings() -> dict[str, dict[str, Any]]:
         "test": {
             "enabled": True,
             "response_template": (
-                "{reply_prefix}I saw: {sender} "
+                "{reply_prefix}Widziałem: {sender_mention} "
                 "(hops={path_len}{snr_suffix}{rssi_suffix}{distance_suffix})"
             ),
             "sort_order": 30,
@@ -508,6 +508,34 @@ class BotDatabase:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_nodes(self, limit: int = 500) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT identity_hex, hash_prefix_hex, name, role, latitude, longitude,
+                       first_seen_at, last_seen_at, last_seen_endpoint, last_source
+                FROM nodes
+                ORDER BY COALESCE(last_seen_at, first_seen_at) DESC, name ASC, identity_hex ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_command_settings(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT command_name, enabled, response_template, sort_order, updated_at
+                FROM bot_command_settings
+                ORDER BY sort_order ASC, command_name ASC
+                """
+            ).fetchall()
+        items = [dict(row) for row in rows]
+        for item in items:
+            item["enabled"] = bool(item["enabled"])
+        return items
+
     def verify_admin_password(self, username: str, password: str) -> bool:
         with self._lock, self._connect() as connection:
             row = connection.execute(
@@ -886,10 +914,19 @@ class BotDatabase:
         self._set_json_setting(connection, "runtime.bot", defaults, updated_at)
 
     def _ensure_command_settings(self, connection: sqlite3.Connection, updated_at: str) -> None:
+        defaults = _default_command_settings()
         if self._table_has_rows(connection, "bot_command_settings"):
+            legacy_test_template = "{reply_prefix}I saw: {sender} (hops={path_len}{snr_suffix}{rssi_suffix}{distance_suffix})"
+            connection.execute(
+                """
+                UPDATE bot_command_settings
+                SET response_template = ?, updated_at = ?
+                WHERE command_name = 'test' AND response_template = ?
+                """,
+                (defaults["test"]["response_template"], updated_at, legacy_test_template),
+            )
             return
 
-        defaults = _default_command_settings()
         for command_name, settings in defaults.items():
             connection.execute(
                 """

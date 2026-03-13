@@ -26,6 +26,11 @@ def _split_sender_and_content(text: str) -> tuple[str, str]:
     return "unknown", text.strip()
 
 
+def _sender_mention(sender: str) -> str:
+    name = sender.strip() or "unknown"
+    return name if name.startswith("@") else f"@{name}"
+
+
 @dataclass(slots=True)
 class EndpointSession:
     config: EndpointConfig
@@ -108,6 +113,7 @@ class MeshcoreRuntimeService:
             "started_at": self.started_at.isoformat(),
             "bot": self.database.get_bot_runtime_settings(),
             "endpoints": endpoint_state,
+            "nodes": self.database.list_nodes(limit=500),
             "messages": self.database.recent_messages(limit=50),
             "packets": self.database.recent_radio_packets(limit=50),
             "diagnostics": {
@@ -174,6 +180,7 @@ class MeshcoreRuntimeService:
 
     async def _handle_decoded_payload(self, session: EndpointSession, decoded: DecodedPayload) -> None:
         observed_at = _utc_now()
+        packet_id: int | None = None
         try:
             summary = describe_packet(decoded.payload)
         except Exception as exc:
@@ -188,7 +195,7 @@ class MeshcoreRuntimeService:
             )
             return
 
-        self.database.record_radio_packet(
+        packet_id = self.database.record_radio_packet(
             endpoint_name=session.config.name,
             direction="rx",
             observed_at=observed_at,
@@ -231,7 +238,7 @@ class MeshcoreRuntimeService:
             return
 
         sender, content = _split_sender_and_content(group_message.text)
-        self.database.record_message(
+        message_id = self.database.record_message(
             endpoint_name=session.config.name,
             channel_name=channel.name,
             sender=sender,
@@ -246,6 +253,171 @@ class MeshcoreRuntimeService:
         )
         self.last_drop_reason = None
         self.logger.info("rx %s #%s %s: %s", session.config.name, channel.name, sender, content)
+        await self._handle_command(
+            session,
+            message_id=message_id,
+            packet_id=packet_id,
+            channel_name=channel.name,
+            sender=sender,
+            content=content,
+            path_len=summary.path_len,
+            observed_at=observed_at,
+        )
+
+    async def _handle_command(
+        self,
+        session: EndpointSession,
+        *,
+        message_id: int,
+        packet_id: int | None,
+        channel_name: str,
+        sender: str,
+        content: str,
+        path_len: int,
+        observed_at: datetime,
+    ) -> None:
+        bot_settings = self.database.get_bot_runtime_settings()
+        command_prefix = str(bot_settings.get("command_prefix") or self.config.bot.command_prefix)
+        if not content.startswith(command_prefix):
+            return
+
+        bot_name = str(bot_settings.get("name") or self.config.bot.name)
+        if sender.strip().casefold() == bot_name.strip().casefold():
+            return
+
+        command_text = content[len(command_prefix):].strip()
+        if not command_text:
+            return
+
+        command_name = command_text.split(None, 1)[0].lower()
+        command_settings = {
+            item["command_name"]: item
+            for item in self.database.list_command_settings()
+        }
+        command_config = command_settings.get(command_name)
+        if command_config is None:
+            self.database.record_command_event(
+                command_name=command_name,
+                command_text=content,
+                status="unknown",
+                endpoint_name=session.config.name,
+                channel_name=channel_name,
+                sender=sender,
+                received_at=observed_at,
+                related_message_id=message_id,
+                related_packet_id=packet_id,
+            )
+            return
+
+        if not command_config.get("enabled", True):
+            self.database.record_command_event(
+                command_name=command_name,
+                command_text=content,
+                status="disabled",
+                endpoint_name=session.config.name,
+                channel_name=channel_name,
+                sender=sender,
+                received_at=observed_at,
+                related_message_id=message_id,
+                related_packet_id=packet_id,
+            )
+            return
+
+        response_text = self._render_command_response(
+            command_name=command_name,
+            sender=sender,
+            path_len=path_len,
+            command_settings=command_settings,
+            bot_settings=bot_settings,
+            endpoint_name=session.config.name,
+        )
+        if not response_text:
+            self.database.record_command_event(
+                command_name=command_name,
+                command_text=content,
+                status="ignored",
+                endpoint_name=session.config.name,
+                channel_name=channel_name,
+                sender=sender,
+                received_at=observed_at,
+                related_message_id=message_id,
+                related_packet_id=packet_id,
+                notes="empty response",
+            )
+            return
+
+        try:
+            await self.send_channel_message(session.config.name, channel_name, response_text)
+        except Exception as exc:
+            self.database.record_command_event(
+                command_name=command_name,
+                command_text=content,
+                status="error",
+                endpoint_name=session.config.name,
+                channel_name=channel_name,
+                sender=sender,
+                received_at=observed_at,
+                related_message_id=message_id,
+                related_packet_id=packet_id,
+                notes=str(exc),
+            )
+            self.logger.warning("command %s failed on %s #%s: %s", command_name, session.config.name, channel_name, exc)
+            return
+
+        responded_at = _utc_now()
+        self.database.record_command_event(
+            command_name=command_name,
+            command_text=content,
+            status="sent",
+            endpoint_name=session.config.name,
+            channel_name=channel_name,
+            sender=sender,
+            received_at=observed_at,
+            responded_at=responded_at,
+            response_text=response_text,
+            related_message_id=message_id,
+            related_packet_id=packet_id,
+        )
+        self.logger.info("cmd %s %s #%s -> %s", command_name, session.config.name, channel_name, response_text)
+
+    def _render_command_response(
+        self,
+        *,
+        command_name: str,
+        sender: str,
+        path_len: int,
+        command_settings: dict[str, dict[str, Any]],
+        bot_settings: dict[str, Any],
+        endpoint_name: str,
+    ) -> str:
+        config = command_settings[command_name]
+        template = str(config.get("response_template") or "").strip()
+        known_commands = [
+            f"{bot_settings.get('command_prefix') or self.config.bot.command_prefix}{name}"
+            for name, item in sorted(
+                command_settings.items(),
+                key=lambda pair: (int(pair[1].get("sort_order", 0)), pair[0]),
+            )
+            if item.get("enabled", True)
+        ]
+        context = {
+            "bot_name": bot_settings.get("name") or self.config.bot.name,
+            "reply_prefix": bot_settings.get("reply_prefix") or self.config.bot.reply_prefix,
+            "command_prefix": bot_settings.get("command_prefix") or self.config.bot.command_prefix,
+            "sender": sender,
+            "sender_mention": _sender_mention(sender),
+            "path_len": path_len,
+            "snr_suffix": "",
+            "rssi_suffix": "",
+            "distance_suffix": "",
+            "trace": f"{_sender_mention(sender)} -> {endpoint_name}",
+            "neighbors_summary": "Brak danych o sąsiadach.",
+            "command_list": ", ".join(known_commands),
+        }
+        try:
+            return template.format_map(context).strip()
+        except Exception:
+            return template
 
     def _is_duplicate_summary(self, summary: Any) -> bool:
         now = _utc_now()

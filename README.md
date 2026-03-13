@@ -14,23 +14,25 @@ This repository does not claim that all of that already exists. The current code
 
 Current repository state:
 
-- containerized Python runtime for the new bot process,
+- containerized Python runtime for the bot process,
 - TOML bootstrap configuration loaded at startup,
-- single-process async application skeleton,
+- single-process async runtime with a persistent RS232Bridge TCP session,
 - SQLite database initialized on startup,
 - bootstrap persistence for channels, endpoints, management targets, and runtime settings,
 - dedicated admin-panel persistence for bot runtime settings, command definitions, endpoint state, management session state, and audit events,
-- database tables prepared for radio packets, messages, commands, node adverts, and management snapshots,
-- built-in HTTP server with `GET /healthz` and `GET /` status endpoints,
+- radio packet and message persistence for received `GRP_TXT` traffic,
+- channel command handling for `!ping`, `!help`, `!test`, `!trace`, and `!neighbors`,
+- public home page on `GET /` that renders a live map shell fed by `GET /api/state`,
+- password-protected admin page on `GET /admin`,
+- password-protected live logs on `GET /admin/logs`,
 - bind-mount friendly Docker Compose setup for `config`, `data`, and `logs`.
 
 What is not implemented yet:
 
-- RS232Bridge transport client,
-- MeshCore packet codec,
-- command handling,
-- admin UI,
-- repeater management sessions.
+- rich advert decoding and node ingestion in the new runtime,
+- full admin editing flows for channels, endpoints, and command templates,
+- repeater management sessions and console/mirror enrichment,
+- stronger RF telemetry matching for `snr`, `rssi`, and distance data.
 
 ## Process model
 
@@ -80,6 +82,8 @@ Once the stack is up, the container serves:
 
 - `http://127.0.0.1:8080/healthz`
 - `http://127.0.0.1:8080/`
+- `http://127.0.0.1:8080/admin`
+- `http://127.0.0.1:8080/admin/logs`
 
 The startup path creates the SQLite database automatically and seeds configuration snapshots into it.
 
