@@ -23,6 +23,22 @@ def _hash_password(password: str) -> str:
     return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
 
 
+def _verify_password(password_hash: str, password: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_hex, digest_hex = password_hash.split("$", 3)
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    derived = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt_hex),
+        int(iterations_text),
+    )
+    return secrets.compare_digest(derived.hex(), digest_hex)
+
+
 def _default_bot_runtime_settings(config: AppConfig) -> dict[str, Any]:
     return {
         "name": config.bot.name,
@@ -472,6 +488,187 @@ class BotDatabase:
         if row is None:
             return None
         return dict(row)
+
+    def list_channels(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT name, psk, listen, updated_at FROM config_channels ORDER BY name"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_endpoints(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT name, raw_host, raw_port, enabled, console_host, console_port,
+                       console_mirror_host, console_mirror_port, latitude, longitude, updated_at
+                FROM config_endpoints
+                ORDER BY name
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def verify_admin_password(self, username: str, password: str) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT password_hash, enabled FROM admin_users WHERE username = ?",
+                (username,),
+            ).fetchone()
+        if row is None or not row["enabled"]:
+            return False
+        return _verify_password(str(row["password_hash"]), password)
+
+    def touch_admin_login(self, username: str) -> None:
+        now_iso = _utc_now_iso()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE admin_users SET last_login_at = ?, updated_at = ? WHERE username = ?",
+                (now_iso, now_iso, username),
+            )
+
+    def record_admin_audit(
+        self,
+        *,
+        actor_username: str | None,
+        action: str,
+        target_type: str,
+        target_key: str | None = None,
+        remote_addr: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO admin_audit_log (
+                    actor_username, action, target_type, target_key, remote_addr, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    actor_username,
+                    action,
+                    target_type,
+                    target_key,
+                    remote_addr,
+                    json.dumps(payload, ensure_ascii=True, sort_keys=True) if payload is not None else None,
+                    _utc_now_iso(),
+                ),
+            )
+
+    def upsert_endpoint_runtime_state(
+        self,
+        *,
+        endpoint_name: str,
+        connected: bool | None = None,
+        last_connect_at: str | None = None,
+        last_disconnect_at: str | None = None,
+        last_seen_at: str | None = None,
+        last_error: str | None = None,
+        last_cli_command: str | None = None,
+        last_cli_reply: str | None = None,
+        last_cli_error: str | None = None,
+        recent_console_lines: list[str] | None = None,
+    ) -> None:
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                "SELECT * FROM endpoint_runtime_state WHERE endpoint_name = ?",
+                (endpoint_name,),
+            ).fetchone()
+            current = dict(existing) if existing is not None else {
+                "endpoint_name": endpoint_name,
+                "connected": 0,
+                "last_connect_at": None,
+                "last_disconnect_at": None,
+                "last_seen_at": None,
+                "last_error": None,
+                "last_cli_command": None,
+                "last_cli_reply": None,
+                "last_cli_error": None,
+                "recent_console_lines_json": "[]",
+                "updated_at": _utc_now_iso(),
+            }
+
+            if connected is not None:
+                current["connected"] = 1 if connected else 0
+            if last_connect_at is not None:
+                current["last_connect_at"] = last_connect_at
+            if last_disconnect_at is not None:
+                current["last_disconnect_at"] = last_disconnect_at
+            if last_seen_at is not None:
+                current["last_seen_at"] = last_seen_at
+            if last_error is not None or existing is None:
+                current["last_error"] = last_error
+            if last_cli_command is not None:
+                current["last_cli_command"] = last_cli_command
+            if last_cli_reply is not None:
+                current["last_cli_reply"] = last_cli_reply
+            if last_cli_error is not None:
+                current["last_cli_error"] = last_cli_error
+            if recent_console_lines is not None:
+                current["recent_console_lines_json"] = json.dumps(recent_console_lines[-50:], ensure_ascii=True)
+            current["updated_at"] = _utc_now_iso()
+
+            connection.execute(
+                """
+                INSERT INTO endpoint_runtime_state (
+                    endpoint_name, connected, last_connect_at, last_disconnect_at, last_seen_at,
+                    last_error, last_cli_command, last_cli_reply, last_cli_error,
+                    recent_console_lines_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(endpoint_name) DO UPDATE SET
+                    connected = excluded.connected,
+                    last_connect_at = excluded.last_connect_at,
+                    last_disconnect_at = excluded.last_disconnect_at,
+                    last_seen_at = excluded.last_seen_at,
+                    last_error = excluded.last_error,
+                    last_cli_command = excluded.last_cli_command,
+                    last_cli_reply = excluded.last_cli_reply,
+                    last_cli_error = excluded.last_cli_error,
+                    recent_console_lines_json = excluded.recent_console_lines_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    current["endpoint_name"],
+                    current["connected"],
+                    current["last_connect_at"],
+                    current["last_disconnect_at"],
+                    current["last_seen_at"],
+                    current["last_error"],
+                    current["last_cli_command"],
+                    current["last_cli_reply"],
+                    current["last_cli_error"],
+                    current["recent_console_lines_json"],
+                    current["updated_at"],
+                ),
+            )
+
+    def list_endpoint_runtime_states(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM endpoint_runtime_state ORDER BY endpoint_name"
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            payload["connected"] = bool(payload["connected"])
+            payload["recent_console_lines"] = json.loads(payload.pop("recent_console_lines_json") or "[]")
+            items.append(payload)
+        return items
+
+    def recent_radio_packets(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM radio_packets ORDER BY observed_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def recent_messages(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM messages ORDER BY received_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def record_radio_packet(
         self,

@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 EXPOSE 8080
 
-CMD ["python", "-m", "meshcore_bot", "--config", "config/config.toml"]
+CMD ["python", "-m", "meshcore_bot", "serve", "--config", "config/config.toml"]

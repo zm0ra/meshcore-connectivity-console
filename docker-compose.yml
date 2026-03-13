@@ -10,7 +10,7 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
-    command: ["python", "-m", "meshcore_bot", "--config", "/app/config/config.toml"]
+    command: ["python", "-m", "meshcore_bot", "serve", "--config", "/app/config/config.toml"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()"]
       interval: 15s
