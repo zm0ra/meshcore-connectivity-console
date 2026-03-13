@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
 import json
 from pathlib import Path
+import secrets
 import sqlite3
 from threading import RLock
 from typing import Any
@@ -12,6 +14,13 @@ from .config import AppConfig, ChannelConfig, EndpointConfig, ManagementTargetCo
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
+def _hash_password(password: str) -> str:
+    iterations = 200_000
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
 
 
 def _default_bot_runtime_settings(config: AppConfig) -> dict[str, Any]:
@@ -61,6 +70,8 @@ def _default_command_settings() -> dict[str, dict[str, Any]]:
 
 class BotDatabase:
     SCHEMA_VERSION = 2
+    DEFAULT_ADMIN_USERNAME = "admin"
+    DEFAULT_ADMIN_PASSWORD = "changeme"
 
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -392,6 +403,7 @@ class BotDatabase:
             self._ensure_runtime_settings(connection, config, now_iso)
             self._ensure_command_settings(connection, now_iso)
             self._ensure_web_setting(connection, config, now_iso)
+            self._ensure_default_admin_user(connection, now_iso)
 
     def list_settings(self) -> dict[str, Any]:
         with self._lock, self._connect() as connection:
@@ -657,6 +669,24 @@ class BotDatabase:
                 "port": config.web.port,
             },
             updated_at,
+        )
+
+    def _ensure_default_admin_user(self, connection: sqlite3.Connection, updated_at: str) -> None:
+        if self._table_has_rows(connection, "admin_users"):
+            return
+
+        connection.execute(
+            """
+            INSERT INTO admin_users (
+                username, password_hash, role, enabled, created_at, updated_at
+            ) VALUES (?, ?, 'admin', 1, ?, ?)
+            """,
+            (
+                self.DEFAULT_ADMIN_USERNAME,
+                _hash_password(self.DEFAULT_ADMIN_PASSWORD),
+                updated_at,
+                updated_at,
+            ),
         )
 
     def _set_json_setting(
