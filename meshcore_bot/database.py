@@ -14,8 +14,53 @@ def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
+def _default_bot_runtime_settings(config: AppConfig) -> dict[str, Any]:
+    return {
+        "name": config.bot.name,
+        "reply_prefix": config.bot.reply_prefix,
+        "command_prefix": config.bot.command_prefix,
+        "message_history_size": config.bot.message_history_size,
+        "signal_history_limit": 32,
+        "signal_history_target_limit": 12,
+        "neighbor_snapshot_retention": 96,
+        "private_messages_enabled": True,
+        "private_message_auto_response": (
+            f"{config.bot.reply_prefix}Private messages are enabled. Try {config.bot.command_prefix}help"
+        ),
+    }
+
+
+def _default_command_settings() -> dict[str, dict[str, Any]]:
+    return {
+        "ping": {"enabled": True, "response_template": "pong", "sort_order": 10},
+        "help": {
+            "enabled": True,
+            "response_template": "{reply_prefix}Commands: {command_list}",
+            "sort_order": 20,
+        },
+        "test": {
+            "enabled": True,
+            "response_template": (
+                "{reply_prefix}I saw: {sender} "
+                "(hops={path_len}{snr_suffix}{rssi_suffix}{distance_suffix})"
+            ),
+            "sort_order": 30,
+        },
+        "trace": {
+            "enabled": True,
+            "response_template": "{reply_prefix}Trace: {trace}",
+            "sort_order": 40,
+        },
+        "neighbors": {
+            "enabled": True,
+            "response_template": "{reply_prefix}{neighbors_summary}",
+            "sort_order": 50,
+        },
+    }
+
+
 class BotDatabase:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -44,6 +89,96 @@ class BotDatabase:
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
                     value_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS bot_runtime_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    bot_name TEXT NOT NULL,
+                    reply_prefix TEXT NOT NULL,
+                    command_prefix TEXT NOT NULL,
+                    message_history_size INTEGER NOT NULL DEFAULT 200,
+                    signal_history_limit INTEGER NOT NULL DEFAULT 32,
+                    signal_history_target_limit INTEGER NOT NULL DEFAULT 12,
+                    neighbor_snapshot_retention INTEGER NOT NULL DEFAULT 96,
+                    private_messages_enabled INTEGER NOT NULL DEFAULT 1,
+                    private_message_auto_response TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS bot_command_settings (
+                    command_name TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    response_template TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS bot_identity_cache (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    identity_file_path TEXT,
+                    public_key_hex TEXT,
+                    hash_prefix_hex TEXT,
+                    last_loaded_at TEXT,
+                    last_rotated_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'admin',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    last_login_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS admin_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_username TEXT,
+                    action TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_key TEXT,
+                    remote_addr TEXT,
+                    payload_json TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(actor_username) REFERENCES admin_users(username)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS endpoint_runtime_state (
+                    endpoint_name TEXT PRIMARY KEY,
+                    connected INTEGER NOT NULL DEFAULT 0,
+                    last_connect_at TEXT,
+                    last_disconnect_at TEXT,
+                    last_seen_at TEXT,
+                    last_error TEXT,
+                    last_cli_command TEXT,
+                    last_cli_reply TEXT,
+                    last_cli_error TEXT,
+                    recent_console_lines_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS management_runtime_state (
+                    target_name TEXT PRIMARY KEY,
+                    endpoint_name TEXT NOT NULL,
+                    resolved_identity_hex TEXT,
+                    current_role TEXT,
+                    pending_login_role TEXT,
+                    pending_request TEXT,
+                    last_login_at TEXT,
+                    last_status_at TEXT,
+                    last_status_size INTEGER,
+                    last_neighbors_at TEXT,
+                    last_owner_at TEXT,
+                    last_acl_at TEXT,
+                    neighbor_count INTEGER NOT NULL DEFAULT 0,
+                    acl_entry_count INTEGER NOT NULL DEFAULT 0,
+                    owner_info_json TEXT,
+                    last_error TEXT,
                     updated_at TEXT NOT NULL
                 );
 
@@ -228,6 +363,8 @@ class BotDatabase:
                 """
             )
             now_iso = _utc_now_iso()
+            self._ensure_schema_defaults(connection, now_iso)
+
             connection.execute(
                 """
                 INSERT INTO schema_info (key, value, updated_at)
@@ -240,38 +377,21 @@ class BotDatabase:
     def bootstrap_from_config(self, config: AppConfig) -> None:
         now_iso = _utc_now_iso()
         with self._lock, self._connect() as connection:
-            connection.execute("DELETE FROM config_channels")
-            for channel in config.channels:
-                self._insert_channel(connection, channel, now_iso)
+            if not self._table_has_rows(connection, "config_channels"):
+                for channel in config.channels:
+                    self._insert_channel(connection, channel, now_iso)
 
-            connection.execute("DELETE FROM config_endpoints")
-            for endpoint in config.endpoints:
-                self._insert_endpoint(connection, endpoint, now_iso)
+            if not self._table_has_rows(connection, "config_endpoints"):
+                for endpoint in config.endpoints:
+                    self._insert_endpoint(connection, endpoint, now_iso)
 
-            connection.execute("DELETE FROM management_targets")
-            for target in config.management_targets:
-                self._insert_management_target(connection, target, now_iso)
+            if not self._table_has_rows(connection, "management_targets"):
+                for target in config.management_targets:
+                    self._insert_management_target(connection, target, now_iso)
 
-            self._set_json_setting(
-                connection,
-                "runtime.bot",
-                {
-                    "name": config.bot.name,
-                    "reply_prefix": config.bot.reply_prefix,
-                    "command_prefix": config.bot.command_prefix,
-                    "message_history_size": config.bot.message_history_size,
-                },
-                now_iso,
-            )
-            self._set_json_setting(
-                connection,
-                "runtime.web",
-                {
-                    "host": config.web.host,
-                    "port": config.web.port,
-                },
-                now_iso,
-            )
+            self._ensure_runtime_settings(connection, config, now_iso)
+            self._ensure_command_settings(connection, now_iso)
+            self._ensure_web_setting(connection, config, now_iso)
 
     def list_settings(self) -> dict[str, Any]:
         with self._lock, self._connect() as connection:
@@ -422,9 +542,17 @@ class BotDatabase:
             return {
                 "database_path": str(self.database_path),
                 "schema_version": self._scalar(connection, "SELECT value FROM schema_info WHERE key = 'schema_version'"),
+                "bot_runtime_configured": bool(
+                    self._scalar(connection, "SELECT COUNT(*) FROM bot_runtime_settings")
+                ),
+                "command_setting_count": self._scalar(connection, "SELECT COUNT(*) FROM bot_command_settings"),
                 "config_channel_count": self._scalar(connection, "SELECT COUNT(*) FROM config_channels"),
                 "config_endpoint_count": self._scalar(connection, "SELECT COUNT(*) FROM config_endpoints"),
                 "management_target_count": self._scalar(connection, "SELECT COUNT(*) FROM management_targets"),
+                "admin_user_count": self._scalar(connection, "SELECT COUNT(*) FROM admin_users"),
+                "admin_audit_count": self._scalar(connection, "SELECT COUNT(*) FROM admin_audit_log"),
+                "endpoint_runtime_state_count": self._scalar(connection, "SELECT COUNT(*) FROM endpoint_runtime_state"),
+                "management_runtime_state_count": self._scalar(connection, "SELECT COUNT(*) FROM management_runtime_state"),
                 "node_count": self._scalar(connection, "SELECT COUNT(*) FROM nodes"),
                 "advert_count": self._scalar(connection, "SELECT COUNT(*) FROM advert_history"),
                 "radio_packet_count": self._scalar(connection, "SELECT COUNT(*) FROM radio_packets"),
@@ -438,6 +566,98 @@ class BotDatabase:
     def _scalar(self, connection: sqlite3.Connection, query: str) -> Any:
         row = connection.execute(query).fetchone()
         return row[0] if row is not None else None
+
+    def _table_has_rows(self, connection: sqlite3.Connection, table_name: str) -> bool:
+        row = connection.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()
+        return row is not None
+
+    def _ensure_schema_defaults(self, connection: sqlite3.Connection, updated_at: str) -> None:
+        connection.execute(
+            """
+            INSERT INTO bot_identity_cache (id, updated_at)
+            VALUES (1, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (updated_at,),
+        )
+
+    def _ensure_runtime_settings(
+        self,
+        connection: sqlite3.Connection,
+        config: AppConfig,
+        updated_at: str,
+    ) -> None:
+        if self._table_has_rows(connection, "bot_runtime_settings"):
+            return
+
+        defaults = _default_bot_runtime_settings(config)
+        connection.execute(
+            """
+            INSERT INTO bot_runtime_settings (
+                id, bot_name, reply_prefix, command_prefix, message_history_size,
+                signal_history_limit, signal_history_target_limit, neighbor_snapshot_retention,
+                private_messages_enabled, private_message_auto_response, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                defaults["name"],
+                defaults["reply_prefix"],
+                defaults["command_prefix"],
+                defaults["message_history_size"],
+                defaults["signal_history_limit"],
+                defaults["signal_history_target_limit"],
+                defaults["neighbor_snapshot_retention"],
+                1 if defaults["private_messages_enabled"] else 0,
+                defaults["private_message_auto_response"],
+                updated_at,
+            ),
+        )
+        self._set_json_setting(connection, "runtime.bot", defaults, updated_at)
+
+    def _ensure_command_settings(self, connection: sqlite3.Connection, updated_at: str) -> None:
+        if self._table_has_rows(connection, "bot_command_settings"):
+            return
+
+        defaults = _default_command_settings()
+        for command_name, settings in defaults.items():
+            connection.execute(
+                """
+                INSERT INTO bot_command_settings (
+                    command_name, enabled, response_template, sort_order, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    command_name,
+                    1 if settings["enabled"] else 0,
+                    settings["response_template"],
+                    settings["sort_order"],
+                    updated_at,
+                ),
+            )
+        self._set_json_setting(connection, "runtime.commands", defaults, updated_at)
+
+    def _ensure_web_setting(
+        self,
+        connection: sqlite3.Connection,
+        config: AppConfig,
+        updated_at: str,
+    ) -> None:
+        existing = connection.execute(
+            "SELECT 1 FROM app_settings WHERE key = 'runtime.web'"
+        ).fetchone()
+        if existing is not None:
+            return
+
+        self._set_json_setting(
+            connection,
+            "runtime.web",
+            {
+                "host": config.web.host,
+                "port": config.web.port,
+            },
+            updated_at,
+        )
 
     def _set_json_setting(
         self,

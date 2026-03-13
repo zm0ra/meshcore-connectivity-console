@@ -19,6 +19,7 @@ Current repository state:
 - single-process async application skeleton,
 - SQLite database initialized on startup,
 - bootstrap persistence for channels, endpoints, management targets, and runtime settings,
+- dedicated admin-panel persistence for bot runtime settings, command definitions, endpoint state, management session state, and audit events,
 - database tables prepared for radio packets, messages, commands, node adverts, and management snapshots,
 - built-in HTTP server with `GET /healthz` and `GET /` status endpoints,
 - bind-mount friendly Docker Compose setup for `config`, `data`, and `logs`.
@@ -81,6 +82,8 @@ Once the stack is up, the container serves:
 - `http://127.0.0.1:8080/`
 
 The startup path creates the SQLite database automatically and seeds configuration snapshots into it.
+
+Bootstrap data from TOML is only used to seed empty tables. Once runtime-managed records exist in SQLite, startup does not overwrite them.
 
 ## Historical references
 
