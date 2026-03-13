@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Versioned rebuild of a MeshCore TCP bot runtime"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+	"cryptography>=44.0.0",
+]
 
 [tool.setuptools]
 include-package-data = false

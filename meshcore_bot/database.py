@@ -412,6 +412,67 @@ class BotDatabase:
             ).fetchall()
         return {str(row["key"]): json.loads(row["value_json"]) for row in rows}
 
+    def get_bot_runtime_settings(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT bot_name, reply_prefix, command_prefix, message_history_size,
+                       signal_history_limit, signal_history_target_limit,
+                       neighbor_snapshot_retention, private_messages_enabled,
+                       private_message_auto_response, updated_at
+                FROM bot_runtime_settings
+                WHERE id = 1
+                """
+            ).fetchone()
+        if row is None:
+            return {}
+        return {
+            "name": row["bot_name"],
+            "reply_prefix": row["reply_prefix"],
+            "command_prefix": row["command_prefix"],
+            "message_history_size": row["message_history_size"],
+            "signal_history_limit": row["signal_history_limit"],
+            "signal_history_target_limit": row["signal_history_target_limit"],
+            "neighbor_snapshot_retention": row["neighbor_snapshot_retention"],
+            "private_messages_enabled": bool(row["private_messages_enabled"]),
+            "private_message_auto_response": row["private_message_auto_response"],
+            "updated_at": row["updated_at"],
+        }
+
+    def get_channel(self, name: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT name, psk, listen, updated_at FROM config_channels WHERE name = ?",
+                (name.lower(),),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row["name"],
+            "psk": row["psk"],
+            "listen": bool(row["listen"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def get_endpoint(self, name: str | None = None) -> dict[str, Any] | None:
+        query = (
+            "SELECT name, raw_host, raw_port, enabled, console_host, console_port, "
+            "console_mirror_host, console_mirror_port, latitude, longitude, updated_at "
+            "FROM config_endpoints "
+        )
+        params: tuple[Any, ...]
+        if name is None:
+            query += "WHERE enabled = 1 ORDER BY name LIMIT 1"
+            params = ()
+        else:
+            query += "WHERE name = ? LIMIT 1"
+            params = (name,)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(query, params).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
     def record_radio_packet(
         self,
         *,
