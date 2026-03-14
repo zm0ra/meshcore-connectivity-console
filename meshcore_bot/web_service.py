@@ -607,13 +607,13 @@ INDEX_HTML = """<!doctype html>
         }
         if (bounds.length > 1) {
           map.flyToBounds(bounds, {
-            paddingTopLeft: [28, 28],
-            paddingBottomRight: [320, 28],
-            maxZoom: 13,
+            paddingTopLeft: [36, 36],
+            paddingBottomRight: [360, 36],
+            maxZoom: 12,
             duration: 0.6,
           });
         } else {
-          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 12), { duration: 0.5 });
+          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
         }
       }
       render(latestState);
@@ -1021,7 +1021,7 @@ INDEX_HTML = """<!doctype html>
       renderLabels(nodes, neighborIds);
       renderLinkLabels(selectedLinks, sourceNode);
       if (!hasFitBounds && bounds.length) {
-        map.fitBounds(bounds, { padding: [36, 36], maxZoom: 9 });
+        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 10 });
         hasFitBounds = true;
       }
     }
