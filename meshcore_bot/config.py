@@ -35,6 +35,7 @@ class ProbeConfig:
     pre_login_advert_delay_secs: float
     advert_reprobe_success_cooldown_secs: float
     advert_reprobe_failure_cooldown_secs: float
+    scheduled_reprobe_interval_secs: float
     poll_interval_secs: float
     request_timeout_secs: float
     route_freshness_secs: float
@@ -125,6 +126,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             advert_reprobe_failure_cooldown_secs=float(
                 probe.get("advert_reprobe_failure_cooldown_secs", legacy_advert_reprobe_cooldown_secs)
             ),
+            scheduled_reprobe_interval_secs=float(probe.get("scheduled_reprobe_interval_secs", 7200.0)),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
             route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),

@@ -21,6 +21,7 @@ pre_login_advert_name = ""
 pre_login_advert_delay_secs = 1.0
 advert_reprobe_success_cooldown_secs = 60.0
 advert_reprobe_failure_cooldown_secs = 300.0
+scheduled_reprobe_interval_secs = 7200.0
 poll_interval_secs = 2.0
 request_timeout_secs = 8.0
 route_freshness_secs = 1800

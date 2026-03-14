@@ -93,6 +93,7 @@ def main() -> None:
                 "pre_login_advert_delay_secs": config.probe.pre_login_advert_delay_secs,
                 "advert_reprobe_success_cooldown_secs": config.probe.advert_reprobe_success_cooldown_secs,
                 "advert_reprobe_failure_cooldown_secs": config.probe.advert_reprobe_failure_cooldown_secs,
+                "scheduled_reprobe_interval_secs": config.probe.scheduled_reprobe_interval_secs,
                 "poll_interval_secs": config.probe.poll_interval_secs,
                 "request_timeout_secs": config.probe.request_timeout_secs,
                 "neighbours_page_size": config.probe.neighbours_page_size,

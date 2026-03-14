@@ -436,6 +436,17 @@ INDEX_HTML = """<!doctype html>
       return new Date(value).toLocaleString();
     }
 
+    function formatShortWhen(value) {
+      if (!value) return 'unknown';
+      return new Date(value).toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
     function timeAgo(value) {
       if (!value) return 'unknown';
       const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
@@ -444,6 +455,24 @@ INDEX_HTML = """<!doctype html>
       if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
       if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
       return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    function humanizeSeconds(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'unknown';
+      if (value < 60) return `${Math.round(value)} s`;
+      if (value < 3600) {
+        const minutes = Math.floor(value / 60);
+        const seconds = Math.round(value % 60);
+        return seconds ? `${minutes} min ${seconds} s` : `${minutes} min`;
+      }
+      if (value < 86400) {
+        const hours = Math.floor(value / 3600);
+        const minutes = Math.floor((value % 3600) / 60);
+        return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+      }
+      const days = Math.floor(value / 86400);
+      const hours = Math.floor((value % 86400) / 3600);
+      return hours ? `${days} d ${hours} h` : `${days} d`;
     }
 
     function isInactive(node) {
@@ -588,9 +617,35 @@ INDEX_HTML = """<!doctype html>
 
     function lineSignalMetric(link) {
       if (typeof link.snr === 'number') {
-        return { value: link.snr, label: `${link.snr.toFixed(1)} dB`, short: link.snr.toFixed(1), kind: 'SNR' };
+        return { value: link.snr, label: `SNR ${link.snr.toFixed(1)} dB`, short: `SNR ${link.snr.toFixed(1)}`, kind: 'SNR' };
+      }
+      if (typeof link.rssi === 'number') {
+        return { value: link.rssi, label: `RSSI ${link.rssi} dBm`, short: `RSSI ${link.rssi}`, kind: 'RSSI' };
       }
       return { value: null, label: 'n/a', short: 'n/a', kind: 'signal' };
+    }
+
+    function describeProbeResult(node) {
+      if (node.last_probe_status === 'failed' && node.last_data_at) {
+        return 'failed after data snapshot';
+      }
+      if (node.last_probe_status) {
+        return node.last_probe_status;
+      }
+      return node.data_fetch_ok ? 'history available' : 'pending';
+    }
+
+    function linkLabel(link, sourceNode) {
+      const parts = [];
+      const metric = lineSignalMetric(link);
+      if (metric.value !== null) {
+        parts.push(metric.short);
+      }
+      const distance = neighborDistanceKm(sourceNode, link);
+      if (distance !== null) {
+        parts.push(`${distance.toFixed(1)} km`);
+      }
+      return parts.join(' · ') || 'link';
     }
 
     function lineColor(link) {
@@ -637,10 +692,10 @@ INDEX_HTML = """<!doctype html>
       const shortName = node.name || node.hash_prefix_hex;
       const inspectionNeighbor = Boolean(selectedSourceId) && node.identity_hex !== selectedSourceId && neighborIds.has(node.identity_hex);
       if (inspectionNeighbor) {
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong></div>`;
+        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       if (forced || zoom >= HIGH_ZOOM_LABEL_THRESHOLD) {
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${timeAgo(node.last_advert_at)}</span></div>`;
+        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       if (zoom >= LOW_ZOOM_LABEL_THRESHOLD) {
         return `<div class=\"node-label-chip\"><strong>${shortName}</strong></div>`;
@@ -689,18 +744,17 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function renderLinkLabels(selectedLinks) {
+    function renderLinkLabels(selectedLinks, sourceNode) {
       linkLabelsLayer.clearLayers();
-      const alwaysVisible = selectedLinks.length <= 6;
+      const alwaysVisible = Boolean(selectedNeighborId) || selectedLinks.length <= 6;
       for (const link of selectedLinks) {
-        const metric = lineSignalMetric(link);
-        if (metric.value === null) continue;
+        if (selectedNeighborId && link.target_identity_hex !== selectedNeighborId) continue;
         const midpoint = [
           (link.source_latitude + link.target_latitude) / 2,
           (link.source_longitude + link.target_longitude) / 2,
         ];
         L.marker(midpoint, {
-          icon: L.divIcon({ className: 'link-label-icon', html: `<div class=\"signal-label-chip\">${metric.short}</div>`, iconSize: null }),
+          icon: L.divIcon({ className: 'link-label-icon', html: `<div class=\"signal-label-chip\">${linkLabel(link, sourceNode)}</div>`, iconSize: null }),
           interactive: false,
           opacity: alwaysVisible ? 1 : 0,
           zIndexOffset: 2000,
@@ -806,7 +860,7 @@ INDEX_HTML = """<!doctype html>
               return `
                 <tr${activeClass}>
                   <td><button type=\"button\" data-neighbor=\"${link.target_identity_hex}\">${link.target_name}</button></td>
-                  <td>${typeof link.last_heard_seconds === 'number' ? `${link.last_heard_seconds}s` : timeAgo(link.collected_at)}</td>
+                  <td>${typeof link.last_heard_seconds === 'number' ? humanizeSeconds(link.last_heard_seconds) : timeAgo(link.collected_at)}</td>
                   <td>${lineSignalMetric(link).label}</td>
                   <td>${distance === null ? '-' : `${distance.toFixed(1)} km`}</td>
                 </tr>
@@ -819,13 +873,15 @@ INDEX_HTML = """<!doctype html>
         <div class=\"node-expand\">
           <div class=\"expand-head\">
             <strong>Inspection</strong>
-            <button type=\"button\" class=\"ghost-button\" data-clear-selection=\"1\">Clear</button>
+            <button type=\"button\" class=\"ghost-button\" data-clear-selection=\"1\">Clear focus</button>
           </div>
           <div class=\"detail-grid\">
             <div class=\"detail-cell\"><strong>Role</strong>${node.role || 'Repeater'}</div>
             <div class=\"detail-cell\"><strong>Last advert</strong>${formatWhen(node.last_advert_at)}</div>
-            <div class=\"detail-cell\"><strong>Last probe</strong>${formatWhen(node.last_probe_at)}</div>
-            <div class=\"detail-cell\"><strong>Status</strong>${node.last_probe_status || (node.data_fetch_ok ? 'history available' : 'pending')}</div>
+            <div class=\"detail-cell\"><strong>Last data</strong>${formatWhen(node.last_data_at)}</div>
+            <div class=\"detail-cell\"><strong>Last successful probe</strong>${formatWhen(node.last_successful_probe_at)}</div>
+            <div class=\"detail-cell\"><strong>Last probe result</strong>${describeProbeResult(node)}</div>
+            <div class=\"detail-cell\"><strong>Last probe attempt</strong>${formatWhen(node.last_probe_at)}</div>
           </div>
           <div>
             <div class=\"expand-head\"><strong>Direct neighbors</strong><span class=\"node-state-tag\">${selectedLinks.length}</span></div>
@@ -843,7 +899,7 @@ INDEX_HTML = """<!doctype html>
             <span class=\"status-dot\" style=\"background:${nodeColor(node)}\"></span>
             <span class=\"node-main\">
               <span class=\"node-name\">${node.name || node.hash_prefix_hex}</span>
-              <span class=\"node-age\">${timeAgo(node.last_advert_at)}</span>
+              <span class=\"node-age\">last advert: ${formatShortWhen(node.last_advert_at)}</span>
             </span>
             <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
           </button>
@@ -888,6 +944,7 @@ INDEX_HTML = """<!doctype html>
       const allMapNodes = deriveMapNodes(sortNodes(relevantNodes(state)));
       const neighborIds = selectedNeighborIds(state);
       const selectedLinks = getSelectedMapLinks(state);
+      const sourceNode = getSelectedNode(state);
       const nodes = selectedSourceId
         ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
         : allMapNodes;
@@ -895,7 +952,7 @@ INDEX_HTML = """<!doctype html>
       for (const node of nodes) {
         const selected = node.identity_hex === selectedSourceId;
         const neighbor = neighborIds.has(node.identity_hex);
-        const isolated = false;
+        const isolated = Boolean(selectedNeighborId) && node.identity_hex !== selectedSourceId && node.identity_hex !== selectedNeighborId;
         if (selected) {
           L.circleMarker([node.latitude, node.longitude], {
             radius: 15,
@@ -928,8 +985,8 @@ INDEX_HTML = """<!doctype html>
           [link.target_latitude, link.target_longitude],
         ], {
           color: lineColor(link),
-          weight: 2,
-          opacity: 0.72,
+          weight: selectedNeighborId && link.target_identity_hex === selectedNeighborId ? 3.2 : 2,
+          opacity: selectedNeighborId && link.target_identity_hex !== selectedNeighborId ? 0.18 : 0.72,
         }).addTo(linksLayer);
         polyline.on('mouseover', () => {
           if (selectedLinks.length > 6) {
@@ -938,18 +995,23 @@ INDEX_HTML = """<!doctype html>
               (link.source_longitude + link.target_longitude) / 2,
             ];
             const transient = L.marker(midpoint, {
-              icon: L.divIcon({ className: 'link-label-icon', html: `<div class=\"signal-label-chip\">${lineSignalMetric(link).short}</div>`, iconSize: null }),
+              icon: L.divIcon({ className: 'link-label-icon', html: `<div class=\"signal-label-chip\">${linkLabel(link, sourceNode)}</div>`, iconSize: null }),
               interactive: false,
               zIndexOffset: 2000,
             }).addTo(linkLabelsLayer);
             polyline.once('mouseout', () => linkLabelsLayer.removeLayer(transient));
           }
         });
+        polyline.on('click', (event) => {
+          L.DomEvent.stopPropagation(event);
+          selectedNeighborId = link.target_identity_hex;
+          render(latestState);
+        });
         bounds.push([link.source_latitude, link.source_longitude]);
         bounds.push([link.target_latitude, link.target_longitude]);
       }
       renderLabels(nodes, neighborIds);
-      renderLinkLabels(selectedLinks);
+      renderLinkLabels(selectedLinks, sourceNode);
       if (!hasFitBounds && bounds.length) {
         map.fitBounds(bounds, { padding: [36, 36], maxZoom: 9 });
         hasFitBounds = true;

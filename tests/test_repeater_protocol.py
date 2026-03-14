@@ -84,6 +84,7 @@ def build_test_app_config(tmp_path) -> AppConfig:
             pre_login_advert_delay_secs=0.0,
             advert_reprobe_success_cooldown_secs=60.0,
             advert_reprobe_failure_cooldown_secs=300.0,
+            scheduled_reprobe_interval_secs=7200.0,
             poll_interval_secs=2.0,
             request_timeout_secs=1.0,
             route_freshness_secs=1800.0,
@@ -187,6 +188,7 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         pre_login_advert_delay_secs=1.0,
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
+        scheduled_reprobe_interval_secs=7200.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -215,6 +217,7 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         pre_login_advert_delay_secs=1.0,
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
+        scheduled_reprobe_interval_secs=7200.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -693,6 +696,136 @@ def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
     with database.connect() as connection:
         rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
     assert [tuple(row) for row in rows] == [(fresh_failed_job_id, "failed")]
+
+
+def test_schedule_stale_repeater_probe_jobs_only_enqueues_recent_repeaters_with_stale_data(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    now = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
+
+    stale_identity = LocalIdentity.generate()
+    fresh_identity = LocalIdentity.generate()
+    unseen_identity = LocalIdentity.generate()
+    old_identity = LocalIdentity.generate()
+
+    stale_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=30)).isoformat(),
+        public_key=stale_identity.public_key,
+        advert_name="stale-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    fresh_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=25)).isoformat(),
+        public_key=fresh_identity.public_key,
+        advert_name="fresh-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    unseen_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=20)).isoformat(),
+        public_key=unseen_identity.public_key,
+        advert_name="unseen-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    old_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(hours=8)).isoformat(),
+        public_key=old_identity.public_key,
+        advert_name="old-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    stale_run_id = database.create_probe_run(repeater_id=stale_repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=stale_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[{"neighbour_pubkey_prefix_hex": "A1B2C3D4", "heard_seconds_ago": 90, "snr": 4.0}],
+    )
+    database.complete_probe_run(
+        stale_run_id,
+        repeater_id=stale_repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message=None,
+    )
+
+    fresh_run_id = database.create_probe_run(repeater_id=fresh_repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=fresh_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[{"neighbour_pubkey_prefix_hex": "01020304", "heard_seconds_ago": 30, "snr": 8.0}],
+    )
+    database.complete_probe_run(
+        fresh_run_id,
+        repeater_id=fresh_repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message=None,
+    )
+
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE repeater_neighbour_snapshots SET observed_at = ? WHERE probe_run_id = ?",
+            ((now - timedelta(hours=3)).isoformat(), stale_run_id),
+        )
+        connection.execute(
+            "UPDATE repeater_neighbour_snapshots SET observed_at = ? WHERE probe_run_id = ?",
+            ((now - timedelta(minutes=40)).isoformat(), fresh_run_id),
+        )
+
+    enqueued = database.schedule_stale_repeater_probe_jobs(
+        endpoint_names=["test-endpoint"],
+        stale_after_secs=7200.0,
+        seen_within_secs=6 * 3600.0,
+        reason="scheduled stale refresh",
+        success_cooldown_secs=7200.0,
+        failure_cooldown_secs=3600.0,
+        now=now,
+    )
+
+    assert enqueued == 2
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT repeater_id, reason, status FROM probe_jobs ORDER BY repeater_id ASC"
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (stale_repeater_id, "scheduled stale refresh", "pending"),
+        (unseen_repeater_id, "scheduled stale refresh", "pending"),
+    ]
+    assert old_repeater_id not in {row[0] for row in rows}
 
 
 def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tmp_path) -> None:

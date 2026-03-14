@@ -427,6 +427,69 @@ class BotDatabase:
 
         return self._run_with_retry(operation)
 
+    def schedule_stale_repeater_probe_jobs(
+        self,
+        *,
+        endpoint_names: list[str],
+        stale_after_secs: float,
+        seen_within_secs: float,
+        reason: str,
+        success_cooldown_secs: float,
+        failure_cooldown_secs: float,
+        now: datetime | None = None,
+    ) -> int:
+        if stale_after_secs <= 0 or seen_within_secs <= 0 or not endpoint_names:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        recent_cutoff_iso = (now - timedelta(seconds=seen_within_secs)).isoformat()
+        placeholders = ",".join("?" for _ in endpoint_names)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                WITH latest_advert AS (
+                    SELECT ra.repeater_id, ra.endpoint_name
+                    FROM repeater_adverts ra
+                    JOIN (
+                        SELECT repeater_id, MAX(id) AS max_id
+                        FROM repeater_adverts
+                        GROUP BY repeater_id
+                    ) latest ON latest.max_id = ra.id
+                )
+                SELECT r.id,
+                       la.endpoint_name,
+                       r.last_seen_at,
+                       (
+                           SELECT MAX(ns.observed_at)
+                           FROM repeater_probe_runs pr
+                           JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                           WHERE pr.repeater_id = r.id
+                       ) AS last_data_at
+                FROM repeaters r
+                JOIN latest_advert la ON la.repeater_id = r.id
+                WHERE r.last_seen_at >= ?
+                  AND la.endpoint_name IN ({placeholders})
+                ORDER BY r.last_seen_at DESC, r.id DESC
+                """,
+                (recent_cutoff_iso, *endpoint_names),
+            ).fetchall()
+
+        enqueued = 0
+        for row in rows:
+            last_data_at = row["last_data_at"]
+            if last_data_at and is_recent_iso_timestamp(str(last_data_at), stale_after_secs, now=now):
+                continue
+            job_id = self.enqueue_probe_job(
+                repeater_id=int(row["id"]),
+                endpoint_name=str(row["endpoint_name"]),
+                reason=reason,
+                success_cooldown_secs=success_cooldown_secs,
+                failure_cooldown_secs=failure_cooldown_secs,
+            )
+            if job_id is not None:
+                enqueued += 1
+        return enqueued
+
     def claim_probe_job(self) -> dict[str, object] | None:
         started_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> dict[str, object] | None:
@@ -882,6 +945,17 @@ class BotDatabase:
                        r.last_seen_at AS last_advert_at,
                        r.last_probe_status,
                        r.last_probe_at,
+                       (
+                           SELECT MAX(ns.observed_at)
+                           FROM repeater_probe_runs pr
+                           JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                           WHERE pr.repeater_id = r.id
+                       ) AS last_data_at,
+                       (
+                           SELECT MAX(pr.finished_at)
+                           FROM repeater_probe_runs pr
+                           WHERE pr.repeater_id = r.id AND pr.result = 'success'
+                       ) AS last_successful_probe_at,
                        EXISTS(
                            SELECT 1
                            FROM repeater_probe_runs pr

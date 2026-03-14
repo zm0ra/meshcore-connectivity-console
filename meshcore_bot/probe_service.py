@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import struct
+import time
 from datetime import UTC, datetime
 from dataclasses import asdict
 from typing import Any, Callable, cast
@@ -96,6 +97,8 @@ def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_z
 
 
 class GuestProbeWorker:
+    SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
+
     def __init__(
         self,
         config: AppConfig,
@@ -112,6 +115,7 @@ class GuestProbeWorker:
         self._endpoint_map = {endpoint.name: endpoint for endpoint in config.endpoints if endpoint.enabled}
         self._local_hash = self.identity.public_hash(1)
         self._transport_factory = transport_factory or self._build_direct_transport
+        self._next_scheduled_reprobe_scan_monotonic = 0.0
 
     async def run(self) -> None:
         self.database.initialize()
@@ -123,6 +127,7 @@ class GuestProbeWorker:
                 recovered["runs_interrupted"],
             )
         while not self._stop_event.is_set():
+            self._schedule_stale_reprobes_if_due()
             job = self.database.claim_probe_job()
             if job is None:
                 await asyncio.sleep(self.config.probe.poll_interval_secs)
@@ -131,6 +136,28 @@ class GuestProbeWorker:
 
     async def stop(self) -> None:
         self._stop_event.set()
+
+    def _schedule_stale_reprobes_if_due(self) -> None:
+        interval_secs = self.config.probe.scheduled_reprobe_interval_secs
+        if interval_secs <= 0:
+            return
+        now_monotonic = time.monotonic()
+        if now_monotonic < self._next_scheduled_reprobe_scan_monotonic:
+            return
+        self._next_scheduled_reprobe_scan_monotonic = now_monotonic + self.SCHEDULED_REPROBE_SCAN_INTERVAL_SECS
+        endpoint_names = sorted(self._endpoint_map)
+        if not endpoint_names:
+            return
+        enqueued = self.database.schedule_stale_repeater_probe_jobs(
+            endpoint_names=endpoint_names,
+            stale_after_secs=interval_secs,
+            seen_within_secs=max(interval_secs * 3, interval_secs),
+            reason="scheduled stale refresh",
+            success_cooldown_secs=interval_secs,
+            failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
+        )
+        if enqueued:
+            self.logger.info("scheduled stale reprobe jobs=%s stale_after_secs=%s", enqueued, interval_secs)
 
     async def _run_job(self, job: dict[str, object]) -> None:
         job_id = int(cast(int, job["id"]))
