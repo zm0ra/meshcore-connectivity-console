@@ -11,11 +11,11 @@ key_file_path = "./data/identity.bin"
 [probe]
 key_file_path = "./data/probe-identity-v3.bin"
 admin_password = "qweqwe"
-admin_password_name_prefixes = []
+admin_password_name_prefixes = ["SZN_BKO_DIR_PRZ_RPT"]
 admin_password_pubkey_prefixes = []
-guest_password = ""
+guest_password = "hello"
 default_guest_password = ""
-guest_password_name_prefixes = []
+guest_password_name_prefixes = ["SZN_BKO_DIR_PRZ_RPT"]
 guest_password_pubkey_prefixes = []
 pre_login_advert_name = ""
 pre_login_advert_delay_secs = 1.0
