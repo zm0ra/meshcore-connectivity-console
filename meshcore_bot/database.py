@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from datetime import timedelta
 from pathlib import Path
 import sqlite3
 import time
@@ -377,7 +378,8 @@ class BotDatabase:
         repeater_id: int,
         endpoint_name: str,
         reason: str,
-        cooldown_secs: float = 0.0,
+        success_cooldown_secs: float = 0.0,
+        failure_cooldown_secs: float = 0.0,
     ) -> int | None:
         scheduled_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> int | None:
@@ -391,10 +393,10 @@ class BotDatabase:
             ).fetchone()
             if existing is not None:
                 return None
-            if cooldown_secs > 0:
+            if success_cooldown_secs > 0 or failure_cooldown_secs > 0:
                 latest = connection.execute(
                     """
-                    SELECT finished_at, started_at, scheduled_at
+                    SELECT status, finished_at, started_at, scheduled_at
                     FROM probe_jobs
                     WHERE repeater_id = ? AND endpoint_name = ? AND reason = ?
                     ORDER BY id DESC
@@ -403,8 +405,13 @@ class BotDatabase:
                     (repeater_id, endpoint_name, reason),
                 ).fetchone()
                 if latest is not None:
+                    cooldown_secs = 0.0
+                    if latest["status"] == "completed":
+                        cooldown_secs = success_cooldown_secs
+                    elif latest["status"] in {"failed", "interrupted"}:
+                        cooldown_secs = failure_cooldown_secs
                     latest_activity_at = latest["finished_at"] or latest["started_at"] or latest["scheduled_at"]
-                    if is_recent_iso_timestamp(latest_activity_at, cooldown_secs):
+                    if cooldown_secs > 0 and is_recent_iso_timestamp(latest_activity_at, cooldown_secs):
                         return None
             cursor = connection.execute(
                 """
@@ -501,6 +508,45 @@ class BotDatabase:
             )
 
         self._run_with_retry(operation)
+
+    def delete_failed_probe_jobs_older_than(
+        self,
+        *,
+        older_than_secs: float,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> int:
+        if older_than_secs <= 0:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        cutoff_iso = (now - timedelta(seconds=older_than_secs)).isoformat()
+
+        def operation(connection: sqlite3.Connection) -> int:
+            count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM probe_jobs
+                    WHERE status = 'failed'
+                      AND COALESCE(finished_at, started_at, scheduled_at) < ?
+                    """,
+                    (cutoff_iso,),
+                ).fetchone()[0]
+            )
+            if dry_run or count == 0:
+                return count
+            connection.execute(
+                """
+                DELETE FROM probe_jobs
+                WHERE status = 'failed'
+                  AND COALESCE(finished_at, started_at, scheduled_at) < ?
+                """,
+                (cutoff_iso,),
+            )
+            return count
+
+        return self._run_with_retry(operation)
 
     def create_probe_run(self, *, repeater_id: int, endpoint_name: str) -> int:
         started_at = utc_now_iso()

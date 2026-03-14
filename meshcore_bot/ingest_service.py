@@ -132,7 +132,8 @@ class AdvertIngestService:
             repeater_id=repeater_id,
             endpoint_name=endpoint.name,
             reason="repeater advert observed",
-            cooldown_secs=self.config.probe.advert_reprobe_cooldown_secs,
+            success_cooldown_secs=self.config.probe.advert_reprobe_success_cooldown_secs,
+            failure_cooldown_secs=self.config.probe.advert_reprobe_failure_cooldown_secs,
         )
         if job_id is not None:
             self.stats.jobs_enqueued += 1

@@ -19,6 +19,8 @@ Runtime split in Docker:
 
 Probe scheduling details:
 - advert-triggered probe jobs are rate-limited per repeater and endpoint to avoid floods from duplicate adverts
+- successful advert probes can be retriggered sooner than failed ones because they use separate cooldowns
 - manual jobs keep bypassing that cooldown because they use distinct reasons
+- old failed probe jobs can be pruned explicitly with `python -m meshcore_bot cleanup-probe-jobs --failed-older-than-hours 12`
 
 SQLite stays file-based in the shared volume. It is not extracted into a separate process because that would add coordination complexity without improving correctness for the current single-host deployment.

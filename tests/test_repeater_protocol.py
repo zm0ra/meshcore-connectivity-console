@@ -82,7 +82,8 @@ def build_test_app_config(tmp_path) -> AppConfig:
             guest_password_pubkey_prefixes=(),
             pre_login_advert_name="441CFEA26666",
             pre_login_advert_delay_secs=0.0,
-            advert_reprobe_cooldown_secs=60.0,
+            advert_reprobe_success_cooldown_secs=60.0,
+            advert_reprobe_failure_cooldown_secs=300.0,
             poll_interval_secs=2.0,
             request_timeout_secs=1.0,
             route_freshness_secs=1800.0,
@@ -184,7 +185,8 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         guest_password_pubkey_prefixes=(),
         pre_login_advert_name="441CFEA26666",
         pre_login_advert_delay_secs=1.0,
-        advert_reprobe_cooldown_secs=60.0,
+        advert_reprobe_success_cooldown_secs=60.0,
+        advert_reprobe_failure_cooldown_secs=300.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -211,7 +213,8 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         guest_password_pubkey_prefixes=(),
         pre_login_advert_name="441CFEA26666",
         pre_login_advert_delay_secs=1.0,
-        advert_reprobe_cooldown_secs=60.0,
+        advert_reprobe_success_cooldown_secs=60.0,
+        advert_reprobe_failure_cooldown_secs=300.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -542,7 +545,7 @@ def test_ingest_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None
     assert service._handle_packet.await_count == 1
 
 
-def test_enqueue_probe_job_skips_recent_advert_reprobe_but_allows_manual_reason(tmp_path) -> None:
+def test_enqueue_probe_job_skips_recent_completed_advert_reprobe_but_allows_manual_reason(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
     database.initialize()
@@ -563,7 +566,8 @@ def test_enqueue_probe_job_skips_recent_advert_reprobe_but_allows_manual_reason(
         repeater_id=repeater_id,
         endpoint_name="test-endpoint",
         reason="repeater advert observed",
-        cooldown_secs=60.0,
+        success_cooldown_secs=60.0,
+        failure_cooldown_secs=300.0,
     )
     assert advert_job_id is not None
 
@@ -573,14 +577,119 @@ def test_enqueue_probe_job_skips_recent_advert_reprobe_but_allows_manual_reason(
         repeater_id=repeater_id,
         endpoint_name="test-endpoint",
         reason="repeater advert observed",
-        cooldown_secs=60.0,
+        success_cooldown_secs=60.0,
+        failure_cooldown_secs=300.0,
     )
     manual_job_id = database.enqueue_probe_job(
         repeater_id=repeater_id,
         endpoint_name="test-endpoint",
         reason="manual live verification",
-        cooldown_secs=60.0,
+        success_cooldown_secs=60.0,
+        failure_cooldown_secs=300.0,
     )
 
     assert skipped_job_id is None
     assert manual_job_id is not None
+
+
+def test_enqueue_probe_job_uses_longer_failure_cooldown_for_recent_failed_advert(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="failure-cooldown-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    advert_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        success_cooldown_secs=60.0,
+        failure_cooldown_secs=300.0,
+    )
+    assert advert_job_id is not None
+
+    database.finish_probe_job(advert_job_id, status="failed", last_error="timeout")
+
+    skipped_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        success_cooldown_secs=60.0,
+        failure_cooldown_secs=300.0,
+    )
+
+    assert skipped_job_id is None
+
+
+def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 12, 0, tzinfo=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="cleanup-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    old_failed_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+    )
+    assert old_failed_job_id is not None
+    database.finish_probe_job(old_failed_job_id, status="failed", last_error="old timeout")
+
+    fresh_failed_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual live verification",
+    )
+    assert fresh_failed_job_id is not None
+    database.finish_probe_job(fresh_failed_job_id, status="failed", last_error="fresh timeout")
+
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE probe_jobs SET finished_at = ?, started_at = ?, scheduled_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 10, 0, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 9, 59, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 9, 58, tzinfo=UTC).isoformat(),
+                old_failed_job_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE probe_jobs SET finished_at = ?, started_at = ?, scheduled_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 14, 11, 45, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 14, 11, 44, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 14, 11, 43, tzinfo=UTC).isoformat(),
+                fresh_failed_job_id,
+            ),
+        )
+
+    deleted_count = database.delete_failed_probe_jobs_older_than(
+        older_than_secs=12 * 3600,
+        now=datetime(2026, 3, 14, 12, 0, tzinfo=UTC),
+    )
+
+    assert deleted_count == 1
+    with database.connect() as connection:
+        rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
+    assert [tuple(row) for row in rows] == [(fresh_failed_job_id, "failed")]

@@ -53,6 +53,16 @@ def main() -> None:
     run_web = subparsers.add_parser("run-web", help="run status web service")
     run_web.add_argument("--config", default="config/config.toml", help="path to TOML config")
 
+    cleanup_probe_jobs = subparsers.add_parser("cleanup-probe-jobs", help="delete old failed probe jobs")
+    cleanup_probe_jobs.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    cleanup_probe_jobs.add_argument(
+        "--failed-older-than-hours",
+        type=float,
+        default=12.0,
+        help="delete only failed jobs older than this many hours",
+    )
+    cleanup_probe_jobs.add_argument("--dry-run", action="store_true", help="report how many rows would be deleted")
+
     args = parser.parse_args()
     command = args.command or "init-db"
     config = load_config(args.config)
@@ -81,7 +91,8 @@ def main() -> None:
                 "guest_password_pubkey_prefixes": list(config.probe.guest_password_pubkey_prefixes),
                 "pre_login_advert_name": config.probe.pre_login_advert_name,
                 "pre_login_advert_delay_secs": config.probe.pre_login_advert_delay_secs,
-                "advert_reprobe_cooldown_secs": config.probe.advert_reprobe_cooldown_secs,
+                "advert_reprobe_success_cooldown_secs": config.probe.advert_reprobe_success_cooldown_secs,
+                "advert_reprobe_failure_cooldown_secs": config.probe.advert_reprobe_failure_cooldown_secs,
                 "poll_interval_secs": config.probe.poll_interval_secs,
                 "request_timeout_secs": config.probe.request_timeout_secs,
                 "neighbours_page_size": config.probe.neighbours_page_size,
@@ -126,6 +137,26 @@ def main() -> None:
     if command == "init-db":
         database.initialize()
         print(json.dumps(database.snapshot_overview(), indent=2, ensure_ascii=True))
+        return
+
+    if command == "cleanup-probe-jobs":
+        database.initialize()
+        older_than_secs = float(args.failed_older_than_hours) * 3600.0
+        deleted_count = database.delete_failed_probe_jobs_older_than(
+            older_than_secs=older_than_secs,
+            dry_run=bool(args.dry_run),
+        )
+        print(
+            json.dumps(
+                {
+                    "dry_run": bool(args.dry_run),
+                    "failed_older_than_hours": float(args.failed_older_than_hours),
+                    "matched_failed_jobs": deleted_count,
+                },
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
         return
 
     if command == "run-ingest":
