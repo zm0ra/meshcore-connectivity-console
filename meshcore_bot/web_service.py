@@ -325,12 +325,13 @@ INDEX_HTML = """<!doctype html>
     .link-label-icon {
       background: transparent;
       border: 0;
+      transform: translate(-50%, -50%);
     }
     .node-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.1);
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.95);
-      box-shadow: 0 10px 24px rgba(21, 33, 42, 0.1);
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 8px 18px rgba(21, 33, 42, 0.08);
       color: var(--ink);
       padding: 5px 8px;
       white-space: nowrap;
@@ -350,15 +351,21 @@ INDEX_HTML = """<!doctype html>
     }
     .signal-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.08);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.94);
-      box-shadow: 0 8px 18px rgba(21, 33, 42, 0.08);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: 0 8px 18px rgba(21, 33, 42, 0.06);
       color: var(--ink);
-      padding: 2px 6px;
+      padding: 4px 8px;
       font-family: 'SFMono-Regular', ui-monospace, monospace;
       font-size: 0.66rem;
-      line-height: 1;
+      line-height: 1.2;
+      text-align: center;
+      white-space: nowrap;
       pointer-events: none;
+    }
+    .signal-label-chip strong,
+    .signal-label-chip span {
+      display: block;
     }
     @media (max-width: 860px) {
       #sidebar {
@@ -600,13 +607,13 @@ INDEX_HTML = """<!doctype html>
         }
         if (bounds.length > 1) {
           map.flyToBounds(bounds, {
-            paddingTopLeft: [48, 48],
-            paddingBottomRight: [388, 48],
-            maxZoom: 12,
+            paddingTopLeft: [28, 28],
+            paddingBottomRight: [320, 28],
+            maxZoom: 13,
             duration: 0.6,
           });
         } else {
-          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
+          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 12), { duration: 0.5 });
         }
       }
       render(latestState);
@@ -639,16 +646,11 @@ INDEX_HTML = """<!doctype html>
     }
 
     function linkLabel(link, sourceNode) {
-      const parts = [];
       const metric = lineSignalMetric(link);
-      if (metric.value !== null) {
-        parts.push(metric.short);
-      }
       const distance = neighborDistanceKm(sourceNode, link);
-      if (distance !== null) {
-        parts.push(`${distance.toFixed(1)} km`);
-      }
-      return parts.join(' · ') || 'link';
+      const metricLine = metric.value !== null ? `${metric.kind}: ${metric.value.toFixed(1)} ${metric.kind === 'RSSI' ? 'dBm' : 'dB'}` : 'signal: n/a';
+      const distanceLine = distance !== null ? `dist: ${distance.toFixed(1)} km` : 'dist: -';
+      return `<strong>${metricLine}</strong><span>${distanceLine}</span>`;
     }
 
     function lineColor(link) {
@@ -694,7 +696,7 @@ INDEX_HTML = """<!doctype html>
     function labelHtml(node, zoom, forced, neighborIds) {
       const shortName = node.name || node.hash_prefix_hex;
       if (selectedNeighborId) {
-        if (node.identity_hex !== selectedSourceId) return null;
+        if (node.identity_hex !== selectedSourceId && node.identity_hex !== selectedNeighborId) return null;
         return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       const inspectionNeighbor = Boolean(selectedSourceId) && node.identity_hex !== selectedSourceId && neighborIds.has(node.identity_hex);
