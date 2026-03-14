@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import struct
 import time
 from dataclasses import dataclass
@@ -264,7 +263,7 @@ def parse_path_response(summary: PacketSummary, *, shared_secret: bytes) -> Path
 
 
 def next_request_tag() -> int:
-    return int.from_bytes(os.urandom(4), "little")
+    return next_wire_timestamp()
 
 
 from .mesh_crypto import mac_then_decrypt

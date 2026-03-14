@@ -151,8 +151,12 @@ class GuestProbeWorker:
             repeater_name=repeater_name,
         )
         latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
+        if latest_path is not None and not self._is_usable_stored_path(latest_path):
+            latest_path = None
         if latest_path is None:
             latest_path = self.database.latest_repeater_advert_path(repeater_id=repeater_id)
+        if latest_path is not None and not self._is_usable_stored_path(latest_path):
+            latest_path = None
         if latest_path is not None:
             learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
             learned_path_bytes = bytes.fromhex(str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex")))))
@@ -194,10 +198,13 @@ class GuestProbeWorker:
 
             login_payload = b""
             login_error: Exception | None = None
+            is_szn_direct = (repeater_name or "").strip().upper().startswith("SZN_")
             for login_role, login_password in login_candidates:
                 route_attempts = [(0, b"")]
                 if learned_path_len and learned_path_bytes:
-                    route_attempts = [(learned_path_len, learned_path_bytes), (0, b"")]
+                    route_attempts = [(learned_path_len, learned_path_bytes)]
+                    if not is_szn_direct:
+                        route_attempts.append((0, b""))
                 for route_path_len, route_path_bytes in route_attempts:
                     password_label = "empty" if login_password == "" else "configured"
                     route_label = "direct" if route_path_len else "flood"
@@ -309,7 +316,6 @@ class GuestProbeWorker:
                         0,
                         self.config.probe.neighbours_prefix_len,
                     ])
-                    + os.urandom(4)
                 )
                 neighbours_request = build_request_packet(
                     identity=self.identity,
@@ -820,6 +826,11 @@ class GuestProbeWorker:
 
     def _is_remote_to_local_datagram(self, *, source_hash: bytes, destination_hash: bytes, remote_hash: bytes) -> bool:
         return source_hash == remote_hash and destination_hash == self._local_hash
+
+    def _is_usable_stored_path(self, path_row: dict[str, object]) -> bool:
+        path_len = int(cast(int | str, path_row.get("out_path_len", path_row.get("path_len", 0))) or 0)
+        path_hex = str(cast(str | None, path_row.get("out_path_hex", path_row.get("path_hex", ""))) or "").strip()
+        return path_len > 0 and path_hex != ""
 
     def _is_login_response_payload(self, payload: bytes) -> bool:
         if len(payload) not in {12, 13}:

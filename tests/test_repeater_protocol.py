@@ -2,7 +2,7 @@ import struct
 
 from meshcore_bot.config import ProbeConfig
 from meshcore_bot.identity import LocalIdentity
-from meshcore_bot.mesh_builders import build_advert_packet, build_login_packet, next_wire_timestamp, parse_anon_request
+from meshcore_bot.mesh_builders import build_advert_packet, build_login_packet, next_request_tag, next_wire_timestamp, parse_anon_request
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
 from meshcore_bot.probe_service import select_login_candidates
@@ -97,8 +97,8 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         pre_login_advert_delay_secs=1.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
-        neighbours_page_size=12,
-        neighbours_prefix_len=8,
+        neighbours_page_size=15,
+        neighbours_prefix_len=4,
     )
     selected = select_login_candidates(
         config=config,
@@ -122,8 +122,8 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         pre_login_advert_delay_secs=1.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
-        neighbours_page_size=12,
-        neighbours_prefix_len=8,
+        neighbours_page_size=15,
+        neighbours_prefix_len=4,
     )
     selected = select_login_candidates(
         config=config,
@@ -167,3 +167,12 @@ def test_build_login_packet_uses_time_like_timestamp() -> None:
     assert sender_public_key == local_identity.public_key
     assert timestamp > 1_600_000_000
     assert plaintext[4:].startswith(b"qweqwe")
+
+
+def test_next_request_tag_uses_monotonic_time_like_values() -> None:
+    baseline = next_wire_timestamp(1_773_473_000)
+    tag = next_request_tag()
+    later = next_request_tag()
+    assert baseline == 1_773_473_000
+    assert tag > baseline
+    assert later > tag

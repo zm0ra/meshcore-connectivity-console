@@ -109,8 +109,8 @@ def load_config(config_path: str | Path) -> AppConfig:
             pre_login_advert_delay_secs=float(probe.get("pre_login_advert_delay_secs", 1.0)),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
-            neighbours_page_size=int(probe.get("neighbours_page_size", 12)),
-            neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 8)),
+            neighbours_page_size=int(probe.get("neighbours_page_size", 15)),
+            neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 4)),
         ),
         web=WebConfig(
             host=str(web.get("host", "0.0.0.0")),
