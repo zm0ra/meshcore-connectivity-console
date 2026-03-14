@@ -124,6 +124,13 @@ INDEX_HTML = """<!doctype html>
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
+    .toolbar-cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
     .sort-select {
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -132,6 +139,29 @@ INDEX_HTML = """<!doctype html>
       padding: 5px 10px;
       font: inherit;
       font-size: 0.72rem;
+    }
+    .lang-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+    }
+    .lang-button {
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 9px;
+      font: inherit;
+      font-size: 0.7rem;
+      cursor: pointer;
+    }
+    .lang-button.active {
+      background: rgba(44, 113, 209, 0.14);
+      color: var(--ink);
     }
     .section-heading {
       margin: 10px 2px 6px;
@@ -417,21 +447,7 @@ INDEX_HTML = """<!doctype html>
 <body>
   <div id=\"app\">
     <div id=\"map\"></div>
-    <div id=\"map-legend\" class=\"overlay\">
-      <div class=\"legend-group\">
-        <span class=\"legend-title\">Repeatery</span>
-        <div class=\"legend-row\"><span class=\"legend-node\" style=\"background:#2e8b57\"></span><span>dane dostępne</span></div>
-        <div class=\"legend-row\"><span class=\"legend-node\" style=\"background:#2c71d1\"></span><span>znany / bez pobranych danych</span></div>
-        <div class=\"legend-row\"><span class=\"legend-node\" style=\"background:#c64a3d\"></span><span>nieaktywny &gt; 24h</span></div>
-      </div>
-      <div class=\"legend-group\">
-        <span class=\"legend-title\">Połączenia</span>
-        <div class=\"legend-row\"><span class=\"legend-line\" style=\"border-top-color:#2e8b57\"></span><span>mocne</span></div>
-        <div class=\"legend-row\"><span class=\"legend-line\" style=\"border-top-color:#cfaa38\"></span><span>średnie</span></div>
-        <div class=\"legend-row\"><span class=\"legend-line\" style=\"border-top-color:#db7d31\"></span><span>słabe</span></div>
-        <div class=\"legend-row\"><span class=\"legend-line\" style=\"border-top-color:#c64a3d\"></span><span>bardzo słabe</span></div>
-      </div>
-    </div>
+    <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
       <section class=\"summary-strip\">
         <div id=\"summary\" class=\"summary-grid\"></div>
@@ -447,6 +463,134 @@ INDEX_HTML = """<!doctype html>
     const LOW_ZOOM_LABEL_THRESHOLD = 10;
     const HIGH_ZOOM_LABEL_THRESHOLD = 12;
     const MAX_COLLISION_LABELS = 18;
+    const TRANSLATIONS = {
+      pl: {
+        unknown: 'brak',
+        legendRepeaters: 'Repeatery',
+        legendLinks: 'Połączenia',
+        legendDataAvailable: 'dane dostępne',
+        legendKnownNoData: 'znany / bez pobranych danych',
+        legendInactive: 'nieaktywny > 24h',
+        legendStrong: 'mocne',
+        legendMedium: 'średnie',
+        legendWeak: 'słabe',
+        legendVeryWeak: 'bardzo słabe',
+        summaryKnown: 'znane',
+        summaryWithData: 'z danymi',
+        summaryPending: 'oczekujące',
+        summaryInactive: 'nieaktywne',
+        statusData: 'dane',
+        statusNoData: 'brak danych',
+        statusInactive: 'nieaktywny',
+        probeFailedAfterData: 'nieudane po zapisaniu danych',
+        probeDataSaved: 'dane zapisane',
+        probePending: 'oczekuje',
+        signalMissing: 'sygnał: b/d',
+        distanceMissing: 'dyst: -',
+        distancePrefix: 'dyst',
+        lastAdvertLabel: 'ostatni advert',
+        chartHistory: 'historia',
+        chartLatest: 'ostatnio',
+        chartSNRHistory: 'historia SNR',
+        chartNow: 'teraz',
+        emptySelectRepeater: 'Wybierz repeater, aby obejrzeć jego bezpośrednich sąsiadów.',
+        emptySelectNeighbor: 'Wybierz wiersz sąsiada, aby obejrzeć historię sygnału.',
+        emptyNoNeighborLinks: 'Dla tego repeatera nie ma jeszcze zapisanych połączeń sąsiedzkich.',
+        emptyNoOtherRepeaters: 'Brak innych repeaterów.',
+        inspection: 'Inspekcja',
+        clearFocus: 'Wyczyść fokus',
+        role: 'Rola',
+        lastAdvert: 'Ostatni advert',
+        lastData: 'Ostatnie dane',
+        lastSuccessfulProbe: 'Ostatnie udane pobranie',
+        lastProbeResult: 'Wynik ostatniej próby',
+        lastProbeAttempt: 'Ostatnia próba',
+        directNeighbors: 'Bezpośredni sąsiedzi',
+        neighbor: 'Sąsiad',
+        lastSeen: 'Ostatnio widziany',
+        signal: 'Sygnał',
+        distance: 'Dystans',
+        selectedRepeater: 'Wybrany repeater',
+        otherRepeaters: 'Pozostałe repeatery',
+        repeaters: 'Repeatery',
+        sortLabel: 'Sortowanie',
+        sortLastAdvert: 'ostatni advert',
+        sortLastData: 'ostatnie dane',
+        sortAlphabetical: 'alfabetycznie',
+        languageLabel: 'Język',
+        roleDefault: 'Repeater',
+        kindSignal: 'sygnał',
+        noDataShort: 'b/d',
+        storedSamples: (count) => `Dla tego połączenia zapisano na razie ${count} prób${count === 1 ? 'kę' : count < 5 ? 'ki' : 'ek'}. Wykres pojawi się po zebraniu co najmniej 2 próbek.`,
+        agoSeconds: (count) => `${count}s temu`,
+        agoMinutes: (count) => `${count} min temu`,
+        agoHours: (count) => `${count} h temu`,
+        agoDays: (count) => `${count} d temu`,
+      },
+      en: {
+        unknown: 'unknown',
+        legendRepeaters: 'Repeaters',
+        legendLinks: 'Links',
+        legendDataAvailable: 'data available',
+        legendKnownNoData: 'known / no data fetched',
+        legendInactive: 'inactive > 24h',
+        legendStrong: 'strong',
+        legendMedium: 'medium',
+        legendWeak: 'weak',
+        legendVeryWeak: 'very weak',
+        summaryKnown: 'known',
+        summaryWithData: 'with data',
+        summaryPending: 'pending',
+        summaryInactive: 'inactive',
+        statusData: 'data',
+        statusNoData: 'no data',
+        statusInactive: 'inactive',
+        probeFailedAfterData: 'failed after data snapshot',
+        probeDataSaved: 'data saved',
+        probePending: 'pending',
+        signalMissing: 'signal: n/a',
+        distanceMissing: 'dist: -',
+        distancePrefix: 'dist',
+        lastAdvertLabel: 'last advert',
+        chartHistory: 'history',
+        chartLatest: 'latest',
+        chartSNRHistory: 'SNR history',
+        chartNow: 'now',
+        emptySelectRepeater: 'Select a repeater to inspect its direct neighbors.',
+        emptySelectNeighbor: 'Select a neighbor row to inspect signal history.',
+        emptyNoNeighborLinks: 'No stored neighbor links are available yet for this repeater.',
+        emptyNoOtherRepeaters: 'No other repeaters available.',
+        inspection: 'Inspection',
+        clearFocus: 'Clear focus',
+        role: 'Role',
+        lastAdvert: 'Last advert',
+        lastData: 'Last data',
+        lastSuccessfulProbe: 'Last successful fetch',
+        lastProbeResult: 'Last probe result',
+        lastProbeAttempt: 'Last probe attempt',
+        directNeighbors: 'Direct neighbors',
+        neighbor: 'Neighbor',
+        lastSeen: 'Last seen',
+        signal: 'Signal',
+        distance: 'Distance',
+        selectedRepeater: 'Selected repeater',
+        otherRepeaters: 'Other repeaters',
+        repeaters: 'Repeaters',
+        sortLabel: 'Sort',
+        sortLastAdvert: 'last advert',
+        sortLastData: 'last data fetch',
+        sortAlphabetical: 'alphabetical',
+        languageLabel: 'Language',
+        roleDefault: 'Repeater',
+        kindSignal: 'signal',
+        noDataShort: 'n/a',
+        storedSamples: (count) => `Only ${count} stored sample${count === 1 ? '' : 's'} for this link so far. The history chart appears after at least 2 samples.`,
+        agoSeconds: (count) => `${count}s ago`,
+        agoMinutes: (count) => `${count}m ago`,
+        agoHours: (count) => `${count}h ago`,
+        agoDays: (count) => `${count}d ago`,
+      },
+    };
     const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([53.43, 14.55], 8);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd',
@@ -463,15 +607,52 @@ INDEX_HTML = """<!doctype html>
     let selectedNeighborId = null;
     let hoveredNodeId = null;
     let nodeSortMode = 'last_advert';
+    let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
     let hasFitBounds = false;
 
+    function strings() {
+      return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
+    }
+
+    function tr(key) {
+      return strings()[key];
+    }
+
+    function setLanguage(language) {
+      if (!TRANSLATIONS[language]) return;
+      currentLanguage = language;
+      localStorage.setItem('meshcoreDashboardLanguage', language);
+      document.documentElement.lang = language;
+      renderLegend();
+      if (latestState) render(latestState);
+    }
+
+    function renderLegend() {
+      const legend = document.getElementById('map-legend');
+      legend.innerHTML = `
+        <div class="legend-group">
+          <span class="legend-title">${tr('legendRepeaters')}</span>
+          <div class="legend-row"><span class="legend-node" style="background:#2e8b57"></span><span>${tr('legendDataAvailable')}</span></div>
+          <div class="legend-row"><span class="legend-node" style="background:#2c71d1"></span><span>${tr('legendKnownNoData')}</span></div>
+          <div class="legend-row"><span class="legend-node" style="background:#c64a3d"></span><span>${tr('legendInactive')}</span></div>
+        </div>
+        <div class="legend-group">
+          <span class="legend-title">${tr('legendLinks')}</span>
+          <div class="legend-row"><span class="legend-line" style="border-top-color:#2e8b57"></span><span>${tr('legendStrong')}</span></div>
+          <div class="legend-row"><span class="legend-line" style="border-top-color:#cfaa38"></span><span>${tr('legendMedium')}</span></div>
+          <div class="legend-row"><span class="legend-line" style="border-top-color:#db7d31"></span><span>${tr('legendWeak')}</span></div>
+          <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
+        </div>
+      `;
+    }
+
     function formatWhen(value) {
-      if (!value) return 'brak';
+      if (!value) return tr('unknown');
       return new Date(value).toLocaleString();
     }
 
     function formatShortWhen(value) {
-      if (!value) return 'brak';
+      if (!value) return tr('unknown');
       return new Date(value).toLocaleString([], {
         year: 'numeric',
         month: 'short',
@@ -482,17 +663,17 @@ INDEX_HTML = """<!doctype html>
     }
 
     function timeAgo(value) {
-      if (!value) return 'brak';
+      if (!value) return tr('unknown');
       const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
       const seconds = Math.floor(elapsed / 1000);
-      if (seconds < 60) return `${seconds}s temu`;
-      if (seconds < 3600) return `${Math.floor(seconds / 60)} min temu`;
-      if (seconds < 86400) return `${Math.floor(seconds / 3600)} h temu`;
-      return `${Math.floor(seconds / 86400)} d temu`;
+      if (seconds < 60) return tr('agoSeconds')(seconds);
+      if (seconds < 3600) return tr('agoMinutes')(Math.floor(seconds / 60));
+      if (seconds < 86400) return tr('agoHours')(Math.floor(seconds / 3600));
+      return tr('agoDays')(Math.floor(seconds / 86400));
     }
 
     function humanizeSeconds(value) {
-      if (typeof value !== 'number' || !Number.isFinite(value)) return 'brak';
+      if (typeof value !== 'number' || !Number.isFinite(value)) return tr('unknown');
       if (value < 60) return `${Math.round(value)} s`;
       if (value < 3600) {
         const minutes = Math.floor(value / 60);
@@ -587,9 +768,9 @@ INDEX_HTML = """<!doctype html>
 
     function nodeStateLabel(node) {
       const state = nodeState(node);
-      if (state === 'ok') return 'dane';
-      if (state === 'missing') return 'brak danych';
-      return 'nieaktywny';
+      if (state === 'ok') return tr('statusData');
+      if (state === 'missing') return tr('statusNoData');
+      return tr('statusInactive');
     }
 
     function compareIsoTimesDesc(leftValue, rightValue) {
@@ -661,10 +842,10 @@ INDEX_HTML = """<!doctype html>
     function renderSummary(state) {
       const nodes = relevantNodes(state);
       const html = [
-        { label: 'znane', value: nodes.length },
-        { label: 'z danymi', value: nodes.filter((node) => !isInactive(node) && node.data_fetch_ok).length },
-        { label: 'oczekujące', value: nodes.filter((node) => !isInactive(node) && !node.data_fetch_ok).length },
-        { label: 'nieaktywne', value: nodes.filter((node) => isInactive(node)).length },
+        { label: tr('summaryKnown'), value: nodes.length },
+        { label: tr('summaryWithData'), value: nodes.filter((node) => !isInactive(node) && node.data_fetch_ok).length },
+        { label: tr('summaryPending'), value: nodes.filter((node) => !isInactive(node) && !node.data_fetch_ok).length },
+        { label: tr('summaryInactive'), value: nodes.filter((node) => isInactive(node)).length },
       ].map((item) => `<div class=\"summary-card\"><strong>${item.value}</strong><span>${item.label}</span></div>`).join('');
       document.getElementById('summary').innerHTML = html;
     }
@@ -698,24 +879,24 @@ INDEX_HTML = """<!doctype html>
       if (typeof link.rssi === 'number') {
         return { value: link.rssi, label: `RSSI ${link.rssi} dBm`, short: `RSSI ${link.rssi}`, kind: 'RSSI' };
       }
-      return { value: null, label: 'b/d', short: 'b/d', kind: 'sygnał' };
+      return { value: null, label: tr('noDataShort'), short: tr('noDataShort'), kind: tr('kindSignal') };
     }
 
     function describeProbeResult(node) {
       if (node.last_probe_status === 'failed' && node.last_data_at) {
-        return 'nieudane po zapisaniu danych';
+        return tr('probeFailedAfterData');
       }
       if (node.last_probe_status) {
         return node.last_probe_status;
       }
-      return node.data_fetch_ok ? 'dane zapisane' : 'oczekuje';
+      return node.data_fetch_ok ? tr('probeDataSaved') : tr('probePending');
     }
 
     function linkLabel(link, sourceNode) {
       const metric = lineSignalMetric(link);
       const distance = neighborDistanceKm(sourceNode, link);
-      const metricLine = metric.value !== null ? `${metric.kind}: ${metric.value.toFixed(1)} ${metric.kind === 'RSSI' ? 'dBm' : 'dB'}` : 'sygnał: b/d';
-      const distanceLine = distance !== null ? `dyst: ${distance.toFixed(1)} km` : 'dyst: -';
+      const metricLine = metric.value !== null ? `${metric.kind}: ${metric.value.toFixed(1)} ${metric.kind === 'RSSI' ? 'dBm' : 'dB'}` : tr('signalMissing');
+      const distanceLine = distance !== null ? `${tr('distancePrefix')}: ${distance.toFixed(1)} km` : tr('distanceMissing');
       return `<strong>${metricLine}</strong><span>${distanceLine}</span>`;
     }
 
@@ -763,14 +944,14 @@ INDEX_HTML = """<!doctype html>
       const shortName = node.name || node.hash_prefix_hex;
       if (selectedNeighborId) {
         if (node.identity_hex !== selectedSourceId && node.identity_hex !== selectedNeighborId) return null;
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">ostatni advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       const inspectionNeighbor = Boolean(selectedSourceId) && node.identity_hex !== selectedSourceId && neighborIds.has(node.identity_hex);
       if (inspectionNeighbor) {
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">ostatni advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       if (forced || zoom >= HIGH_ZOOM_LABEL_THRESHOLD) {
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">ostatni advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       if (zoom >= LOW_ZOOM_LABEL_THRESHOLD) {
         return `<div class=\"node-label-chip\"><strong>${shortName}</strong></div>`;
@@ -852,16 +1033,16 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderSignalChart(node, neighborLink, historyRows) {
-      if (!node) return '<div class=\"empty-note\">Wybierz repeater, aby obejrzeć jego bezpośrednich sąsiadów.</div>';
-      if (!neighborLink) return '<div class=\"empty-note\">Wybierz wiersz sąsiada, aby obejrzeć historię sygnału.</div>';
+      if (!node) return `<div class=\"empty-note\">${tr('emptySelectRepeater')}</div>`;
+      if (!neighborLink) return `<div class=\"empty-note\">${tr('emptySelectNeighbor')}</div>`;
       if (historyRows.length < 2) {
         return `
           <div class=\"chart-shell\">
             <div class=\"chart-head\">
-              <div class=\"chart-title\"><strong>${neighborLink.target_name}</strong><span>historia ${lineSignalMetric(neighborLink).kind}</span></div>
-              <div class=\"chart-meta\">ostatnio ${lineSignalMetric(neighborLink).label}</div>
+              <div class=\"chart-title\"><strong>${neighborLink.target_name}</strong><span>${tr('chartHistory')} ${lineSignalMetric(neighborLink).kind}</span></div>
+              <div class=\"chart-meta\">${tr('chartLatest')} ${lineSignalMetric(neighborLink).label}</div>
             </div>
-            <div class=\"empty-note\">Dla tego połączenia zapisano na razie ${historyRows.length} prób${historyRows.length === 1 ? 'kę' : historyRows.length < 5 ? 'ki' : 'ek'}. Wykres pojawi się po zebraniu co najmniej 2 próbek.</div>
+            <div class=\"empty-note\">${tr('storedSamples')(historyRows.length)}</div>
           </div>
         `;
       }
@@ -896,15 +1077,15 @@ INDEX_HTML = """<!doctype html>
       return `
         <div class=\"chart-shell\">
           <div class=\"chart-head\">
-            <div class=\"chart-title\"><strong>${neighborLink.target_name}</strong><span>historia SNR</span></div>
-            <div class=\"chart-meta\">ostatnio ${lineSignalMetric(neighborLink).label}</div>
+            <div class=\"chart-title\"><strong>${neighborLink.target_name}</strong><span>${tr('chartSNRHistory')}</span></div>
+            <div class=\"chart-meta\">${tr('chartLatest')} ${lineSignalMetric(neighborLink).label}</div>
           </div>
           <svg id=\"signal-chart\" viewBox=\"0 0 320 152\" preserveAspectRatio=\"none\">
             ${grid}
             <path d=\"${path}\" fill=\"none\" stroke=\"${lineColor(neighborLink)}\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />
             ${points}
             <text x=\"${leftPad}\" y=\"144\" fill=\"#6a7883\" font-size=\"10\">${timeAgo(new Date(minTime).toISOString())}</text>
-            <text x=\"${leftPad + width - 22}\" y=\"144\" fill=\"#6a7883\" font-size=\"10\">teraz</text>
+            <text x=\"${leftPad + width - 22}\" y=\"144\" fill=\"#6a7883\" font-size=\"10\">${tr('chartNow')}</text>
           </svg>
         </div>
       `;
@@ -921,10 +1102,10 @@ INDEX_HTML = """<!doctype html>
         <table class=\"neighbor-table\">
           <thead>
             <tr>
-              <th>Sąsiad</th>
-              <th>Ostatnio widziany</th>
-              <th>Sygnał</th>
-              <th>Dystans</th>
+              <th>${tr('neighbor')}</th>
+              <th>${tr('lastSeen')}</th>
+              <th>${tr('signal')}</th>
+              <th>${tr('distance')}</th>
             </tr>
           </thead>
           <tbody>
@@ -942,23 +1123,23 @@ INDEX_HTML = """<!doctype html>
             }).join('')}
           </tbody>
         </table>
-      ` : '<div class=\"empty-note\">Dla tego repeatera nie ma jeszcze zapisanych połączeń sąsiedzkich.</div>';
+      ` : `<div class=\"empty-note\">${tr('emptyNoNeighborLinks')}</div>`;
       return `
         <div class=\"node-expand\">
           <div class=\"expand-head\">
-            <strong>Inspekcja</strong>
-            <button type=\"button\" class=\"ghost-button\" data-clear-selection=\"1\">Wyczyść fokus</button>
+            <strong>${tr('inspection')}</strong>
+            <button type=\"button\" class=\"ghost-button\" data-clear-selection=\"1\">${tr('clearFocus')}</button>
           </div>
           <div class=\"detail-grid\">
-            <div class=\"detail-cell\"><strong>Rola</strong>${node.role || 'Repeater'}</div>
-            <div class=\"detail-cell\"><strong>Ostatni advert</strong>${formatWhen(node.last_advert_at)}</div>
-            <div class=\"detail-cell\"><strong>Ostatnie dane</strong>${formatWhen(node.last_data_at)}</div>
-            <div class=\"detail-cell\"><strong>Ostatnie udane pobranie</strong>${formatWhen(node.last_successful_probe_at)}</div>
-            <div class=\"detail-cell\"><strong>Wynik ostatniej próby</strong>${describeProbeResult(node)}</div>
-            <div class=\"detail-cell\"><strong>Ostatnia próba</strong>${formatWhen(node.last_probe_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastSuccessfulProbe')}</strong>${formatWhen(node.last_successful_probe_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastProbeResult')}</strong>${describeProbeResult(node)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastProbeAttempt')}</strong>${formatWhen(node.last_probe_at)}</div>
           </div>
           <div>
-            <div class=\"expand-head\"><strong>Bezpośredni sąsiedzi</strong><span class=\"node-state-tag\">${selectedLinks.length}</span></div>
+            <div class=\"expand-head\"><strong>${tr('directNeighbors')}</strong><span class=\"node-state-tag\">${selectedLinks.length}</span></div>
             ${neighborRows}
           </div>
           ${renderSignalChart(node, selectedLink, historyRows)}
@@ -973,7 +1154,7 @@ INDEX_HTML = """<!doctype html>
             <span class=\"status-dot\" style=\"background:${nodeColor(node)}\"></span>
             <span class=\"node-main\">
               <span class=\"node-name\">${node.name || node.hash_prefix_hex}</span>
-              <span class=\"node-age\">ostatni advert: ${formatShortWhen(node.last_advert_at)}</span>
+              <span class=\"node-age\">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>
             </span>
             <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
           </button>
@@ -990,23 +1171,32 @@ INDEX_HTML = """<!doctype html>
       let html = '';
       html += `
         <div class="list-toolbar">
-          <label for="sort-mode">Sortowanie</label>
-          <select id="sort-mode" class="sort-select" data-sort-mode="1">
-            <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>ostatni advert</option>
-            <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>ostatnie dane</option>
-            <option value="alphabetical"${nodeSortMode === 'alphabetical' ? ' selected' : ''}>alfabetycznie</option>
-          </select>
+          <label for="sort-mode">${tr('sortLabel')}</label>
+          <div class="toolbar-cluster">
+            <select id="sort-mode" class="sort-select" data-sort-mode="1">
+              <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>${tr('sortLastAdvert')}</option>
+              <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>${tr('sortLastData')}</option>
+              <option value="alphabetical"${nodeSortMode === 'alphabetical' ? ' selected' : ''}>${tr('sortAlphabetical')}</option>
+            </select>
+            <div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}">
+              <button type="button" class="lang-button${currentLanguage === 'pl' ? ' active' : ''}" data-language="pl">PL</button>
+              <button type="button" class="lang-button${currentLanguage === 'en' ? ' active' : ''}" data-language="en">EN</button>
+            </div>
+          </div>
         </div>
       `;
       if (selectedNode) {
-        html += '<div class=\"section-heading\">Wybrany repeater</div>';
+        html += `<div class=\"section-heading\">${tr('selectedRepeater')}</div>`;
         html += `<div class=\"node-list\">${rowHtml(selectedNode, state)}</div>`;
       }
-      html += `<div class=\"section-heading\">${selectedNode ? 'Pozostałe repeatery' : 'Repeatery'}</div>`;
-      html += `<div class=\"node-list\">${others.length ? others.map((node) => rowHtml(node, state)).join('') : '<div class=\"empty-note\">Brak innych repeaterów.</div>'}</div>`;
+      html += `<div class=\"section-heading\">${selectedNode ? tr('otherRepeaters') : tr('repeaters')}</div>`;
+      html += `<div class=\"node-list\">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class=\"empty-note\">${tr('emptyNoOtherRepeaters')}</div>`}</div>`;
       container.innerHTML = html;
       for (const button of container.querySelectorAll('[data-node]')) {
         button.addEventListener('click', () => selectNode(button.dataset.node));
+      }
+      for (const button of container.querySelectorAll('[data-language]')) {
+        button.addEventListener('click', () => setLanguage(button.dataset.language));
       }
       for (const select of container.querySelectorAll('[data-sort-mode]')) {
         select.addEventListener('change', () => {
@@ -1107,6 +1297,7 @@ INDEX_HTML = """<!doctype html>
 
     function render(state) {
       latestState = state;
+      renderLegend();
       renderSummary(state);
       renderNodeSections(state);
       renderMap(state);
@@ -1126,6 +1317,8 @@ INDEX_HTML = """<!doctype html>
       if (latestState) renderMap(latestState);
     });
 
+    document.documentElement.lang = currentLanguage;
+    renderLegend();
     refresh();
     setInterval(refresh, 5000);
   </script>
