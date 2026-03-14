@@ -19,6 +19,7 @@ guest_password_name_prefixes = ["SZN_BKO_DIR_PRZ_RPT"]
 guest_password_pubkey_prefixes = []
 pre_login_advert_name = ""
 pre_login_advert_delay_secs = 1.0
+advert_reprobe_cooldown_secs = 60.0
 poll_interval_secs = 2.0
 request_timeout_secs = 8.0
 route_freshness_secs = 1800

@@ -81,6 +81,7 @@ def main() -> None:
                 "guest_password_pubkey_prefixes": list(config.probe.guest_password_pubkey_prefixes),
                 "pre_login_advert_name": config.probe.pre_login_advert_name,
                 "pre_login_advert_delay_secs": config.probe.pre_login_advert_delay_secs,
+                "advert_reprobe_cooldown_secs": config.probe.advert_reprobe_cooldown_secs,
                 "poll_interval_secs": config.probe.poll_interval_secs,
                 "request_timeout_secs": config.probe.request_timeout_secs,
                 "neighbours_page_size": config.probe.neighbours_page_size,

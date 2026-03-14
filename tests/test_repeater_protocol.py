@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 from meshcore_bot.config import AppConfig, EndpointConfig, GatewayConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
+from meshcore_bot.bridge_gateway import BridgeGatewayService
 from meshcore_bot.database import BotDatabase
 from meshcore_bot.identity import LocalIdentity
+from meshcore_bot.ingest_service import AdvertIngestService
 from meshcore_bot.mesh_builders import (
     build_advert_packet,
     build_datagram_payload,
@@ -54,6 +56,16 @@ class FakeTCPClient:
         return self.received_packets.pop(0)
 
 
+def build_received_packet(*, advert_type: AdvertType = AdvertType.REPEATER, name: str = "test-rpt") -> ReceivedPacket:
+    advert_packet = build_advert_packet(identity=LocalIdentity.generate(), name=name, advert_type=int(advert_type))
+    return ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=advert_packet.packet.hex().upper(),
+        packet_hex=advert_packet.packet.hex().upper(),
+        summary=advert_packet.summary,
+    )
+
+
 def build_test_app_config(tmp_path) -> AppConfig:
     return AppConfig(
         service=ServiceConfig(name="meshcore-bot", log_level="INFO"),
@@ -70,6 +82,7 @@ def build_test_app_config(tmp_path) -> AppConfig:
             guest_password_pubkey_prefixes=(),
             pre_login_advert_name="441CFEA26666",
             pre_login_advert_delay_secs=0.0,
+            advert_reprobe_cooldown_secs=60.0,
             poll_interval_secs=2.0,
             request_timeout_secs=1.0,
             route_freshness_secs=1800.0,
@@ -171,6 +184,7 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         guest_password_pubkey_prefixes=(),
         pre_login_advert_name="441CFEA26666",
         pre_login_advert_delay_secs=1.0,
+        advert_reprobe_cooldown_secs=60.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -197,6 +211,7 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         guest_password_pubkey_prefixes=(),
         pre_login_advert_name="441CFEA26666",
         pre_login_advert_delay_secs=1.0,
+        advert_reprobe_cooldown_secs=60.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -436,3 +451,136 @@ def test_send_with_tagged_response_retries_after_timeout(tmp_path) -> None:
     assert result == (b"ok", 1, bytes.fromhex("35"))
     assert worker._send_and_record.await_count == 2
     assert worker._await_tagged_response.await_count == 2
+
+
+def test_bridge_gateway_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    received_packet = build_received_packet()
+
+    class FakeGatewayTCPClient:
+        instances: list[FakeGatewayTCPClient] = []
+
+        def __init__(self, host: str, port: int) -> None:
+            self.host = host
+            self.port = port
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.receive_calls = 0
+            FakeGatewayTCPClient.instances.append(self)
+
+        async def connect(self) -> None:
+            self.connect_calls += 1
+
+        async def close(self) -> None:
+            self.close_calls += 1
+
+        async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
+            self.receive_calls += 1
+            if self.receive_calls == 1:
+                raise asyncio.TimeoutError()
+            return received_packet
+
+    service = BridgeGatewayService(config)
+    runtime = service._endpoint_runtimes["test-endpoint"]
+
+    async def stop_after_broadcast(endpoint_name: str, packet: ReceivedPacket) -> None:
+        assert endpoint_name == "test-endpoint"
+        assert packet is received_packet
+        service._stop_event.set()
+
+    with patch("meshcore_bot.bridge_gateway.MeshcoreTCPClient", FakeGatewayTCPClient):
+        service._broadcast_packet = AsyncMock(side_effect=stop_after_broadcast)
+        asyncio.run(service._run_endpoint(runtime))
+
+    assert len(FakeGatewayTCPClient.instances) == 1
+    client = FakeGatewayTCPClient.instances[0]
+    assert client.connect_calls == 1
+    assert client.receive_calls == 2
+    assert client.close_calls == 1
+    assert service._broadcast_packet.await_count == 1
+
+
+def test_ingest_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    received_packet = build_received_packet()
+
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.receive_calls = 0
+
+        async def connect(self) -> None:
+            self.connect_calls += 1
+
+        async def close(self) -> None:
+            self.close_calls += 1
+
+        async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
+            self.receive_calls += 1
+            if self.receive_calls == 1:
+                raise asyncio.TimeoutError()
+            return received_packet
+
+    fake_transport = FakeTransport()
+    service = AdvertIngestService(config, database, transport_factory=lambda endpoint: cast(Any, fake_transport))
+    endpoint = config.endpoints[0]
+
+    async def stop_after_packet(endpoint_config: EndpointConfig, packet: ReceivedPacket) -> None:
+        assert endpoint_config.name == "test-endpoint"
+        assert packet is received_packet
+        service._stop_event.set()
+
+    service._handle_packet = AsyncMock(side_effect=stop_after_packet)
+    asyncio.run(service._run_endpoint(endpoint))
+
+    assert fake_transport.connect_calls == 1
+    assert fake_transport.receive_calls == 2
+    assert fake_transport.close_calls == 1
+    assert service._handle_packet.await_count == 1
+
+
+def test_enqueue_probe_job_skips_recent_advert_reprobe_but_allows_manual_reason(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="cooldown-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    advert_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        cooldown_secs=60.0,
+    )
+    assert advert_job_id is not None
+
+    database.finish_probe_job(advert_job_id, status="completed")
+
+    skipped_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        cooldown_secs=60.0,
+    )
+    manual_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual live verification",
+        cooldown_secs=60.0,
+    )
+
+    assert skipped_job_id is None
+    assert manual_job_id is not None

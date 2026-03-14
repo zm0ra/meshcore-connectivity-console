@@ -17,4 +17,8 @@ Runtime split in Docker:
 - `neighbours-worker`: advert ingestion plus repeater neighbour harvesting
 - `web`: status UI over SQLite
 
+Probe scheduling details:
+- advert-triggered probe jobs are rate-limited per repeater and endpoint to avoid floods from duplicate adverts
+- manual jobs keep bypassing that cooldown because they use distinct reasons
+
 SQLite stays file-based in the shared volume. It is not extracted into a separate process because that would add coordination complexity without improving correctness for the current single-host deployment.

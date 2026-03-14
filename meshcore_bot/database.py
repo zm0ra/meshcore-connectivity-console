@@ -14,6 +14,21 @@ def utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
+def is_recent_iso_timestamp(value: str | None, max_age_secs: float, *, now: datetime | None = None) -> bool:
+    if not value or max_age_secs <= 0:
+        return False
+    if now is None:
+        now = datetime.now(tz=UTC)
+    try:
+        observed = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=UTC)
+    age_secs = (now - observed).total_seconds()
+    return 0 <= age_secs <= max_age_secs
+
+
 class BotDatabase:
     SCHEMA_VERSION = 2
     CONNECT_TIMEOUT_SECS = 30.0
@@ -356,7 +371,14 @@ class BotDatabase:
 
         return self._run_with_retry(operation)
 
-    def enqueue_probe_job(self, *, repeater_id: int, endpoint_name: str, reason: str) -> int | None:
+    def enqueue_probe_job(
+        self,
+        *,
+        repeater_id: int,
+        endpoint_name: str,
+        reason: str,
+        cooldown_secs: float = 0.0,
+    ) -> int | None:
         scheduled_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> int | None:
             existing = connection.execute(
@@ -369,6 +391,21 @@ class BotDatabase:
             ).fetchone()
             if existing is not None:
                 return None
+            if cooldown_secs > 0:
+                latest = connection.execute(
+                    """
+                    SELECT finished_at, started_at, scheduled_at
+                    FROM probe_jobs
+                    WHERE repeater_id = ? AND endpoint_name = ? AND reason = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id, endpoint_name, reason),
+                ).fetchone()
+                if latest is not None:
+                    latest_activity_at = latest["finished_at"] or latest["started_at"] or latest["scheduled_at"]
+                    if is_recent_iso_timestamp(latest_activity_at, cooldown_secs):
+                        return None
             cursor = connection.execute(
                 """
                 INSERT INTO probe_jobs (

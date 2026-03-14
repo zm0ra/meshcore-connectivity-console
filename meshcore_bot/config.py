@@ -33,6 +33,7 @@ class ProbeConfig:
     guest_password_pubkey_prefixes: tuple[str, ...]
     pre_login_advert_name: str
     pre_login_advert_delay_secs: float
+    advert_reprobe_cooldown_secs: float
     poll_interval_secs: float
     request_timeout_secs: float
     route_freshness_secs: float
@@ -116,6 +117,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             guest_password_pubkey_prefixes=tuple(str(item).upper() for item in probe.get("guest_password_pubkey_prefixes", [])),
             pre_login_advert_name=str(probe.get("pre_login_advert_name", "")).strip(),
             pre_login_advert_delay_secs=float(probe.get("pre_login_advert_delay_secs", 1.0)),
+            advert_reprobe_cooldown_secs=float(probe.get("advert_reprobe_cooldown_secs", 60.0)),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
             route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),
