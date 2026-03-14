@@ -107,6 +107,32 @@ INDEX_HTML = """<!doctype html>
       overflow: auto;
       padding: 10px 10px 14px;
     }
+    .list-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 2px 2px 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.48);
+    }
+    .list-toolbar label {
+      color: var(--muted);
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sort-select {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 0.72rem;
+    }
     .section-heading {
       margin: 10px 2px 6px;
       color: var(--muted);
@@ -436,6 +462,7 @@ INDEX_HTML = """<!doctype html>
     let selectedSourceId = null;
     let selectedNeighborId = null;
     let hoveredNodeId = null;
+    let nodeSortMode = 'last_advert';
     let hasFitBounds = false;
 
     function formatWhen(value) {
@@ -565,15 +592,70 @@ INDEX_HTML = """<!doctype html>
       return 'inactive';
     }
 
+    function compareIsoTimesDesc(leftValue, rightValue) {
+      const leftTime = leftValue ? new Date(leftValue).getTime() : 0;
+      const rightTime = rightValue ? new Date(rightValue).getTime() : 0;
+      return rightTime - leftTime;
+    }
+
+    function compareNodeNames(left, right) {
+      return (left.name || left.hash_prefix_hex).localeCompare(right.name || right.hash_prefix_hex);
+    }
+
     function sortNodes(nodes) {
       return nodes.slice().sort((left, right) => {
         const rankDiff = nodeStateRank(left) - nodeStateRank(right);
         if (rankDiff !== 0) return rankDiff;
-        const leftTime = left.last_advert_at ? new Date(left.last_advert_at).getTime() : 0;
-        const rightTime = right.last_advert_at ? new Date(right.last_advert_at).getTime() : 0;
-        if (rightTime !== leftTime) return rightTime - leftTime;
-        return (left.name || left.hash_prefix_hex).localeCompare(right.name || right.hash_prefix_hex);
+
+        if (nodeSortMode === 'alphabetical') {
+          const nameDiff = compareNodeNames(left, right);
+          if (nameDiff !== 0) return nameDiff;
+          return compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+        }
+
+        if (nodeSortMode === 'last_data') {
+          const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
+          if (dataDiff !== 0) return dataDiff;
+          const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+          if (advertDiff !== 0) return advertDiff;
+          return compareNodeNames(left, right);
+        }
+
+        const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+        if (advertDiff !== 0) return advertDiff;
+        const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
+        if (dataDiff !== 0) return dataDiff;
+        return compareNodeNames(left, right);
       });
+    }
+
+    function fitInitialBounds(bounds) {
+      if (!bounds.length) return;
+      map.fitBounds(bounds, {
+        paddingTopLeft: [18, 18],
+        paddingBottomRight: [18, 18],
+        maxZoom: 10,
+      });
+      hasFitBounds = true;
+    }
+
+    function fitSelectedRepeater(selectedNode, visibleNodes) {
+      if (!selectedNode || !isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) return;
+      const bounds = [[selectedNode.latitude, selectedNode.longitude]];
+      for (const node of visibleNodes) {
+        if (node.identity_hex === selectedSourceId) continue;
+        bounds.push([node.latitude, node.longitude]);
+      }
+      if (bounds.length > 1) {
+        map.flyToBounds(bounds, {
+          paddingTopLeft: [36, 36],
+          paddingBottomRight: [360, 36],
+          maxZoom: 12,
+          duration: 0.6,
+        });
+        return;
+      }
+      map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
     }
 
     function renderSummary(state) {
@@ -599,23 +681,7 @@ INDEX_HTML = """<!doctype html>
       const allMapNodes = deriveMapNodes(sortNodes(relevantNodes(latestState)));
       const neighborIds = selectedNeighborIds(latestState);
       const visibleNodes = allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex));
-      if (selectedNode && isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) {
-        const bounds = [[selectedNode.latitude, selectedNode.longitude]];
-        for (const node of visibleNodes) {
-          if (node.identity_hex === selectedSourceId) continue;
-          bounds.push([node.latitude, node.longitude]);
-        }
-        if (bounds.length > 1) {
-          map.flyToBounds(bounds, {
-            paddingTopLeft: [36, 36],
-            paddingBottomRight: [360, 36],
-            maxZoom: 12,
-            duration: 0.6,
-          });
-        } else {
-          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
-        }
-      }
+      fitSelectedRepeater(selectedNode, visibleNodes);
       render(latestState);
     }
 
@@ -922,6 +988,16 @@ INDEX_HTML = """<!doctype html>
       const selectedNode = selectedSourceId ? nodes.find((node) => node.identity_hex === selectedSourceId) : null;
       const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
       let html = '';
+      html += `
+        <div class="list-toolbar">
+          <label for="sort-mode">Sortowanie</label>
+          <select id="sort-mode" class="sort-select" data-sort-mode="1">
+            <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>ostatni advert</option>
+            <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>ostatnie dane</option>
+            <option value="alphabetical"${nodeSortMode === 'alphabetical' ? ' selected' : ''}>alfabetycznie</option>
+          </select>
+        </div>
+      `;
       if (selectedNode) {
         html += '<div class=\"section-heading\">Selected repeater</div>';
         html += `<div class=\"node-list\">${rowHtml(selectedNode, state)}</div>`;
@@ -931,6 +1007,12 @@ INDEX_HTML = """<!doctype html>
       container.innerHTML = html;
       for (const button of container.querySelectorAll('[data-node]')) {
         button.addEventListener('click', () => selectNode(button.dataset.node));
+      }
+      for (const select of container.querySelectorAll('[data-sort-mode]')) {
+        select.addEventListener('change', () => {
+          nodeSortMode = select.value;
+          render(latestState);
+        });
       }
       for (const button of container.querySelectorAll('[data-clear-selection]')) {
         button.addEventListener('click', clearSelection);
@@ -1020,10 +1102,7 @@ INDEX_HTML = """<!doctype html>
       }
       renderLabels(nodes, neighborIds);
       renderLinkLabels(selectedLinks, sourceNode);
-      if (!hasFitBounds && bounds.length) {
-        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 10 });
-        hasFitBounds = true;
-      }
+      if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
     }
 
     function render(state) {
