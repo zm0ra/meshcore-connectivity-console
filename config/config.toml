@@ -21,6 +21,7 @@ pre_login_advert_name = ""
 pre_login_advert_delay_secs = 1.0
 poll_interval_secs = 2.0
 request_timeout_secs = 8.0
+route_freshness_secs = 1800
 neighbours_page_size = 15
 neighbours_prefix_len = 4
 

@@ -563,18 +563,84 @@ class BotDatabase:
             ).fetchone()
             return dict(row) if row is not None else None
 
-    def latest_repeater_advert_path(self, *, repeater_id: int) -> dict[str, object] | None:
+    def latest_repeater_advert(self, *, repeater_id: int, endpoint_name: str | None = None) -> dict[str, object] | None:
         with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT path_len, path_hex, observed_at, endpoint_name
-                FROM repeater_adverts
-                WHERE repeater_id = ? AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (repeater_id,),
-            ).fetchone()
+            if endpoint_name is None:
+                row = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND endpoint_name = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id, endpoint_name),
+                ).fetchone()
+            return dict(row) if row is not None else None
+
+    def latest_repeater_zero_hop_advert(self, *, repeater_id: int, endpoint_name: str | None = None) -> dict[str, object] | None:
+        with self.connect() as connection:
+            if endpoint_name is None:
+                row = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND COALESCE(path_len, 0) = 0 AND COALESCE(path_hex, '') = ''
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND endpoint_name = ?
+                      AND COALESCE(path_len, 0) = 0 AND COALESCE(path_hex, '') = ''
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id, endpoint_name),
+                ).fetchone()
+            return dict(row) if row is not None else None
+
+    def latest_repeater_advert_path(self, *, repeater_id: int, endpoint_name: str | None = None) -> dict[str, object] | None:
+        with self.connect() as connection:
+            if endpoint_name is None:
+                row = connection.execute(
+                    """
+                    SELECT path_len, path_hex, observed_at, endpoint_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT path_len, path_hex, observed_at, endpoint_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND endpoint_name = ?
+                      AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (repeater_id, endpoint_name),
+                ).fetchone()
             return dict(row) if row is not None else None
 
     def save_owner_snapshot(self, *, probe_run_id: int, firmware_version: str | None, node_name: str | None, owner_info: str | None) -> None:

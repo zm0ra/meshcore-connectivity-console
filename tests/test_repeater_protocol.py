@@ -1,11 +1,13 @@
 import struct
 
+from datetime import UTC, datetime, timedelta
+
 from meshcore_bot.config import ProbeConfig
 from meshcore_bot.identity import LocalIdentity
 from meshcore_bot.mesh_builders import build_advert_packet, build_login_packet, next_request_tag, next_wire_timestamp, parse_anon_request
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
-from meshcore_bot.probe_service import select_login_candidates
+from meshcore_bot.probe_service import is_recent_observation, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     parse_login_response,
     parse_neighbours_response,
@@ -97,6 +99,7 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         pre_login_advert_delay_secs=1.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
+        route_freshness_secs=1800.0,
         neighbours_page_size=15,
         neighbours_prefix_len=4,
     )
@@ -122,6 +125,7 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         pre_login_advert_delay_secs=1.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
+        route_freshness_secs=1800.0,
         neighbours_page_size=15,
         neighbours_prefix_len=4,
     )
@@ -176,3 +180,29 @@ def test_next_request_tag_uses_monotonic_time_like_values() -> None:
     assert baseline == 1_773_473_000
     assert tag > baseline
     assert later > tag
+
+
+def test_is_recent_observation_accepts_fresh_timestamp() -> None:
+    now = datetime(2026, 3, 14, 8, 30, tzinfo=UTC)
+    observed_at = (now - timedelta(minutes=5)).isoformat()
+    assert is_recent_observation(observed_at, 1800.0, now=now)
+
+
+def test_is_recent_observation_rejects_stale_timestamp() -> None:
+    now = datetime(2026, 3, 14, 8, 30, tzinfo=UTC)
+    observed_at = (now - timedelta(minutes=45)).isoformat()
+    assert not is_recent_observation(observed_at, 1800.0, now=now)
+
+
+def test_select_login_route_attempts_prefers_local_zero_hop_visibility() -> None:
+    attempts = select_login_route_attempts(fresh_path=(2, bytes.fromhex("3548")), local_zero_hop_visible=True)
+    assert attempts == [(0, b"")]
+
+
+def test_select_login_route_attempts_uses_fresh_direct_path_when_not_local() -> None:
+    attempts = select_login_route_attempts(fresh_path=(2, bytes.fromhex("3548")), local_zero_hop_visible=False)
+    assert attempts == [(2, bytes.fromhex("3548"))]
+
+
+def test_select_login_route_attempts_returns_empty_without_route_or_local_visibility() -> None:
+    assert select_login_route_attempts(fresh_path=None, local_zero_hop_visible=False) == []

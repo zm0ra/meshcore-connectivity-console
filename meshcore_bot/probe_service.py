@@ -61,6 +61,29 @@ def select_login_candidates(*, config, remote_pubkey: bytes, repeater_name: str 
     return deduped
 
 
+def is_recent_observation(observed_at: str | None, max_age_secs: float, *, now: datetime | None = None) -> bool:
+    if not observed_at:
+        return False
+    if now is None:
+        now = datetime.now(tz=UTC)
+    try:
+        observed = datetime.fromisoformat(observed_at)
+    except ValueError:
+        return False
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=UTC)
+    age_secs = (now - observed).total_seconds()
+    return 0 <= age_secs <= max_age_secs
+
+
+def select_login_route_attempts(*, fresh_path: tuple[int, bytes] | None, local_zero_hop_visible: bool) -> list[tuple[int, bytes]]:
+    if local_zero_hop_visible:
+        return [(0, b"")]
+    if fresh_path is not None:
+        return [fresh_path]
+    return []
+
+
 class GuestProbeWorker:
     def __init__(self, config: AppConfig, database: BotDatabase) -> None:
         self.config = config
@@ -150,12 +173,21 @@ class GuestProbeWorker:
             remote_pubkey=remote_pubkey,
             repeater_name=repeater_name,
         )
+        latest_zero_hop_advert = self.database.latest_repeater_zero_hop_advert(
+            repeater_id=repeater_id,
+            endpoint_name=endpoint.name,
+        )
+        local_zero_hop_visible = self._is_local_zero_hop_visible(latest_zero_hop_advert)
         latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
         if latest_path is not None and not self._is_usable_stored_path(latest_path):
             latest_path = None
+        if latest_path is not None and not self._is_fresh_observation(latest_path):
+            latest_path = None
         if latest_path is None:
-            latest_path = self.database.latest_repeater_advert_path(repeater_id=repeater_id)
+            latest_path = self.database.latest_repeater_advert_path(repeater_id=repeater_id, endpoint_name=endpoint.name)
         if latest_path is not None and not self._is_usable_stored_path(latest_path):
+            latest_path = None
+        if latest_path is not None and not self._is_fresh_observation(latest_path):
             latest_path = None
         if latest_path is not None:
             learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
@@ -198,10 +230,15 @@ class GuestProbeWorker:
 
             login_payload = b""
             login_error: Exception | None = None
+            route_attempts = select_login_route_attempts(
+                fresh_path=(learned_path_len, learned_path_bytes) if learned_path_len and learned_path_bytes else None,
+                local_zero_hop_visible=local_zero_hop_visible,
+            )
+            if not route_attempts:
+                raise RuntimeError(
+                    f"no fresh path and repeater is not locally visible on endpoint {endpoint.name}"
+                )
             for login_role, login_password in login_candidates:
-                route_attempts = [(0, b"")]
-                if learned_path_len and learned_path_bytes:
-                    route_attempts = [(learned_path_len, learned_path_bytes)]
                 for route_path_len, route_path_bytes in route_attempts:
                     password_label = "empty" if login_password == "" else "configured"
                     route_label = "direct" if route_path_len else "flood"
@@ -828,6 +865,19 @@ class GuestProbeWorker:
         path_len = int(cast(int | str, path_row.get("out_path_len", path_row.get("path_len", 0))) or 0)
         path_hex = str(cast(str | None, path_row.get("out_path_hex", path_row.get("path_hex", ""))) or "").strip()
         return path_len > 0 and path_hex != ""
+
+    def _is_fresh_observation(self, row: dict[str, object]) -> bool:
+        observed_at = str(cast(str | None, row.get("observed_at")) or "")
+        return is_recent_observation(observed_at, self.config.probe.route_freshness_secs)
+
+    def _is_local_zero_hop_visible(self, advert_row: dict[str, object] | None) -> bool:
+        if advert_row is None:
+            return False
+        if not self._is_fresh_observation(advert_row):
+            return False
+        path_len = int(cast(int | str, advert_row.get("path_len", 0)) or 0)
+        path_hex = str(cast(str | None, advert_row.get("path_hex", "")) or "").strip()
+        return path_len == 0 and path_hex == ""
 
     def _is_login_response_payload(self, payload: bytes) -> bool:
         if len(payload) not in {12, 13}:

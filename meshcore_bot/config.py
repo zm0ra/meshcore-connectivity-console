@@ -35,6 +35,7 @@ class ProbeConfig:
     pre_login_advert_delay_secs: float
     poll_interval_secs: float
     request_timeout_secs: float
+    route_freshness_secs: float
     neighbours_page_size: int
     neighbours_prefix_len: int
 
@@ -109,6 +110,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             pre_login_advert_delay_secs=float(probe.get("pre_login_advert_delay_secs", 1.0)),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
+            route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),
             neighbours_page_size=int(probe.get("neighbours_page_size", 15)),
             neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 4)),
         ),
