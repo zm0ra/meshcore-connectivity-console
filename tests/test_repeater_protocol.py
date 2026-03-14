@@ -256,21 +256,33 @@ def test_is_recent_observation_rejects_stale_timestamp() -> None:
     assert not is_recent_observation(observed_at, 1800.0, now=now)
 
 
-def test_select_login_route_attempts_prefers_local_zero_hop_visibility() -> None:
-    attempts = select_login_route_attempts(fresh_paths=[(2, bytes.fromhex("3548"))], local_zero_hop_visible=True)
-    assert attempts == [(0, b"")]
+def test_select_login_route_attempts_prefers_known_routes_before_flood() -> None:
+    attempts = select_login_route_attempts(known_paths=[(2, bytes.fromhex("3548"))], local_zero_hop_visible=True)
+    assert attempts == [(2, bytes.fromhex("3548")), (0, b"")]
 
 
-def test_select_login_route_attempts_uses_fresh_direct_path_when_not_local() -> None:
+def test_select_login_route_attempts_uses_known_direct_paths_in_order() -> None:
     attempts = select_login_route_attempts(
-        fresh_paths=[(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E"))],
+        known_paths=[(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E"))],
         local_zero_hop_visible=False,
     )
-    assert attempts == [(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E"))]
+    assert attempts == [(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E")), (0, b"")]
+
+
+def test_select_login_route_attempts_deduplicates_known_paths_before_flood() -> None:
+    attempts = select_login_route_attempts(
+        known_paths=[(2, bytes.fromhex("35EF")), (2, bytes.fromhex("35EF")), (1, bytes.fromhex("35"))],
+        local_zero_hop_visible=False,
+    )
+    assert attempts == [(2, bytes.fromhex("35EF")), (1, bytes.fromhex("35")), (0, b"")]
 
 
 def test_select_login_route_attempts_returns_empty_without_route_or_local_visibility() -> None:
-    assert select_login_route_attempts(fresh_paths=[], local_zero_hop_visible=False) == []
+    assert select_login_route_attempts(known_paths=[], local_zero_hop_visible=False) == []
+
+
+def test_select_login_route_attempts_uses_flood_when_only_local_visibility_exists() -> None:
+    assert select_login_route_attempts(known_paths=[], local_zero_hop_visible=True) == [(0, b"")]
 
 
 def test_discover_repeater_path_uses_flood_and_saves_learned_route(tmp_path) -> None:
