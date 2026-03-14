@@ -6,7 +6,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
-from meshcore_bot.config import AppConfig, EndpointConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
+from meshcore_bot.config import AppConfig, EndpointConfig, GatewayConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
 from meshcore_bot.database import BotDatabase
 from meshcore_bot.identity import LocalIdentity
 from meshcore_bot.mesh_builders import (
@@ -21,6 +21,7 @@ from meshcore_bot.mesh_builders import (
 )
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
+from meshcore_bot.config import load_config
 from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
@@ -36,6 +37,12 @@ class FakeTCPClient:
     def __init__(self, received_packets: list[ReceivedPacket]) -> None:
         self.received_packets = list(received_packets)
         self.sent_packets: list[bytes] = []
+
+    async def connect(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
     async def send_packet(self, packet: bytes) -> str:
         self.sent_packets.append(packet)
@@ -70,6 +77,10 @@ def build_test_app_config(tmp_path) -> AppConfig:
             neighbours_prefix_len=4,
         ),
         web=WebConfig(host="127.0.0.1", port=8080),
+        gateway=GatewayConfig(
+            control_socket_path=tmp_path / "gateway-control.sock",
+            event_socket_path=tmp_path / "gateway-events.sock",
+        ),
         endpoints=(EndpointConfig(name="test-endpoint", raw_host="127.0.0.1", raw_port=5002, enabled=True),),
     )
 
@@ -284,6 +295,13 @@ def test_select_login_route_attempts_returns_empty_without_route_or_local_visibi
 
 def test_select_login_route_attempts_uses_flood_when_only_local_visibility_exists() -> None:
     assert select_login_route_attempts(known_paths=[], local_zero_hop_visible=True) == [(0, b"")]
+
+
+def test_load_config_accepts_repo_relative_path_outside_repo_root(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = load_config("config/config.toml")
+    assert config.gateway.control_socket_path.name == "control.sock"
+    assert config.endpoints[0].name == "rpt-primary"
 
 
 def test_discover_repeater_path_uses_flood_and_saves_learned_route(tmp_path) -> None:

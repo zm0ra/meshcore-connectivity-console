@@ -47,6 +47,12 @@ class WebConfig:
 
 
 @dataclass(frozen=True)
+class GatewayConfig:
+    control_socket_path: Path
+    event_socket_path: Path
+
+
+@dataclass(frozen=True)
 class EndpointConfig:
     name: str
     raw_host: str
@@ -61,11 +67,12 @@ class AppConfig:
     identity: IdentityConfig
     probe: ProbeConfig
     web: WebConfig
+    gateway: GatewayConfig
     endpoints: tuple[EndpointConfig, ...]
 
 
 def load_config(config_path: str | Path) -> AppConfig:
-    path = Path(config_path).expanduser().resolve()
+    path = _resolve_config_path(config_path)
     with path.open("rb") as handle:
         raw = tomllib.load(handle)
 
@@ -75,6 +82,7 @@ def load_config(config_path: str | Path) -> AppConfig:
     identity = raw.get("identity", {})
     probe = raw.get("probe", {})
     web = raw.get("web", {})
+    gateway = raw.get("gateway", {})
 
     endpoints = tuple(
         EndpointConfig(
@@ -118,6 +126,10 @@ def load_config(config_path: str | Path) -> AppConfig:
             host=str(web.get("host", "0.0.0.0")),
             port=int(web.get("port", 8080)),
         ),
+        gateway=GatewayConfig(
+            control_socket_path=_resolve_path(base_dir, str(gateway.get("control_socket_path", "./data/gateway/control.sock"))),
+            event_socket_path=_resolve_path(base_dir, str(gateway.get("event_socket_path", "./data/gateway/events.sock"))),
+        ),
         endpoints=endpoints,
     )
 
@@ -133,3 +145,16 @@ def _resolve_optional_path(base_dir: Path, value: object) -> Path | None:
     if value in (None, ""):
         return None
     return _resolve_path(base_dir, str(value))
+
+
+def _resolve_config_path(config_path: str | Path) -> Path:
+    path = Path(config_path).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    repo_candidate = (Path(__file__).resolve().parent.parent / path).resolve()
+    return repo_candidate

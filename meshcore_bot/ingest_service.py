@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Callable
 
 from .config import AppConfig, EndpointConfig
 from .database import BotDatabase
 from .mesh_packets import AdvertType, describe_packet_summary, parse_advert
 from .tcp_client import MeshcoreTCPClient, ReceivedPacket
+from .transport import PacketTransportClient
 
 
 @dataclass(slots=True)
@@ -19,13 +21,20 @@ class IngestStats:
 
 
 class AdvertIngestService:
-    def __init__(self, config: AppConfig, database: BotDatabase) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        database: BotDatabase,
+        *,
+        transport_factory: Callable[[EndpointConfig], PacketTransportClient] | None = None,
+    ) -> None:
         self.config = config
         self.database = database
         self.logger = logging.getLogger(f"{config.service.name}.ingest")
         self.stats = IngestStats()
         self._stop_event = asyncio.Event()
         self._tasks: list[asyncio.Task[None]] = []
+        self._transport_factory = transport_factory or self._build_direct_transport
 
     async def run(self) -> None:
         self.database.initialize()
@@ -49,7 +58,7 @@ class AdvertIngestService:
 
     async def _run_endpoint(self, endpoint: EndpointConfig) -> None:
         while not self._stop_event.is_set():
-            client = MeshcoreTCPClient(endpoint.raw_host, endpoint.raw_port)
+            client = self._transport_factory(endpoint)
             try:
                 await client.connect()
                 self.logger.info("ingest connected to %s (%s:%s)", endpoint.name, endpoint.raw_host, endpoint.raw_port)
@@ -63,6 +72,9 @@ class AdvertIngestService:
                 await asyncio.sleep(3.0)
             finally:
                 await client.close()
+
+    def _build_direct_transport(self, endpoint: EndpointConfig) -> PacketTransportClient:
+        return MeshcoreTCPClient(endpoint.raw_host, endpoint.raw_port)
 
     async def _handle_packet(self, endpoint: EndpointConfig, packet: ReceivedPacket) -> None:
         self.stats.packets_seen += 1

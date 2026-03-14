@@ -20,10 +20,10 @@ services:
       - ./config:/app/config
       - ./data:/app/data
 
-  ingest:
+  bridge-gateway:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-ingest", "--config", "/app/config/config.toml"]
+    command: ["python", "-m", "meshcore_bot", "run-bridge-gateway", "--config", "/app/config/config.toml"]
     restart: unless-stopped
     depends_on:
       init-db:
@@ -34,12 +34,14 @@ services:
       - ./config:/app/config
       - ./data:/app/data
 
-  probe:
+  neighbours-worker:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-probe", "--config", "/app/config/config.toml"]
+    command: ["python", "-m", "meshcore_bot", "run-neighbours-worker", "--config", "/app/config/config.toml"]
     restart: unless-stopped
     depends_on:
+      bridge-gateway:
+        condition: service_started
       init-db:
         condition: service_completed_successfully
       ensure-identity:

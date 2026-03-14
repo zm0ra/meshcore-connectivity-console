@@ -29,6 +29,10 @@ neighbours_prefix_len = 4
 host = "0.0.0.0"
 port = 8080
 
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
 [[endpoints]]
 name = "rpt-primary"
 raw_host = "172.30.105.24"

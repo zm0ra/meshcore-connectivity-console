@@ -5,10 +5,12 @@ import asyncio
 import json
 import logging
 
+from .bridge_gateway import BridgeGatewayService
 from .config import load_config
 from .database import BotDatabase
 from .identity import LocalIdentity
 from .ingest_service import AdvertIngestService
+from .neighbours_worker import NeighboursWorkerApp
 from .probe_service import GuestProbeWorker
 from .web_service import create_app
 
@@ -41,6 +43,12 @@ def main() -> None:
 
     run_probe = subparsers.add_parser("run-probe", help="run guest probe worker")
     run_probe.add_argument("--config", default="config/config.toml", help="path to TOML config")
+
+    run_bridge_gateway = subparsers.add_parser("run-bridge-gateway", help="run bridge gateway process")
+    run_bridge_gateway.add_argument("--config", default="config/config.toml", help="path to TOML config")
+
+    run_neighbours_worker = subparsers.add_parser("run-neighbours-worker", help="run neighbours ingest and probe worker")
+    run_neighbours_worker.add_argument("--config", default="config/config.toml", help="path to TOML config")
 
     run_web = subparsers.add_parser("run-web", help="run status web service")
     run_web.add_argument("--config", default="config/config.toml", help="path to TOML config")
@@ -82,6 +90,10 @@ def main() -> None:
                 "host": config.web.host,
                 "port": config.web.port,
             },
+            "gateway": {
+                "control_socket_path": str(config.gateway.control_socket_path),
+                "event_socket_path": str(config.gateway.event_socket_path),
+            },
             "endpoints": [
                 {
                     "name": endpoint.name,
@@ -121,6 +133,14 @@ def main() -> None:
 
     if command == "run-probe":
         asyncio.run(GuestProbeWorker(config, database).run())
+        return
+
+    if command == "run-bridge-gateway":
+        asyncio.run(BridgeGatewayService(config).run())
+        return
+
+    if command == "run-neighbours-worker":
+        asyncio.run(NeighboursWorkerApp(config, database).run())
         return
 
     if command == "run-web":

@@ -6,7 +6,7 @@ import os
 import struct
 from datetime import UTC, datetime
 from dataclasses import asdict
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from .config import AppConfig, EndpointConfig
 from .database import BotDatabase
@@ -27,6 +27,7 @@ from .repeater_protocol import (
     parse_status_response,
 )
 from .tcp_client import MeshcoreTCPClient, ReceivedPacket
+from .transport import PacketTransportClient
 
 
 class ProbeTimeoutError(TimeoutError):
@@ -95,7 +96,13 @@ def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_z
 
 
 class GuestProbeWorker:
-    def __init__(self, config: AppConfig, database: BotDatabase) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        database: BotDatabase,
+        *,
+        transport_factory: Callable[[EndpointConfig], PacketTransportClient] | None = None,
+    ) -> None:
         self.config = config
         self.database = database
         probe_key_path = config.probe.key_file_path or config.identity.key_file_path
@@ -104,6 +111,7 @@ class GuestProbeWorker:
         self._stop_event = asyncio.Event()
         self._endpoint_map = {endpoint.name: endpoint for endpoint in config.endpoints if endpoint.enabled}
         self._local_hash = self.identity.public_hash(1)
+        self._transport_factory = transport_factory or self._build_direct_transport
 
     async def run(self) -> None:
         self.database.initialize()
@@ -172,7 +180,7 @@ class GuestProbeWorker:
         repeater_name: str | None,
     ) -> None:
         shared_secret = self.identity.calc_shared_secret(remote_pubkey)
-        client = MeshcoreTCPClient(endpoint.raw_host, endpoint.raw_port)
+        client = self._transport_factory(endpoint)
         learned_path_len = 0
         learned_path_bytes = b""
         guest_permissions: int | None = None
@@ -502,7 +510,7 @@ class GuestProbeWorker:
         finally:
             await client.close()
 
-    async def _send_and_record(self, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, client: MeshcoreTCPClient, packet, request_tag: int, notes: str) -> None:
+    async def _send_and_record(self, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, client: PacketTransportClient, packet, request_tag: int, notes: str) -> None:
         frame_hex = await client.send_packet(packet.packet)
         self.database.insert_raw_packet(
             probe_run_id=probe_run_id,
@@ -532,7 +540,7 @@ class GuestProbeWorker:
     async def _send_with_tagged_response_retries(
         self,
         *,
-        client: MeshcoreTCPClient,
+        client: PacketTransportClient,
         endpoint_name: str,
         probe_run_id: int,
         repeater_id: int,
@@ -583,7 +591,7 @@ class GuestProbeWorker:
         assert last_error is not None
         raise last_error
 
-    async def _await_login_response(self, *, client: MeshcoreTCPClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
+    async def _await_login_response(self, *, client: PacketTransportClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
         deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
         remote_hash = remote_pubkey[:1]
         last_observation = "none"
@@ -689,7 +697,7 @@ class GuestProbeWorker:
     async def _settle_post_login_frames(
         self,
         *,
-        client: MeshcoreTCPClient,
+        client: PacketTransportClient,
         endpoint_name: str,
         probe_run_id: int,
         repeater_id: int,
@@ -740,7 +748,7 @@ class GuestProbeWorker:
     async def _discover_repeater_path(
         self,
         *,
-        client: MeshcoreTCPClient,
+        client: PacketTransportClient,
         endpoint_name: str,
         probe_run_id: int,
         repeater_id: int,
@@ -778,7 +786,7 @@ class GuestProbeWorker:
     async def _await_path_discovery_response(
         self,
         *,
-        client: MeshcoreTCPClient,
+        client: PacketTransportClient,
         endpoint_name: str,
         probe_run_id: int,
         repeater_id: int,
@@ -899,7 +907,7 @@ class GuestProbeWorker:
     async def _await_tagged_response(
         self,
         *,
-        client: MeshcoreTCPClient,
+        client: PacketTransportClient,
         endpoint_name: str,
         probe_run_id: int,
         repeater_id: int,
@@ -1175,4 +1183,7 @@ class GuestProbeWorker:
             received.frame_hex,
             received.packet_hex,
         )
+
+    def _build_direct_transport(self, endpoint: EndpointConfig) -> PacketTransportClient:
+        return MeshcoreTCPClient(endpoint.raw_host, endpoint.raw_port)
 
