@@ -1,19 +1,63 @@
 services:
-  bot:
+  init-db:
     build:
       context: .
-    init: true
+    command: ["python", "-m", "meshcore_bot", "init-db", "--config", "/app/config/config.toml"]
+    restart: "no"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  ensure-identity:
+    build:
+      context: .
+    command: ["python", "-m", "meshcore_bot", "ensure-identity", "--config", "/app/config/config.toml"]
+    restart: "no"
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  ingest:
+    build:
+      context: .
+    command: ["python", "-m", "meshcore_bot", "run-ingest", "--config", "/app/config/config.toml"]
     restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  probe:
+    build:
+      context: .
+    command: ["python", "-m", "meshcore_bot", "run-probe", "--config", "/app/config/config.toml"]
+    restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  web:
+    build:
+      context: .
+    command: ["python", "-m", "meshcore_bot", "run-web", "--config", "/app/config/config.toml"]
+    restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     volumes:
       - ./config:/app/config
       - ./data:/app/data
-      - ./logs:/app/logs
-    command: ["python", "-m", "meshcore_bot", "serve", "--config", "/app/config/config.toml"]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()"]
-      interval: 15s
-      timeout: 3s
-      retries: 5
-      start_period: 5s

@@ -1,4 +1,4 @@
-"""meshcore-bot package."""
+"""MeshCore TCP bot foundation."""
 
 __all__ = ["__version__"]
 

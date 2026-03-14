@@ -11,10 +11,7 @@ dist/
 build/
 *.egg-info/
 
-# Runtime data should not be tracked by default.
 data/
 logs/
-
-# Local environment files.
 .env
 .env.*

@@ -1,25 +1,32 @@
-[bot]
-name = "MeshBot"
-reply_prefix = "[MeshBot] "
-command_prefix = "!"
-message_history_size = 200
-
 [service]
 name = "meshcore-bot"
 log_level = "INFO"
 
+[storage]
+database_path = "./data/meshcore-bot.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[probe]
+key_file_path = "./data/identity.bin"
+admin_password = "qweqwe"
+admin_password_name_prefixes = ["SZN_"]
+admin_password_pubkey_prefixes = ["35D4F9975A2B"]
+guest_password = ""
+default_guest_password = ""
+guest_password_name_prefixes = []
+guest_password_pubkey_prefixes = []
+pre_login_advert_name = ""
+pre_login_advert_delay_secs = 1.0
+poll_interval_secs = 2.0
+request_timeout_secs = 8.0
+neighbours_page_size = 12
+neighbours_prefix_len = 8
+
 [web]
 host = "0.0.0.0"
 port = 8080
-
-[storage]
-data_dir = "./data"
-logs_dir = "./logs"
-database_path = "./data/meshcore-bot.db"
-
-[[channels]]
-name = "bot-test"
-listen = true
 
 [[endpoints]]
 name = "rpt-primary"

@@ -12,6 +12,4 @@ COPY config ./config
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
-EXPOSE 8080
-
-CMD ["python", "-m", "meshcore_bot", "serve", "--config", "config/config.toml"]
+CMD ["python", "-m", "meshcore_bot", "show-config", "--config", "config/config.toml"]
