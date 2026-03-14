@@ -198,13 +198,10 @@ class GuestProbeWorker:
 
             login_payload = b""
             login_error: Exception | None = None
-            is_szn_direct = (repeater_name or "").strip().upper().startswith("SZN_")
             for login_role, login_password in login_candidates:
                 route_attempts = [(0, b"")]
                 if learned_path_len and learned_path_bytes:
                     route_attempts = [(learned_path_len, learned_path_bytes)]
-                    if not is_szn_direct:
-                        route_attempts.append((0, b""))
                 for route_path_len, route_path_bytes in route_attempts:
                     password_label = "empty" if login_password == "" else "configured"
                     route_label = "direct" if route_path_len else "flood"
