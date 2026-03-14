@@ -323,6 +323,7 @@ class GuestProbeWorker:
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
                     expected_tag=neighbours_tag,
@@ -370,6 +371,7 @@ class GuestProbeWorker:
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
                     expected_tag=status_tag,
@@ -395,6 +397,7 @@ class GuestProbeWorker:
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
                     expected_tag=owner_tag,
@@ -453,6 +456,7 @@ class GuestProbeWorker:
 
     async def _await_login_response(self, *, client: MeshcoreTCPClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
         deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
+        remote_hash = remote_pubkey[:1]
         last_observation = "none"
         while True:
             remaining = deadline - asyncio.get_running_loop().time()
@@ -476,6 +480,22 @@ class GuestProbeWorker:
                 except Exception as exc:
                     last_observation = f"path-decrypt-failed:{exc}"
                     self.logger.info("ignored login candidate path frame reason=%s", exc)
+                    continue
+                if not self._is_remote_to_local_datagram(
+                    source_hash=path_response.source_hash,
+                    destination_hash=path_response.destination_hash,
+                    remote_hash=remote_hash,
+                ):
+                    last_observation = (
+                        "foreign-path"
+                        f":src={path_response.source_hash.hex().upper()}"
+                        f":dst={path_response.destination_hash.hex().upper()}"
+                    )
+                    self.logger.info(
+                        "ignored login PATH from foreign hashes src=%s dst=%s",
+                        path_response.source_hash.hex().upper(),
+                        path_response.destination_hash.hex().upper(),
+                    )
                     continue
                 last_observation = (
                     "path"
@@ -506,6 +526,22 @@ class GuestProbeWorker:
                 except Exception as exc:
                     last_observation = f"response-decrypt-failed:{exc}"
                     self.logger.info("ignored login candidate response reason=%s", exc)
+                    continue
+                if not self._is_remote_to_local_datagram(
+                    source_hash=decrypted.source_hash,
+                    destination_hash=decrypted.destination_hash,
+                    remote_hash=remote_hash,
+                ):
+                    last_observation = (
+                        "foreign-response"
+                        f":src={decrypted.source_hash.hex().upper()}"
+                        f":dst={decrypted.destination_hash.hex().upper()}"
+                    )
+                    self.logger.info(
+                        "ignored login RESPONSE from foreign hashes src=%s dst=%s",
+                        decrypted.source_hash.hex().upper(),
+                        decrypted.destination_hash.hex().upper(),
+                    )
                     continue
                 last_observation = (
                     "response"
@@ -578,6 +614,7 @@ class GuestProbeWorker:
         client: MeshcoreTCPClient,
         endpoint_name: str,
         probe_run_id: int,
+        repeater_id: int,
         remote_pubkey: bytes,
         shared_secret: bytes,
         expected_tag: int,
@@ -608,6 +645,30 @@ class GuestProbeWorker:
                     last_observation = f"path-decrypt-failed:{exc}"
                     self.logger.info("ignored tagged PATH frame tag=%s reason=%s", expected_tag, exc)
                     continue
+                if not self._is_remote_to_local_datagram(
+                    source_hash=path_response.source_hash,
+                    destination_hash=path_response.destination_hash,
+                    remote_hash=remote_hash,
+                ):
+                    last_observation = (
+                        "foreign-path"
+                        f":src={path_response.source_hash.hex().upper()}"
+                        f":dst={path_response.destination_hash.hex().upper()}"
+                    )
+                    self.logger.info(
+                        "ignored tagged PATH from foreign hashes tag=%s src=%s dst=%s",
+                        expected_tag,
+                        path_response.source_hash.hex().upper(),
+                        path_response.destination_hash.hex().upper(),
+                    )
+                    continue
+                if path_response.encoded_path_len:
+                    current_path_len, current_path_bytes = self._save_repeater_path_update(
+                        repeater_id=repeater_id,
+                        encoded_path_len=path_response.encoded_path_len,
+                        path_bytes=path_response.path_bytes,
+                        source="path_update",
+                    )
                 if path_response.extra_type != int(PayloadType.RESPONSE):
                     last_observation = (
                         f"path-extra-type={path_response.extra_type}"
@@ -622,11 +683,24 @@ class GuestProbeWorker:
                         path_response.destination_hash.hex().upper(),
                     )
                     continue
+                if self._is_login_response_payload(path_response.extra_payload):
+                    last_observation = (
+                        "late-login-response"
+                        f":src={path_response.source_hash.hex().upper()}"
+                        f":dst={path_response.destination_hash.hex().upper()}"
+                    )
+                    self.logger.info(
+                        "ignored late login PATH while waiting for tag=%s src=%s dst=%s",
+                        expected_tag,
+                        path_response.source_hash.hex().upper(),
+                        path_response.destination_hash.hex().upper(),
+                    )
+                    continue
                 if len(path_response.extra_payload) >= 4 and struct.unpack_from("<I", path_response.extra_payload, 0)[0] == expected_tag:
-                    self.database.save_repeater_path(
-                        repeater_id=self._repeater_id_for_probe_run(probe_run_id),
+                    current_path_len, current_path_bytes = self._save_repeater_path_update(
+                        repeater_id=repeater_id,
                         encoded_path_len=path_response.encoded_path_len,
-                        path_hex=path_response.path_bytes.hex().upper(),
+                        path_bytes=path_response.path_bytes,
                         source="response_path",
                     )
                     self.logger.info(
@@ -636,7 +710,7 @@ class GuestProbeWorker:
                         path_response.destination_hash.hex().upper(),
                         path_response.encoded_path_len & 0x3F,
                     )
-                    return path_response.extra_payload, path_response.encoded_path_len, path_response.path_bytes
+                    return path_response.extra_payload, current_path_len, current_path_bytes
                 path_tag = struct.unpack_from("<I", path_response.extra_payload, 0)[0] if len(path_response.extra_payload) >= 4 else None
                 last_observation = (
                     f"path-tag-mismatch={path_tag}"
@@ -692,6 +766,36 @@ class GuestProbeWorker:
                 last_observation = f"response-decrypt-failed:{exc}"
                 self.logger.info("ignored response frame tag=%s reason=%s", expected_tag, exc)
                 continue
+            if not self._is_remote_to_local_datagram(
+                source_hash=decrypted.source_hash,
+                destination_hash=decrypted.destination_hash,
+                remote_hash=remote_hash,
+            ):
+                last_observation = (
+                    "foreign-response"
+                    f":src={decrypted.source_hash.hex().upper()}"
+                    f":dst={decrypted.destination_hash.hex().upper()}"
+                )
+                self.logger.info(
+                    "ignored RESPONSE from foreign hashes expected_tag=%s src=%s dst=%s",
+                    expected_tag,
+                    decrypted.source_hash.hex().upper(),
+                    decrypted.destination_hash.hex().upper(),
+                )
+                continue
+            if self._is_login_response_payload(decrypted.plaintext):
+                last_observation = (
+                    "late-login-response"
+                    f":src={decrypted.source_hash.hex().upper()}"
+                    f":dst={decrypted.destination_hash.hex().upper()}"
+                )
+                self.logger.info(
+                    "ignored late login RESPONSE while waiting for tag=%s src=%s dst=%s",
+                    expected_tag,
+                    decrypted.source_hash.hex().upper(),
+                    decrypted.destination_hash.hex().upper(),
+                )
+                continue
             if len(decrypted.plaintext) >= 4 and struct.unpack_from("<I", decrypted.plaintext, 0)[0] == expected_tag:
                 self.logger.info(
                     "accepted RESPONSE tag=%s src=%s dst=%s",
@@ -713,6 +817,36 @@ class GuestProbeWorker:
                 decrypted.source_hash.hex().upper(),
                 decrypted.destination_hash.hex().upper(),
             )
+
+    def _is_remote_to_local_datagram(self, *, source_hash: bytes, destination_hash: bytes, remote_hash: bytes) -> bool:
+        return source_hash == remote_hash and destination_hash == self._local_hash
+
+    def _is_login_response_payload(self, payload: bytes) -> bool:
+        if len(payload) not in {12, 13}:
+            return False
+        try:
+            login = parse_login_response(payload)
+        except Exception:
+            return False
+        return login.response_code == RESP_SERVER_LOGIN_OK
+
+    def _save_repeater_path_update(
+        self,
+        *,
+        repeater_id: int,
+        encoded_path_len: int,
+        path_bytes: bytes,
+        source: str,
+    ) -> tuple[int, bytes]:
+        if not encoded_path_len:
+            return 0, b""
+        self.database.save_repeater_path(
+            repeater_id=repeater_id,
+            encoded_path_len=encoded_path_len,
+            path_hex=path_bytes.hex().upper(),
+            source=source,
+        )
+        return encoded_path_len, path_bytes
 
     def _record_rx(self, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, received: ReceivedPacket) -> None:
         self.database.insert_raw_packet(
@@ -736,12 +870,3 @@ class GuestProbeWorker:
             received.packet_hex,
         )
 
-    def _repeater_id_for_probe_run(self, probe_run_id: int) -> int:
-        with self.database.connect() as connection:
-            row = connection.execute(
-                "SELECT repeater_id FROM repeater_probe_runs WHERE id = ?",
-                (probe_run_id,),
-            ).fetchone()
-            if row is None:
-                raise RuntimeError(f"probe run not found: {probe_run_id}")
-            return int(row["repeater_id"])
