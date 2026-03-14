@@ -868,6 +868,133 @@ class BotDatabase:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def list_repeaters_for_web(self) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.id,
+                       r.pubkey_hex AS identity_hex,
+                       SUBSTR(r.pubkey_hex, 1, 8) AS hash_prefix_hex,
+                       COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                       'Repeater' AS role,
+                       r.last_lat AS latitude,
+                       r.last_lon AS longitude,
+                       r.last_seen_at AS last_advert_at,
+                       r.last_probe_status,
+                       r.last_probe_at,
+                       EXISTS(
+                           SELECT 1
+                           FROM repeater_probe_runs pr
+                           JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                           WHERE pr.repeater_id = r.id
+                           LIMIT 1
+                       ) AS data_fetch_ok
+                FROM repeaters r
+                ORDER BY r.last_seen_at DESC, r.id DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def latest_repeater_neighbor_links(self, limit_repeaters: int = 64) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                WITH latest_runs AS (
+                    SELECT pr.repeater_id, MAX(pr.id) AS probe_run_id
+                    FROM repeater_probe_runs pr
+                    JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                    GROUP BY pr.repeater_id
+                    ORDER BY MAX(pr.id) DESC
+                    LIMIT ?
+                )
+                SELECT src.pubkey_hex AS source_identity_hex,
+                       SUBSTR(src.pubkey_hex, 1, 8) AS source_hash_prefix_hex,
+                       COALESCE(NULLIF(TRIM(src.last_name_from_advert), ''), SUBSTR(src.pubkey_hex, 1, 8)) AS source_name,
+                       src.last_lat AS source_latitude,
+                       src.last_lon AS source_longitude,
+                       lr.probe_run_id,
+                       ns.observed_at AS collected_at,
+                       ns.heard_seconds_ago AS last_heard_seconds,
+                       ns.snr,
+                       ns.neighbour_pubkey_prefix_hex AS target_hash_prefix_hex,
+                       COALESCE(
+                           (
+                               SELECT t.pubkey_hex
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_identity_hex,
+                       COALESCE(
+                           (
+                               SELECT COALESCE(NULLIF(TRIM(t.last_name_from_advert), ''), SUBSTR(t.pubkey_hex, 1, 8))
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_name,
+                       (
+                           SELECT t.last_lat
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS target_latitude,
+                       (
+                           SELECT t.last_lon
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS target_longitude
+                FROM latest_runs lr
+                JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = lr.probe_run_id
+                JOIN repeaters src ON src.id = lr.repeater_id
+                ORDER BY ns.observed_at DESC, src.last_seen_at DESC, ns.snr DESC, ns.id DESC
+                """,
+                (limit_repeaters,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def repeater_neighbor_signal_history(self, limit_samples_per_source: int = 96) -> dict[str, list[dict[str, object]]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT src.pubkey_hex AS source_identity_hex,
+                       ns.observed_at AS collected_at,
+                       ns.heard_seconds_ago AS last_heard_seconds,
+                       ns.snr,
+                       ns.neighbour_pubkey_prefix_hex AS target_hash_prefix_hex,
+                       COALESCE(
+                           (
+                               SELECT t.pubkey_hex
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_identity_hex
+                FROM repeater_neighbour_snapshots ns
+                JOIN repeater_probe_runs pr ON pr.id = ns.probe_run_id
+                JOIN repeaters src ON src.id = pr.repeater_id
+                ORDER BY src.pubkey_hex ASC, ns.observed_at DESC, ns.id DESC
+                """
+            ).fetchall()
+
+        history: dict[str, list[dict[str, object]]] = {}
+        for row in rows:
+            source_identity_hex = str(row["source_identity_hex"])
+            bucket = history.setdefault(source_identity_hex, [])
+            if len(bucket) >= limit_samples_per_source:
+                continue
+            bucket.append(dict(row))
+        return history
+
     def list_probe_jobs(self, limit: int = 100) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(

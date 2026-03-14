@@ -693,3 +693,108 @@ def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
     with database.connect() as connection:
         rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
     assert [tuple(row) for row in rows] == [(fresh_failed_job_id, "failed")]
+
+
+def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    source_identity = LocalIdentity.generate()
+    target_identity = LocalIdentity.generate()
+    source_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 10, 0, tzinfo=UTC).isoformat(),
+        public_key=source_identity.public_key,
+        advert_name="Source RPT",
+        advert_lat=53.43,
+        advert_lon=14.55,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 10, 1, tzinfo=UTC).isoformat(),
+        public_key=target_identity.public_key,
+        advert_name="Target RPT",
+        advert_lat=53.45,
+        advert_lon=14.57,
+        advert_timestamp_remote=2,
+        path_len=1,
+        path_hex="4E",
+        raw_packet_hex="00",
+    )
+
+    first_run_id = database.create_probe_run(repeater_id=source_repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=first_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[
+            {
+                "neighbour_pubkey_prefix_hex": target_identity.public_key.hex().upper()[:8],
+                "heard_seconds_ago": 30,
+                "snr": 4.0,
+            }
+        ],
+    )
+    database.complete_probe_run(
+        first_run_id,
+        repeater_id=source_repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message=None,
+    )
+
+    second_run_id = database.create_probe_run(repeater_id=source_repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=second_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[
+            {
+                "neighbour_pubkey_prefix_hex": target_identity.public_key.hex().upper()[:8],
+                "heard_seconds_ago": 12,
+                "snr": 9.5,
+            }
+        ],
+    )
+    database.complete_probe_run(
+        second_run_id,
+        repeater_id=source_repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="owner-info timeout",
+    )
+
+    nodes = database.list_repeaters_for_web()
+    source_node = next(item for item in nodes if item["identity_hex"] == source_identity.public_key.hex().upper())
+    target_node = next(item for item in nodes if item["identity_hex"] == target_identity.public_key.hex().upper())
+    assert source_node["data_fetch_ok"] == 1
+    assert source_node["last_probe_status"] == "failed"
+    assert target_node["data_fetch_ok"] == 0
+
+    links = database.latest_repeater_neighbor_links(limit_repeaters=16)
+    link = next(item for item in links if item["source_identity_hex"] == source_identity.public_key.hex().upper())
+    assert link["probe_run_id"] == second_run_id
+    assert link["target_identity_hex"] == target_identity.public_key.hex().upper()
+    assert link["target_name"] == "Target RPT"
+    assert link["snr"] == 9.5
+    assert link["last_heard_seconds"] == 12
+
+    history = database.repeater_neighbor_signal_history(limit_samples_per_source=16)
+    source_history = history[source_identity.public_key.hex().upper()]
+    assert len(source_history) == 2
+    assert source_history[0]["target_identity_hex"] == target_identity.public_key.hex().upper()
+    assert source_history[0]["snr"] == 9.5
+    assert source_history[1]["snr"] == 4.0
