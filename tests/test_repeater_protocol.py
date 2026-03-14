@@ -3,6 +3,7 @@ import struct
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 from meshcore_bot.config import AppConfig, EndpointConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
@@ -20,7 +21,7 @@ from meshcore_bot.mesh_builders import (
 )
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
-from meshcore_bot.probe_service import GuestProbeWorker, is_recent_observation, select_login_candidates, select_login_route_attempts
+from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
     parse_login_response,
@@ -368,3 +369,52 @@ def test_discover_repeater_path_uses_flood_and_saves_learned_route(tmp_path) -> 
     assert latest_path["out_path_len"] == learned_path_len
     assert latest_path["out_path_hex"] == learned_path_bytes.hex().upper()
     assert latest_path["source"] == "path_discovery"
+
+
+def test_send_with_tagged_response_retries_after_timeout(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    worker = GuestProbeWorker(config, database)
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="retry-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    packet = build_mesh_packet(route_type=RouteType.DIRECT, payload_type=PayloadType.REQ, payload=b"x")
+    worker._send_and_record = AsyncMock(return_value=None)
+    worker._await_tagged_response = AsyncMock(
+        side_effect=[
+            ProbeTimeoutError("first timeout"),
+            (b"ok", 1, bytes.fromhex("35")),
+        ]
+    )
+
+    result = asyncio.run(
+        worker._send_with_tagged_response_retries(
+            client=cast(Any, FakeTCPClient([])),
+            endpoint_name="test-endpoint",
+            probe_run_id=1,
+            repeater_id=repeater_id,
+            remote_pubkey=remote_identity.public_key,
+            shared_secret=worker.identity.calc_shared_secret(remote_identity.public_key),
+            packet=packet,
+            expected_tag=123,
+            notes="get_neighbours offset=0",
+            current_path_len=1,
+            current_path_bytes=bytes.fromhex("35"),
+            max_attempts=2,
+        )
+    )
+
+    assert result == (b"ok", 1, bytes.fromhex("35"))
+    assert worker._send_and_record.await_count == 2
+    assert worker._await_tagged_response.await_count == 2

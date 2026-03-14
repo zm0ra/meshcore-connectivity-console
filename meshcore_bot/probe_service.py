@@ -387,17 +387,19 @@ class GuestProbeWorker:
                     encoded_path_len=learned_path_len,
                     path_bytes=learned_path_bytes,
                 )
-                await self._send_and_record(endpoint.name, probe_run_id, remote_pubkey, client, neighbours_request, neighbours_tag, f"get_neighbours offset={offset}")
-                neighbours_payload, learned_path_len, learned_path_bytes = await self._await_tagged_response(
+                neighbours_payload, learned_path_len, learned_path_bytes = await self._send_with_tagged_response_retries(
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
                     repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
+                    packet=neighbours_request,
                     expected_tag=neighbours_tag,
+                    notes=f"get_neighbours offset={offset}",
                     current_path_len=learned_path_len,
                     current_path_bytes=learned_path_bytes,
+                    max_attempts=3,
                 )
                 neighbours = parse_neighbours_response(
                     neighbours_payload,
@@ -435,17 +437,19 @@ class GuestProbeWorker:
                     encoded_path_len=learned_path_len,
                     path_bytes=learned_path_bytes,
                 )
-                await self._send_and_record(endpoint.name, probe_run_id, remote_pubkey, client, status_request, status_tag, "get_status")
-                status_payload, learned_path_len, learned_path_bytes = await self._await_tagged_response(
+                status_payload, learned_path_len, learned_path_bytes = await self._send_with_tagged_response_retries(
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
                     repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
+                    packet=status_request,
                     expected_tag=status_tag,
+                    notes="get_status",
                     current_path_len=learned_path_len,
                     current_path_bytes=learned_path_bytes,
+                    max_attempts=2,
                 )
                 status = parse_status_response(status_payload)
                 self.database.save_status_snapshot(probe_run_id=probe_run_id, status=asdict(status))
@@ -461,17 +465,19 @@ class GuestProbeWorker:
                     encoded_path_len=learned_path_len,
                     path_bytes=learned_path_bytes,
                 )
-                await self._send_and_record(endpoint.name, probe_run_id, remote_pubkey, client, owner_request, owner_tag, "get_owner_info")
-                owner_payload, learned_path_len, learned_path_bytes = await self._await_tagged_response(
+                owner_payload, learned_path_len, learned_path_bytes = await self._send_with_tagged_response_retries(
                     client=client,
                     endpoint_name=endpoint.name,
                     probe_run_id=probe_run_id,
                     repeater_id=repeater_id,
                     remote_pubkey=remote_pubkey,
                     shared_secret=shared_secret,
+                    packet=owner_request,
                     expected_tag=owner_tag,
+                    notes="get_owner_info",
                     current_path_len=learned_path_len,
                     current_path_bytes=learned_path_bytes,
+                    max_attempts=2,
                 )
                 owner = parse_owner_info_response(owner_payload)
                 self.database.save_owner_snapshot(
@@ -522,6 +528,60 @@ class GuestProbeWorker:
             frame_hex,
             packet.packet.hex().upper(),
         )
+
+    async def _send_with_tagged_response_retries(
+        self,
+        *,
+        client: MeshcoreTCPClient,
+        endpoint_name: str,
+        probe_run_id: int,
+        repeater_id: int,
+        remote_pubkey: bytes,
+        shared_secret: bytes,
+        packet,
+        expected_tag: int,
+        notes: str,
+        current_path_len: int,
+        current_path_bytes: bytes,
+        max_attempts: int,
+    ) -> tuple[bytes, int, bytes]:
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            attempt_notes = notes if attempt == 1 else f"{notes} retry={attempt}"
+            await self._send_and_record(endpoint_name, probe_run_id, remote_pubkey, client, packet, expected_tag, attempt_notes)
+            try:
+                return await self._await_tagged_response(
+                    client=client,
+                    endpoint_name=endpoint_name,
+                    probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
+                    remote_pubkey=remote_pubkey,
+                    shared_secret=shared_secret,
+                    expected_tag=expected_tag,
+                    current_path_len=current_path_len,
+                    current_path_bytes=current_path_bytes,
+                )
+            except ProbeTimeoutError as exc:
+                last_error = exc
+                latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
+                if latest_path is not None and self._is_usable_stored_path(latest_path):
+                    current_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
+                    current_path_bytes = bytes.fromhex(
+                        str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex"))))
+                    )
+                if attempt == max_attempts:
+                    break
+                self.logger.warning(
+                    "retrying tagged request endpoint=%s repeater=%s tag=%s attempt=%s/%s reason=%s",
+                    endpoint_name,
+                    remote_pubkey.hex().upper()[:12],
+                    expected_tag,
+                    attempt + 1,
+                    max_attempts,
+                    exc,
+                )
+        assert last_error is not None
+        raise last_error
 
     async def _await_login_response(self, *, client: MeshcoreTCPClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
         deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
