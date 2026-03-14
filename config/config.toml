@@ -9,10 +9,10 @@ database_path = "./data/meshcore-bot.db"
 key_file_path = "./data/identity.bin"
 
 [probe]
-key_file_path = "./data/identity.bin"
+key_file_path = "./data/probe-identity-v3.bin"
 admin_password = "qweqwe"
-admin_password_name_prefixes = ["SZN_"]
-admin_password_pubkey_prefixes = ["35D4F9975A2B"]
+admin_password_name_prefixes = []
+admin_password_pubkey_prefixes = []
 guest_password = ""
 default_guest_password = ""
 guest_password_name_prefixes = []
