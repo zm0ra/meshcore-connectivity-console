@@ -589,21 +589,24 @@ INDEX_HTML = """<!doctype html>
       selectedNeighborId = null;
       if (!latestState) return;
       const selectedNode = getSelectedNode(latestState);
-      const selectedLinks = getSelectedMapLinks(latestState);
+      const allMapNodes = deriveMapNodes(sortNodes(relevantNodes(latestState)));
+      const neighborIds = selectedNeighborIds(latestState);
+      const visibleNodes = allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex));
       if (selectedNode && isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) {
         const bounds = [[selectedNode.latitude, selectedNode.longitude]];
-        for (const link of selectedLinks) {
-          bounds.push([link.target_latitude, link.target_longitude]);
+        for (const node of visibleNodes) {
+          if (node.identity_hex === selectedSourceId) continue;
+          bounds.push([node.latitude, node.longitude]);
         }
         if (bounds.length > 1) {
           map.flyToBounds(bounds, {
-            paddingTopLeft: [36, 36],
-            paddingBottomRight: [420, 36],
-            maxZoom: 10,
+            paddingTopLeft: [48, 48],
+            paddingBottomRight: [388, 48],
+            maxZoom: 12,
             duration: 0.6,
           });
         } else {
-          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 10), { duration: 0.5 });
+          map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
         }
       }
       render(latestState);
