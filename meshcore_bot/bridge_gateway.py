@@ -19,6 +19,8 @@ class _EndpointRuntime:
 
 
 class BridgeGatewayService:
+    RECEIVE_IDLE_TIMEOUT_SECS = 60.0
+
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.logger = logging.getLogger(f"{config.service.name}.bridge_gateway")
@@ -88,7 +90,10 @@ class BridgeGatewayService:
                 runtime.connected_event.set()
                 self.logger.info("gateway connected to %s (%s:%s)", endpoint.name, endpoint.raw_host, endpoint.raw_port)
                 while not self._stop_event.is_set():
-                    packet = await client.receive_packet(timeout=60.0)
+                    try:
+                        packet = await client.receive_packet(timeout=self.RECEIVE_IDLE_TIMEOUT_SECS)
+                    except asyncio.TimeoutError:
+                        continue
                     await self._broadcast_packet(endpoint.name, packet)
             except asyncio.CancelledError:
                 raise

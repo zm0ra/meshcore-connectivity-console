@@ -21,6 +21,8 @@ class IngestStats:
 
 
 class AdvertIngestService:
+    RECEIVE_IDLE_TIMEOUT_SECS = 60.0
+
     def __init__(
         self,
         config: AppConfig,
@@ -63,7 +65,10 @@ class AdvertIngestService:
                 await client.connect()
                 self.logger.info("ingest connected to %s (%s:%s)", endpoint.name, endpoint.raw_host, endpoint.raw_port)
                 while not self._stop_event.is_set():
-                    packet = await client.receive_packet(timeout=60.0)
+                    try:
+                        packet = await client.receive_packet(timeout=self.RECEIVE_IDLE_TIMEOUT_SECS)
+                    except asyncio.TimeoutError:
+                        continue
                     await self._handle_packet(endpoint, packet)
             except asyncio.CancelledError:
                 raise
