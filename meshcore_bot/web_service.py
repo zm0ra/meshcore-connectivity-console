@@ -586,20 +586,20 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       selectedSourceId = identityHex;
+      selectedNeighborId = null;
       if (!latestState) return;
       const selectedNode = getSelectedNode(latestState);
-      const selectedLinks = getSelectedLinks(latestState);
-      selectedNeighborId = selectedLinks.length ? (selectedNeighborId && selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId) ? selectedNeighborId : selectedLinks[0].target_identity_hex) : null;
+      const selectedLinks = getSelectedMapLinks(latestState);
       if (selectedNode && isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) {
         const bounds = [[selectedNode.latitude, selectedNode.longitude]];
-        for (const link of getSelectedMapLinks(latestState)) {
+        for (const link of selectedLinks) {
           bounds.push([link.target_latitude, link.target_longitude]);
         }
         if (bounds.length > 1) {
           map.flyToBounds(bounds, {
             paddingTopLeft: [36, 36],
             paddingBottomRight: [420, 36],
-            maxZoom: 11,
+            maxZoom: 10,
             duration: 0.6,
           });
         } else {
@@ -690,6 +690,10 @@ INDEX_HTML = """<!doctype html>
 
     function labelHtml(node, zoom, forced, neighborIds) {
       const shortName = node.name || node.hash_prefix_hex;
+      if (selectedNeighborId) {
+        if (node.identity_hex !== selectedSourceId) return null;
+        return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+      }
       const inspectionNeighbor = Boolean(selectedSourceId) && node.identity_hex !== selectedSourceId && neighborIds.has(node.identity_hex);
       if (inspectionNeighbor) {
         return `<div class=\"node-label-chip\"><strong>${shortName}</strong><span class=\"label-meta\">last advert: ${formatShortWhen(node.last_advert_at)}</span></div>`;
@@ -713,9 +717,10 @@ INDEX_HTML = """<!doctype html>
     function renderLabels(nodes, neighborIds) {
       labelsLayer.clearLayers();
       const zoom = map.getZoom();
+      const showAllNeighborLabels = Boolean(selectedSourceId) && !selectedNeighborId;
       const candidates = [];
       for (const node of nodes) {
-        const forced = node.identity_hex === selectedSourceId || node.identity_hex === hoveredNodeId;
+        const forced = node.identity_hex === selectedSourceId || node.identity_hex === hoveredNodeId || (showAllNeighborLabels && neighborIds.has(node.identity_hex));
         const html = labelHtml(node, zoom, forced, neighborIds);
         if (!html) continue;
         candidates.push({
@@ -733,7 +738,7 @@ INDEX_HTML = """<!doctype html>
         const rect = estimateLabelRect(candidate.point, candidate.html);
         const overlaps = occupied.some((item) => rectsOverlap(item, rect));
         if (overlaps && !candidate.forced) continue;
-        if (!candidate.forced && count >= MAX_COLLISION_LABELS) continue;
+        if (!candidate.forced && !showAllNeighborLabels && count >= MAX_COLLISION_LABELS) continue;
         occupied.push(rect);
         count += 1;
         L.marker([candidate.node.latitude, candidate.node.longitude], {
@@ -746,7 +751,7 @@ INDEX_HTML = """<!doctype html>
 
     function renderLinkLabels(selectedLinks, sourceNode) {
       linkLabelsLayer.clearLayers();
-      const alwaysVisible = Boolean(selectedNeighborId) || selectedLinks.length <= 6;
+      const alwaysVisible = Boolean(selectedSourceId);
       for (const link of selectedLinks) {
         if (selectedNeighborId && link.target_identity_hex !== selectedNeighborId) continue;
         const midpoint = [
@@ -836,10 +841,8 @@ INDEX_HTML = """<!doctype html>
 
     function renderExpandedNode(node, state) {
       const selectedLinks = getSelectedLinks(state);
-      if (!selectedLinks.length) {
+      if (!selectedLinks.length || (selectedNeighborId && !selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId))) {
         selectedNeighborId = null;
-      } else if (!selectedNeighborId || !selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId)) {
-        selectedNeighborId = selectedLinks[0].target_identity_hex;
       }
       const selectedLink = selectedLinks.find((link) => link.target_identity_hex === selectedNeighborId) || null;
       const historyRows = selectedHistoryRows(state, node, selectedNeighborId);
@@ -986,7 +989,7 @@ INDEX_HTML = """<!doctype html>
         ], {
           color: lineColor(link),
           weight: selectedNeighborId && link.target_identity_hex === selectedNeighborId ? 3.2 : 2,
-          opacity: selectedNeighborId && link.target_identity_hex !== selectedNeighborId ? 0.18 : 0.72,
+          opacity: selectedNeighborId && link.target_identity_hex !== selectedNeighborId ? 0.18 : 0.82,
         }).addTo(linksLayer);
         polyline.on('mouseover', () => {
           if (selectedLinks.length > 6) {
