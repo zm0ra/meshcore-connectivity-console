@@ -810,11 +810,53 @@ INDEX_HTML = """<!doctype html>
       });
     }
 
+    function overlayInsets(basePadding) {
+      const insets = { top: basePadding, right: basePadding, bottom: basePadding, left: basePadding };
+      const mapElement = document.getElementById('map');
+      const sidebar = document.getElementById('sidebar');
+      if (!mapElement || !sidebar) return insets;
+
+      const mapRect = mapElement.getBoundingClientRect();
+      const sidebarRect = sidebar.getBoundingClientRect();
+      if (!mapRect.width || !mapRect.height || !sidebarRect.width || !sidebarRect.height) return insets;
+
+      const horizontalMid = mapRect.left + (mapRect.width / 2);
+      const verticalMid = mapRect.top + (mapRect.height / 2);
+      const overlapRight = Math.max(0, mapRect.right - sidebarRect.left);
+      const overlapLeft = Math.max(0, sidebarRect.right - mapRect.left);
+      const overlapBottom = Math.max(0, mapRect.bottom - sidebarRect.top);
+      const overlapTop = Math.max(0, sidebarRect.bottom - mapRect.top);
+
+      if (sidebarRect.left >= horizontalMid - 40) {
+        insets.right += overlapRight;
+      } else if (sidebarRect.right <= horizontalMid + 40) {
+        insets.left += overlapLeft;
+      }
+
+      if (sidebarRect.top >= verticalMid - 40) {
+        insets.bottom += overlapBottom;
+      } else if (sidebarRect.bottom <= verticalMid + 40) {
+        insets.top += overlapTop;
+      }
+
+      return insets;
+    }
+
+    function offsetLatLngForInsets(latlng, zoom, insets) {
+      const projected = map.project(latlng, zoom);
+      const shifted = L.point(
+        projected.x + ((insets.right - insets.left) / 2),
+        projected.y + ((insets.bottom - insets.top) / 2),
+      );
+      return map.unproject(shifted, zoom);
+    }
+
     function fitInitialBounds(bounds) {
       if (!bounds.length) return;
+      const insets = overlayInsets(18);
       map.fitBounds(bounds, {
-        paddingTopLeft: [18, 18],
-        paddingBottomRight: [18, 18],
+        paddingTopLeft: [insets.left, insets.top],
+        paddingBottomRight: [insets.right, insets.bottom],
         maxZoom: 10,
       });
       hasFitBounds = true;
@@ -827,16 +869,19 @@ INDEX_HTML = """<!doctype html>
         if (node.identity_hex === selectedSourceId) continue;
         bounds.push([node.latitude, node.longitude]);
       }
+      const insets = overlayInsets(36);
       if (bounds.length > 1) {
         map.flyToBounds(bounds, {
-          paddingTopLeft: [36, 36],
-          paddingBottomRight: [360, 36],
+          paddingTopLeft: [insets.left, insets.top],
+          paddingBottomRight: [insets.right, insets.bottom],
           maxZoom: 12,
           duration: 0.6,
         });
         return;
       }
-      map.flyTo([selectedNode.latitude, selectedNode.longitude], Math.max(map.getZoom(), 11), { duration: 0.5 });
+      const targetZoom = Math.max(map.getZoom(), 11);
+      const centeredTarget = offsetLatLngForInsets([selectedNode.latitude, selectedNode.longitude], targetZoom, insets);
+      map.flyTo(centeredTarget, targetZoom, { duration: 0.5 });
     }
 
     function renderSummary(state) {
