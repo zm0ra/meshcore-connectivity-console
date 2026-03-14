@@ -33,6 +33,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
 
   neighbours-worker:
     build:
@@ -49,6 +50,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
 
   web:
     build:
@@ -63,3 +65,6 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
+
+volumes:
+  gateway-sockets:
