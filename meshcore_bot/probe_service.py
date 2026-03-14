@@ -15,10 +15,12 @@ from .mesh_builders import build_login_packet, build_request_packet, next_reques
 from .mesh_builders import build_advert_packet
 from .mesh_packets import AdvertType, PayloadType, RouteType, describe_packet_summary
 from .repeater_protocol import (
+    REQ_TYPE_GET_TELEMETRY_DATA,
     REQ_TYPE_GET_NEIGHBOURS,
     REQ_TYPE_GET_OWNER_INFO,
     REQ_TYPE_GET_STATUS,
     RESP_SERVER_LOGIN_OK,
+    build_path_discovery_request,
     parse_login_response,
     parse_neighbours_response,
     parse_owner_info_response,
@@ -246,9 +248,21 @@ class GuestProbeWorker:
                 local_zero_hop_visible=local_zero_hop_visible,
             )
             if not route_attempts:
-                raise RuntimeError(
-                    f"no fresh path and repeater is not locally visible on endpoint {endpoint.name}"
+                learned_path_len, learned_path_bytes = await self._discover_repeater_path(
+                    client=client,
+                    endpoint_name=endpoint.name,
+                    probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
+                    remote_pubkey=remote_pubkey,
+                    shared_secret=shared_secret,
                 )
+                fresh_direct_paths = [(learned_path_len, learned_path_bytes), *fresh_direct_paths]
+                route_attempts = select_login_route_attempts(
+                    fresh_paths=fresh_direct_paths,
+                    local_zero_hop_visible=local_zero_hop_visible,
+                )
+            if not route_attempts:
+                raise RuntimeError(f"path discovery produced no usable route on endpoint {endpoint.name}")
             for login_role, login_password in login_candidates:
                 for route_path_len, route_path_bytes in route_attempts:
                     password_label = "empty" if login_password == "" else "configured"
@@ -658,6 +672,165 @@ class GuestProbeWorker:
                     path_hex=learned_path_bytes.hex().upper(),
                     source="login_response_path",
                 )
+
+    async def _discover_repeater_path(
+        self,
+        *,
+        client: MeshcoreTCPClient,
+        endpoint_name: str,
+        probe_run_id: int,
+        repeater_id: int,
+        remote_pubkey: bytes,
+        shared_secret: bytes,
+    ) -> tuple[int, bytes]:
+        discovery_tag = next_request_tag()
+        discovery_plaintext = build_path_discovery_request(discovery_tag, random_bytes=os.urandom(4))
+        discovery_request = build_request_packet(
+            identity=self.identity,
+            remote_public_key=remote_pubkey,
+            plaintext=discovery_plaintext,
+            encoded_path_len=0,
+            path_bytes=b"",
+        )
+        await self._send_and_record(
+            endpoint_name,
+            probe_run_id,
+            remote_pubkey,
+            client,
+            discovery_request,
+            discovery_tag,
+            f"path_discovery req_type={REQ_TYPE_GET_TELEMETRY_DATA}",
+        )
+        return await self._await_path_discovery_response(
+            client=client,
+            endpoint_name=endpoint_name,
+            probe_run_id=probe_run_id,
+            repeater_id=repeater_id,
+            remote_pubkey=remote_pubkey,
+            shared_secret=shared_secret,
+            expected_tag=discovery_tag,
+        )
+
+    async def _await_path_discovery_response(
+        self,
+        *,
+        client: MeshcoreTCPClient,
+        endpoint_name: str,
+        probe_run_id: int,
+        repeater_id: int,
+        remote_pubkey: bytes,
+        shared_secret: bytes,
+        expected_tag: int,
+    ) -> tuple[int, bytes]:
+        deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
+        remote_hash = remote_pubkey[:1]
+        last_observation = "none"
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ProbeTimeoutError(
+                    f"timeout waiting for discovery response tag={expected_tag}; last_observation={last_observation}"
+                )
+            try:
+                received = await client.receive_packet(timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                raise ProbeTimeoutError(
+                    f"timeout waiting for discovery response tag={expected_tag}; last_observation={last_observation}"
+                ) from exc
+            self._record_rx(endpoint_name, probe_run_id, remote_pubkey, received)
+            summary = received.summary
+            if summary.payload_type is PayloadType.PATH:
+                try:
+                    path_response = parse_path_response(summary, shared_secret=shared_secret)
+                except Exception as exc:
+                    last_observation = f"path-decrypt-failed:{exc}"
+                    self.logger.info("ignored discovery PATH frame tag=%s reason=%s", expected_tag, exc)
+                    continue
+                if not self._is_remote_to_local_datagram(
+                    source_hash=path_response.source_hash,
+                    destination_hash=path_response.destination_hash,
+                    remote_hash=remote_hash,
+                ):
+                    last_observation = (
+                        "foreign-path"
+                        f":src={path_response.source_hash.hex().upper()}"
+                        f":dst={path_response.destination_hash.hex().upper()}"
+                    )
+                    self.logger.info(
+                        "ignored discovery PATH from foreign hashes tag=%s src=%s dst=%s",
+                        expected_tag,
+                        path_response.source_hash.hex().upper(),
+                        path_response.destination_hash.hex().upper(),
+                    )
+                    continue
+                if path_response.extra_type != int(PayloadType.RESPONSE):
+                    last_observation = f"path-extra-type={path_response.extra_type}"
+                    self.logger.info(
+                        "ignored discovery PATH frame tag=%s extra_type=%s",
+                        expected_tag,
+                        path_response.extra_type,
+                    )
+                    continue
+                actual_tag = struct.unpack_from("<I", path_response.extra_payload, 0)[0] if len(path_response.extra_payload) >= 4 else None
+                if actual_tag != expected_tag:
+                    last_observation = f"path-tag-mismatch={actual_tag}"
+                    self.logger.info(
+                        "ignored discovery PATH response expected_tag=%s actual_tag=%s",
+                        expected_tag,
+                        actual_tag,
+                    )
+                    continue
+                if not path_response.encoded_path_len:
+                    last_observation = "path-missing-route"
+                    self.logger.info("ignored discovery PATH response tag=%s because it carried no route", expected_tag)
+                    continue
+                learned_path_len, learned_path_bytes = self._save_repeater_path_update(
+                    repeater_id=repeater_id,
+                    encoded_path_len=path_response.encoded_path_len,
+                    path_bytes=path_response.path_bytes,
+                    source="path_discovery",
+                )
+                self.logger.info(
+                    "accepted discovery PATH response tag=%s path_len=%s",
+                    expected_tag,
+                    path_response.encoded_path_len & 0x3F,
+                )
+                return learned_path_len, learned_path_bytes
+            if summary.payload_type is PayloadType.RESPONSE:
+                try:
+                    decrypted = parse_encrypted_datagram(summary, shared_secret=shared_secret)
+                except Exception as exc:
+                    last_observation = f"response-decrypt-failed:{exc}"
+                    self.logger.info("ignored discovery RESPONSE tag=%s reason=%s", expected_tag, exc)
+                    continue
+                if not self._is_remote_to_local_datagram(
+                    source_hash=decrypted.source_hash,
+                    destination_hash=decrypted.destination_hash,
+                    remote_hash=remote_hash,
+                ):
+                    last_observation = "foreign-response"
+                    continue
+                actual_tag = struct.unpack_from("<I", decrypted.plaintext, 0)[0] if len(decrypted.plaintext) >= 4 else None
+                last_observation = f"response-without-path={actual_tag}"
+                self.logger.info(
+                    "ignored discovery RESPONSE without path expected_tag=%s actual_tag=%s",
+                    expected_tag,
+                    actual_tag,
+                )
+                continue
+            if summary.payload_type is PayloadType.REQ:
+                try:
+                    decrypted_req = parse_encrypted_datagram(summary, shared_secret=shared_secret)
+                except Exception as exc:
+                    last_observation = f"req-decrypt-failed:{exc}"
+                    continue
+                request_tag = struct.unpack_from("<I", decrypted_req.plaintext, 0)[0] if len(decrypted_req.plaintext) >= 4 else None
+                if decrypted_req.source_hash == self._local_hash and decrypted_req.destination_hash == remote_hash:
+                    last_observation = f"echoed-own-req:{request_tag}"
+                    continue
+                last_observation = f"unexpected-req:{request_tag}"
+                continue
+            last_observation = f"ignored-payload-type:{summary.payload_type.name}"
 
     async def _await_tagged_response(
         self,

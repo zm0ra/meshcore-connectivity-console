@@ -10,6 +10,7 @@ REQ_TYPE_GET_TELEMETRY_DATA = 0x03
 REQ_TYPE_GET_ACCESS_LIST = 0x05
 REQ_TYPE_GET_NEIGHBOURS = 0x06
 REQ_TYPE_GET_OWNER_INFO = 0x07
+TELEM_PERM_BASE = 0x01
 
 ANON_REQ_TYPE_REGIONS = 0x01
 ANON_REQ_TYPE_OWNER = 0x02
@@ -78,6 +79,22 @@ class NeighboursResponse:
 
 class ResponseParseError(ValueError):
     pass
+
+
+def build_path_discovery_request(request_tag: int, *, random_bytes: bytes) -> bytes:
+    if len(random_bytes) != 4:
+        raise ValueError("path discovery random_bytes must be 4 bytes")
+    return (
+        struct.pack("<I", request_tag)
+        + bytes([
+            REQ_TYPE_GET_TELEMETRY_DATA,
+            (~TELEM_PERM_BASE) & 0xFF,
+            0,
+            0,
+            0,
+        ])
+        + random_bytes
+    )
 
 
 def parse_login_response(payload: bytes) -> LoginResponse:
