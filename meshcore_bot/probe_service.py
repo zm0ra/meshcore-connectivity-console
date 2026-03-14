@@ -76,11 +76,11 @@ def is_recent_observation(observed_at: str | None, max_age_secs: float, *, now: 
     return 0 <= age_secs <= max_age_secs
 
 
-def select_login_route_attempts(*, fresh_path: tuple[int, bytes] | None, local_zero_hop_visible: bool) -> list[tuple[int, bytes]]:
+def select_login_route_attempts(*, fresh_paths: list[tuple[int, bytes]], local_zero_hop_visible: bool) -> list[tuple[int, bytes]]:
     if local_zero_hop_visible:
         return [(0, b"")]
-    if fresh_path is not None:
-        return [fresh_path]
+    if fresh_paths:
+        return fresh_paths
     return []
 
 
@@ -178,13 +178,8 @@ class GuestProbeWorker:
             endpoint_name=endpoint.name,
         )
         local_zero_hop_visible = self._is_local_zero_hop_visible(latest_zero_hop_advert)
+        fresh_direct_paths: list[tuple[int, bytes]] = []
         latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
-        if latest_path is not None and not self._is_usable_stored_path(latest_path):
-            latest_path = None
-        if latest_path is not None and not self._is_fresh_observation(latest_path):
-            latest_path = None
-        if latest_path is None:
-            latest_path = self.database.latest_repeater_advert_path(repeater_id=repeater_id, endpoint_name=endpoint.name)
         if latest_path is not None and not self._is_usable_stored_path(latest_path):
             latest_path = None
         if latest_path is not None and not self._is_fresh_observation(latest_path):
@@ -192,6 +187,22 @@ class GuestProbeWorker:
         if latest_path is not None:
             learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
             learned_path_bytes = bytes.fromhex(str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex")))))
+            fresh_direct_paths.append((learned_path_len, learned_path_bytes))
+        for advert_path in self.database.recent_repeater_advert_paths(
+            repeater_id=repeater_id,
+            endpoint_name=endpoint.name,
+        ):
+            if not self._is_usable_stored_path(advert_path):
+                continue
+            if not self._is_fresh_observation(advert_path):
+                continue
+            path_len = int(cast(int, advert_path.get("path_len", advert_path.get("out_path_len"))))
+            path_bytes = bytes.fromhex(str(cast(str, advert_path.get("path_hex", advert_path.get("out_path_hex")))))
+            candidate = (path_len, path_bytes)
+            if candidate not in fresh_direct_paths:
+                fresh_direct_paths.append(candidate)
+        if fresh_direct_paths:
+            learned_path_len, learned_path_bytes = fresh_direct_paths[0]
 
         await client.connect()
         try:
@@ -231,7 +242,7 @@ class GuestProbeWorker:
             login_payload = b""
             login_error: Exception | None = None
             route_attempts = select_login_route_attempts(
-                fresh_path=(learned_path_len, learned_path_bytes) if learned_path_len and learned_path_bytes else None,
+                fresh_paths=fresh_direct_paths,
                 local_zero_hop_visible=local_zero_hop_visible,
             )
             if not route_attempts:

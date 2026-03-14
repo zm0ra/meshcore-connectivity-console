@@ -643,6 +643,40 @@ class BotDatabase:
                 ).fetchone()
             return dict(row) if row is not None else None
 
+    def recent_repeater_advert_paths(
+        self,
+        *,
+        repeater_id: int,
+        endpoint_name: str | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            if endpoint_name is None:
+                rows = connection.execute(
+                    """
+                    SELECT path_len, path_hex, observed_at, endpoint_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ?
+                      AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (repeater_id, limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT path_len, path_hex, observed_at, endpoint_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND endpoint_name = ?
+                      AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (repeater_id, endpoint_name, limit),
+                ).fetchall()
+            return [dict(row) for row in rows]
+
     def save_owner_snapshot(self, *, probe_run_id: int, firmware_version: str | None, node_name: str | None, owner_info: str | None) -> None:
         observed_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> None:

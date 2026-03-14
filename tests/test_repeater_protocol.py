@@ -195,14 +195,17 @@ def test_is_recent_observation_rejects_stale_timestamp() -> None:
 
 
 def test_select_login_route_attempts_prefers_local_zero_hop_visibility() -> None:
-    attempts = select_login_route_attempts(fresh_path=(2, bytes.fromhex("3548")), local_zero_hop_visible=True)
+    attempts = select_login_route_attempts(fresh_paths=[(2, bytes.fromhex("3548"))], local_zero_hop_visible=True)
     assert attempts == [(0, b"")]
 
 
 def test_select_login_route_attempts_uses_fresh_direct_path_when_not_local() -> None:
-    attempts = select_login_route_attempts(fresh_path=(2, bytes.fromhex("3548")), local_zero_hop_visible=False)
-    assert attempts == [(2, bytes.fromhex("3548"))]
+    attempts = select_login_route_attempts(
+        fresh_paths=[(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E"))],
+        local_zero_hop_visible=False,
+    )
+    assert attempts == [(2, bytes.fromhex("35EF")), (2, bytes.fromhex("354E"))]
 
 
 def test_select_login_route_attempts_returns_empty_without_route_or_local_visibility() -> None:
-    assert select_login_route_attempts(fresh_path=None, local_zero_hop_visible=False) == []
+    assert select_login_route_attempts(fresh_paths=[], local_zero_hop_visible=False) == []
