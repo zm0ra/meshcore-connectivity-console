@@ -765,7 +765,9 @@ INDEX_HTML = """<!doctype html>
     <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
       <div id=\"mobile-panel-handle\">
-        <button id=\"mobile-panel-toggle\" type=\"button\" aria-label=\"Rozwin panel\"></button>
+        <button id=\"mobile-panel-toggle\" type=\"button\" aria-label=\"Rozwin panel\">
+          <span class=\"mobile-panel-toggle-label\">Lista</span>
+        </button>
       </div>
       <section class=\"summary-strip\">
         <div id=\"summary\" class=\"summary-grid\"></div>
@@ -822,40 +824,62 @@ INDEX_HTML = """<!doctype html>
         lastData: 'Ostatnie dane',
         lastSuccessfulProbe: 'Ostatnie udane pobranie',
         lastProbeResult: 'Wynik ostatniej próby',
-        lastProbeAttempt: 'Ostatnia próba',
+          height: 19dvh;
         directNeighbors: 'Bezpośredni sąsiedzi',
         neighbor: 'Sąsiad',
         lastSeen: 'Ostatnio widziany',
         signal: 'Sygnał',
-        distance: 'Dystans',
+          height: 72dvh;
         selectedRepeater: 'Wybrany repeater',
         otherRepeaters: 'Pozostałe repeatery',
         repeaters: 'Repeatery',
         sortLabel: 'Sortowanie',
-        sortLastAdvert: 'ostatni advert',
+          padding: 6px 10px 4px;
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
         languageLabel: 'Język',
         roleDefault: 'Repeater',
-        kindSignal: 'sygnał',
-        noDataShort: 'b/d',
-        storedSamples: (count) => `Dla tego połączenia zapisano na razie ${count} prób${count === 1 ? 'kę' : count < 5 ? 'ki' : 'ek'}. Wykres pojawi się po zebraniu co najmniej 2 próbek.`,
-        agoSeconds: (count) => `${count}s temu`,
-        agoMinutes: (count) => `${count} min temu`,
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          min-width: 116px;
+          min-height: 30px;
+          padding: 0 12px;
+          border: 1px solid rgba(21, 33, 42, 0.1);
+          border-radius: 999px;
+          background: rgba(237, 240, 236, 0.9);
+          color: var(--ink);
+          font: inherit;
+          font-size: 0.72rem;
         agoHours: (count) => `${count} h temu`,
         agoDays: (count) => `${count} d temu`,
       },
       en: {
         unknown: 'unknown',
-        legendRepeaters: 'Repeaters',
+          width: 18px;
         legendLinks: 'Links',
-        legendDataAvailable: 'data available',
         legendKnownNoData: 'known / no data fetched',
         legendInactive: 'inactive > 24h',
         legendStrong: 'strong',
+        .mobile-panel-toggle-label {
+          display: inline-block;
+          font-size: 0.72rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
         legendMedium: 'medium',
         legendWeak: 'weak',
         legendVeryWeak: 'very weak',
+        body.mobile-panel-expanded .mobile-panel-toggle-label::after {
+          content: ' / mniej';
+          font-weight: 400;
+          color: var(--muted);
+        }
+        body:not(.mobile-panel-expanded) .list-shell {
+          overflow: hidden;
+        }
         summaryKnown: 'known',
         summaryWithData: 'with data',
         summaryPending: 'pending',
