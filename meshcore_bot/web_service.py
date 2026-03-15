@@ -616,7 +616,7 @@ INDEX_HTML = """<!doctype html>
         left: 10px;
         right: 10px;
         top: auto;
-        bottom: calc(env(safe-area-inset-bottom) + 76px);
+        bottom: max(10px, env(safe-area-inset-bottom));
         width: auto;
         height: min(20dvh, 180px);
         max-height: 20dvh;
@@ -637,11 +637,7 @@ INDEX_HTML = """<!doctype html>
         overscroll-behavior: contain;
       }
       .list-toolbar {
-        position: sticky;
-        top: 0;
-        z-index: 2;
         margin: 0 0 8px;
-        background: var(--panel-strong);
       }
       .mobile-view-toggle {
         display: none;
