@@ -36,11 +36,16 @@ INDEX_HTML = """<!doctype html>
       background: var(--bg);
       color: var(--ink);
       font-family: Georgia, 'Iowan Old Style', serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    body {
+      overflow: hidden;
     }
     #app {
       position: relative;
       width: 100%;
       height: 100%;
+      min-height: 100dvh;
       overflow: hidden;
     }
     #map {
@@ -424,22 +429,147 @@ INDEX_HTML = """<!doctype html>
       display: block;
     }
     @media (max-width: 860px) {
+      body {
+        overflow: auto;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+      }
+      #map {
+        position: relative;
+        inset: auto;
+        flex: 0 0 clamp(220px, 34dvh, 320px);
+        min-height: clamp(220px, 34dvh, 320px);
+      }
       #sidebar {
-        left: 12px;
-        right: 12px;
+        position: relative;
+        left: auto;
+        right: auto;
         top: auto;
-        bottom: 12px;
+        bottom: auto;
         width: auto;
-        max-height: 56vh;
+        max-height: none;
+        margin: -18px 12px 0;
+        border-radius: 24px 24px 20px 20px;
+        background: var(--panel-strong);
       }
       #map-legend {
         left: 12px;
         top: 12px;
         bottom: auto;
-        max-width: 190px;
+        max-width: min(220px, calc(100vw - 24px));
+        padding: 8px 10px;
+        font-size: 0.7rem;
+      }
+      .summary-strip {
+        padding: 14px 12px 10px;
       }
       .summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .summary-card {
+        padding: 10px 8px;
+      }
+      .summary-card strong {
+        font-size: 0.88rem;
+      }
+      .summary-card span {
+        font-size: 0.72rem;
+      }
+      .list-shell {
+        padding: 12px 12px 18px;
+      }
+      .list-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px;
+      }
+      .toolbar-cluster {
+        justify-content: space-between;
+      }
+      .sort-select {
+        min-height: 38px;
+        font-size: 0.94rem;
+        padding: 7px 12px;
+      }
+      .lang-button {
+        min-height: 34px;
+        padding: 5px 12px;
+        font-size: 0.82rem;
+      }
+      .node-row-button {
+        gap: 10px;
+        padding: 11px 11px;
+      }
+      .node-name {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        font-size: 0.82rem;
+      }
+      .node-age {
+        font-size: 0.78rem;
+      }
+      .node-state-tag {
+        align-self: start;
+        font-size: 0.76rem;
+      }
+      .node-expand {
+        padding: 0 11px 12px;
+      }
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+      .detail-cell {
+        font-size: 0.76rem;
+      }
+      .expand-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .neighbor-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .chart-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .chart-meta {
+        white-space: normal;
+      }
+      .leaflet-left .leaflet-control {
+        margin-left: 10px;
+      }
+      .leaflet-top .leaflet-control {
+        margin-top: 10px;
+      }
+    }
+    @media (max-width: 520px) {
+      #map {
+        flex-basis: clamp(200px, 30dvh, 260px);
+        min-height: clamp(200px, 30dvh, 260px);
+      }
+      #sidebar {
+        margin: -12px 10px 0;
+      }
+      #map-legend {
+        max-width: min(180px, calc(100vw - 20px));
+        font-size: 0.66rem;
+      }
+      .summary-strip {
+        padding: 12px 10px 8px;
+      }
+      .list-shell {
+        padding: 10px 10px 16px;
       }
     }
   </style>
