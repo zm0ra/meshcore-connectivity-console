@@ -13,8 +13,6 @@ INDEX_HTML = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>MeshCore Bot</title>
   <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\">
-  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css\">
-  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css\">
   <style>
     :root {
       color-scheme: light;
@@ -430,107 +428,6 @@ INDEX_HTML = """<!doctype html>
     .signal-label-chip span {
       display: block;
     }
-    #map-floating-controls,
-    #mobile-focus-card,
-    #legend-sheet-backdrop,
-    #legend-sheet {
-      display: none;
-    }
-    .toolbar-stack {
-      display: contents;
-    }
-    .toolbar-segment,
-    .sheet-toggle,
-    .legend-button,
-    .floating-map-button {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
-      color: var(--ink);
-      font: inherit;
-      cursor: pointer;
-    }
-    .toolbar-segment {
-      display: inline-flex;
-      align-items: center;
-      padding: 3px;
-      gap: 4px;
-    }
-    .toolbar-segment button {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
-      border-radius: 999px;
-      padding: 5px 10px;
-      font: inherit;
-      cursor: pointer;
-    }
-    .toolbar-segment button.active {
-      background: rgba(44, 113, 209, 0.14);
-      color: var(--ink);
-    }
-    .legend-button,
-    .sheet-toggle,
-    .floating-map-button {
-      padding: 7px 12px;
-    }
-    .node-meta-line {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 0.7rem;
-      line-height: 1.15;
-    }
-    .node-meta-line span {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .map-node-icon,
-    .map-cluster-icon {
-      background: transparent;
-      border: 0;
-    }
-    .map-node-hitbox {
-      width: 34px;
-      height: 34px;
-      display: grid;
-      place-items: center;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.14);
-    }
-    .map-node-core {
-      width: 15px;
-      height: 15px;
-      border-radius: 999px;
-      background: var(--node-color, #2c71d1);
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95);
-    }
-    .map-node-hitbox.is-neighbor .map-node-core {
-      width: 18px;
-      height: 18px;
-    }
-    .map-node-hitbox.is-selected {
-      box-shadow: 0 0 0 3px rgba(44, 113, 209, 0.18);
-      background: rgba(44, 113, 209, 0.12);
-    }
-    .map-cluster-badge {
-      min-width: 40px;
-      height: 40px;
-      padding: 0 10px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 999px;
-      background: rgba(21, 33, 42, 0.88);
-      color: #fff;
-      box-shadow: 0 10px 22px rgba(21, 33, 42, 0.18);
-      font-size: 0.82rem;
-      font-weight: 600;
-    }
     @media (max-width: 860px) {
       body {
         overflow: auto;
@@ -692,312 +589,11 @@ INDEX_HTML = """<!doctype html>
         padding: 10px 10px 16px;
       }
     }
-    @media (max-width: 860px) and (orientation: portrait) {
-      body {
-        overflow: hidden;
-      }
-      #app {
-        height: 100dvh;
-        min-height: 100dvh;
-        overflow: hidden;
-        background: linear-gradient(180deg, rgba(237, 240, 236, 0.86) 0%, rgba(237, 240, 236, 1) 100%);
-      }
-      #map {
-        position: absolute;
-        inset: 0 0 auto 0;
-        height: 48dvh;
-        min-height: 45dvh;
-        max-height: 50dvh;
-        z-index: 1;
-      }
-      body.map-fullscreen #map {
-        height: 100dvh;
-        min-height: 100dvh;
-        max-height: 100dvh;
-      }
-      #map-legend {
-        display: none;
-      }
-      #map-floating-controls {
-        position: absolute;
-        z-index: 1100;
-        top: calc(14px + env(safe-area-inset-top));
-        right: 14px;
-        display: flex;
-        gap: 8px;
-      }
-      #mobile-focus-card {
-        position: absolute;
-        z-index: 1090;
-        left: 12px;
-        right: 12px;
-        bottom: calc(44dvh + 14px);
-        padding: 12px 14px;
-        border-radius: 18px;
-        background: rgba(255, 255, 255, 0.94);
-      }
-      #mobile-focus-card:not(.visible) {
-        display: none;
-      }
-      #mobile-focus-card.visible {
-        display: block;
-      }
-      .focus-card-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 10px;
-      }
-      .focus-card-head strong {
-        display: block;
-        font-size: 0.98rem;
-        line-height: 1.15;
-      }
-      .focus-card-head span {
-        display: block;
-        margin-top: 4px;
-        color: var(--muted);
-        font-size: 0.74rem;
-      }
-      .focus-card-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
-        margin-top: 10px;
-      }
-      .focus-card-metric {
-        padding: 8px 9px;
-        border-radius: 12px;
-        background: rgba(237, 240, 236, 0.8);
-      }
-      .focus-card-metric strong {
-        display: block;
-        font-size: 0.72rem;
-      }
-      .focus-card-metric span {
-        display: block;
-        margin-top: 3px;
-        color: var(--muted);
-        font-size: 0.68rem;
-      }
-      #sidebar {
-        position: absolute;
-        inset: auto 0 0 0;
-        z-index: 1080;
-        width: auto;
-        height: 44dvh;
-        max-height: 84dvh;
-        margin: 0;
-        border-radius: 22px 22px 0 0;
-        border-left: 0;
-        border-right: 0;
-        border-bottom: 0;
-        background: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 -18px 40px rgba(21, 33, 42, 0.12);
-        transition: height 180ms ease, transform 180ms ease;
-      }
-      body.mobile-view-list #sidebar,
-      body.mobile-sheet-full #sidebar {
-        height: 82dvh;
-      }
-      body.map-fullscreen #sidebar {
-        transform: translateY(calc(100% - 78px));
-      }
-      .summary-strip {
-        padding: 0;
-        border-bottom: 0;
-      }
-      .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0;
-        border-top: 1px solid var(--line);
-        border-bottom: 1px solid var(--line);
-        background: rgba(237, 240, 236, 0.56);
-      }
-      .summary-card {
-        padding: 9px 4px 8px;
-        border: 0;
-        border-right: 1px solid var(--line);
-        border-radius: 0;
-        background: transparent;
-      }
-      .summary-card:last-child {
-        border-right: 0;
-      }
-      .summary-card strong {
-        font-size: 0.88rem;
-      }
-      .summary-card span {
-        margin-top: 1px;
-        font-size: 0.62rem;
-      }
-      .list-shell {
-        display: grid;
-        grid-template-rows: auto auto 1fr;
-        min-height: 0;
-        padding: 0;
-      }
-      .sheet-handle {
-        display: flex;
-        justify-content: center;
-        padding: 8px 0 6px;
-      }
-      .sheet-handle button {
-        width: 48px;
-        height: 5px;
-        border: 0;
-        border-radius: 999px;
-        background: rgba(21, 33, 42, 0.18);
-        cursor: pointer;
-      }
-      .list-toolbar {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: grid;
-        grid-template-columns: 1fr auto auto;
-        gap: 8px;
-        margin: 0;
-        padding: 8px 10px;
-        border: 0;
-        border-bottom: 1px solid var(--line);
-        border-radius: 0;
-        background: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(16px);
-      }
-      .toolbar-stack {
-        display: grid;
-        gap: 6px;
-      }
-      .toolbar-row-compact {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-      }
-      .list-toolbar label,
-      .section-heading {
-        display: none;
-      }
-      .sort-select,
-      .filter-select {
-        min-height: 34px;
-        max-width: 100%;
-        padding: 6px 10px;
-        font-size: 0.76rem;
-      }
-      .toolbar-segment,
-      .lang-toggle {
-        min-height: 34px;
-      }
-      .toolbar-segment button,
-      .lang-button {
-        padding: 5px 9px;
-        font-size: 0.76rem;
-      }
-      .legend-button,
-      .floating-map-button {
-        min-height: 34px;
-        padding: 6px 10px;
-        font-size: 0.76rem;
-      }
-      .node-list {
-        display: block;
-      }
-      .node-row {
-        border: 0;
-        border-bottom: 1px solid rgba(21, 33, 42, 0.08);
-        border-radius: 0;
-        background: transparent;
-      }
-      .node-row.active {
-        background: rgba(44, 113, 209, 0.08);
-      }
-      .node-row-button {
-        min-height: 64px;
-        padding: 8px 12px;
-        grid-template-columns: auto 1fr auto;
-        gap: 10px;
-      }
-      .node-row-button:active,
-      .node-row-button:hover {
-        background: rgba(21, 33, 42, 0.05);
-      }
-      .status-dot {
-        width: 12px;
-        height: 12px;
-      }
-      .node-name {
-        font-size: 0.96rem;
-        white-space: nowrap;
-      }
-      .node-age {
-        display: none;
-      }
-      .node-meta-line {
-        font-size: 0.74rem;
-      }
-      .node-state-tag {
-        font-size: 0.72rem;
-        color: var(--ink);
-      }
-      .node-expand {
-        display: none;
-      }
-      #legend-sheet-backdrop {
-        position: absolute;
-        inset: 0;
-        z-index: 1190;
-        background: rgba(21, 33, 42, 0.32);
-      }
-      #legend-sheet {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 1200;
-        padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
-        border-radius: 22px 22px 0 0;
-        background: rgba(255, 255, 255, 0.98);
-        box-shadow: 0 -18px 40px rgba(21, 33, 42, 0.18);
-      }
-      body.legend-open #legend-sheet-backdrop,
-      body.legend-open #legend-sheet {
-        display: block;
-      }
-      .legend-sheet-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 12px;
-      }
-      .legend-sheet-head strong {
-        font-size: 0.94rem;
-      }
-      .legend-close {
-        border: 0;
-        background: rgba(21, 33, 42, 0.08);
-        width: 34px;
-        height: 34px;
-        border-radius: 999px;
-        color: var(--ink);
-        font: inherit;
-      }
-      .legend-sheet-body .legend-group + .legend-group {
-        margin-top: 14px;
-      }
-    }
   </style>
 </head>
 <body>
   <div id=\"app\">
     <div id=\"map\"></div>
-    <div id=\"map-floating-controls\">
-      <button id=\"map-fullscreen-toggle\" type=\"button\" class=\"floating-map-button\"></button>
-    </div>
-    <div id=\"mobile-focus-card\" class=\"overlay\"></div>
     <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
       <section class=\"summary-strip\">
@@ -1007,17 +603,8 @@ INDEX_HTML = """<!doctype html>
         <div id=\"node-sections\"></div>
       </section>
     </aside>
-    <div id=\"legend-sheet-backdrop\"></div>
-    <div id=\"legend-sheet\">
-      <div class=\"legend-sheet-head\">
-        <strong id=\"legend-sheet-title\"></strong>
-        <button type=\"button\" id=\"legend-sheet-close\" class=\"legend-close\">&times;</button>
-      </div>
-      <div id=\"legend-sheet-body\" class=\"legend-sheet-body\"></div>
-    </div>
   </div>
   <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
-  <script src=\"https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js\"></script>
   <script>
     const ACTIVE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
     const LOW_ZOOM_LABEL_THRESHOLD = 10;
@@ -1077,20 +664,7 @@ INDEX_HTML = """<!doctype html>
         sortLastAdvert: 'ostatni advert',
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
-        filterLabel: 'Status',
-        filterAll: 'wszystkie',
-        filterData: 'z danymi',
-        filterPending: 'bez danych',
-        filterInactive: 'nieaktywne',
         languageLabel: 'Język',
-        legendButton: 'Legenda',
-        legendTitle: 'Legenda mapy',
-        mapMode: 'Mapa',
-        listMode: 'Lista',
-        fullscreenEnter: 'Pełny ekran',
-        fullscreenExit: 'Zamknij',
-        neighborsCount: 'Sąsiedzi',
-        centerOnMap: 'Na mapie',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1153,20 +727,7 @@ INDEX_HTML = """<!doctype html>
         sortLastAdvert: 'last advert',
         sortLastData: 'last data fetch',
         sortAlphabetical: 'alphabetical',
-        filterLabel: 'Status',
-        filterAll: 'all',
-        filterData: 'with data',
-        filterPending: 'no data',
-        filterInactive: 'inactive',
         languageLabel: 'Language',
-        legendButton: 'Legend',
-        legendTitle: 'Map legend',
-        mapMode: 'Map',
-        listMode: 'List',
-        fullscreenEnter: 'Fullscreen',
-        fullscreenExit: 'Close',
-        neighborsCount: 'Neighbors',
-        centerOnMap: 'On map',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -1193,29 +754,8 @@ INDEX_HTML = """<!doctype html>
     let selectedNeighborId = null;
     let hoveredNodeId = null;
     let nodeSortMode = 'last_advert';
-    let nodeFilterMode = 'all';
     let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
     let hasFitBounds = false;
-    let mobileViewMode = 'map';
-    let mobileSheetMode = 'peek';
-    let legendSheetOpen = false;
-    let mapFullscreen = false;
-    const mobileMedia = window.matchMedia('(max-width: 860px) and (orientation: portrait)');
-    const clusteredMarkersLayer = typeof L.markerClusterGroup === 'function'
-      ? L.markerClusterGroup({
-          showCoverageOnHover: false,
-          spiderfyOnMaxZoom: true,
-          disableClusteringAtZoom: 11,
-          maxClusterRadius: 42,
-          iconCreateFunction: (cluster) => L.divIcon({
-            className: 'map-cluster-icon',
-            html: `<div class="map-cluster-badge">${cluster.getChildCount()}</div>`,
-            iconSize: [42, 42],
-            iconAnchor: [21, 21],
-          }),
-        })
-      : null;
-    if (clusteredMarkersLayer) map.addLayer(clusteredMarkersLayer);
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -1223,49 +763,6 @@ INDEX_HTML = """<!doctype html>
 
     function tr(key) {
       return strings()[key];
-    }
-
-    function isMobilePortrait() {
-      return mobileMedia.matches;
-    }
-
-    function syncMobileChrome() {
-      document.body.classList.toggle('mobile-view-list', isMobilePortrait() && mobileViewMode === 'list');
-      document.body.classList.toggle('mobile-sheet-full', isMobilePortrait() && mobileSheetMode === 'full');
-      document.body.classList.toggle('legend-open', legendSheetOpen);
-      document.body.classList.toggle('map-fullscreen', isMobilePortrait() && mapFullscreen);
-      const fullscreenButton = document.getElementById('map-fullscreen-toggle');
-      if (fullscreenButton) fullscreenButton.textContent = tr(mapFullscreen ? 'fullscreenExit' : 'fullscreenEnter');
-      const legendTitle = document.getElementById('legend-sheet-title');
-      if (legendTitle) legendTitle.textContent = tr('legendTitle');
-    }
-
-    function setMobileViewMode(mode) {
-      mobileViewMode = mode;
-      mobileSheetMode = mode === 'list' ? 'full' : 'peek';
-      syncMobileChrome();
-      if (latestState) render(latestState);
-      window.setTimeout(() => map.invalidateSize(), 80);
-    }
-
-    function toggleSheetMode() {
-      mobileSheetMode = mobileSheetMode === 'full' ? 'peek' : 'full';
-      if (mobileSheetMode === 'full') mobileViewMode = 'list';
-      syncMobileChrome();
-      if (latestState) render(latestState);
-      window.setTimeout(() => map.invalidateSize(), 80);
-    }
-
-    function toggleLegendSheet(force) {
-      legendSheetOpen = typeof force === 'boolean' ? force : !legendSheetOpen;
-      syncMobileChrome();
-    }
-
-    function toggleMapFullscreen() {
-      mapFullscreen = !mapFullscreen;
-      syncMobileChrome();
-      window.setTimeout(() => map.invalidateSize(), 120);
-      if (latestState) renderMap(latestState);
     }
 
     function setLanguage(language) {
@@ -1279,7 +776,7 @@ INDEX_HTML = """<!doctype html>
 
     function renderLegend() {
       const legend = document.getElementById('map-legend');
-      const legendBody = `
+      legend.innerHTML = `
         <div class="legend-group">
           <span class="legend-title">${tr('legendRepeaters')}</span>
           <div class="legend-row"><span class="legend-node" style="background:#2e8b57"></span><span>${tr('legendDataAvailable')}</span></div>
@@ -1294,9 +791,6 @@ INDEX_HTML = """<!doctype html>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
         </div>
       `;
-      legend.innerHTML = legendBody;
-      const legendSheetBody = document.getElementById('legend-sheet-body');
-      if (legendSheetBody) legendSheetBody.innerHTML = legendBody;
     }
 
     function formatWhen(value) {
@@ -1464,14 +958,6 @@ INDEX_HTML = """<!doctype html>
     }
 
     function overlayInsets(basePadding) {
-      if (isMobilePortrait()) {
-        return {
-          top: basePadding + (mapFullscreen ? 54 : 20),
-          right: basePadding,
-          bottom: basePadding + (mobileSheetMode === 'full' || mobileViewMode === 'list' ? 320 : 180),
-          left: basePadding,
-        };
-      }
       const insets = { top: basePadding, right: basePadding, bottom: basePadding, left: basePadding };
       const mapElement = document.getElementById('map');
       const sidebar = document.getElementById('sidebar');
@@ -1546,7 +1032,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderSummary(state) {
-      const nodes = allNodes(state);
+      const nodes = relevantNodes(state);
       const html = [
         { label: tr('summaryKnown'), value: nodes.length },
         { label: tr('summaryWithData'), value: nodes.filter((node) => !isInactive(node) && node.data_fetch_ok).length },
@@ -1797,51 +1283,6 @@ INDEX_HTML = """<!doctype html>
       `;
     }
 
-    function renderMobileFocusCard(state) {
-      const card = document.getElementById('mobile-focus-card');
-      if (!card) return;
-      if (!isMobilePortrait() || !selectedSourceId) {
-        card.classList.remove('visible');
-        card.innerHTML = '';
-        return;
-      }
-      const node = getSelectedNode(state);
-      if (!node) {
-        card.classList.remove('visible');
-        card.innerHTML = '';
-        return;
-      }
-      const selectedLinks = getSelectedLinks(state);
-      card.innerHTML = `
-        <div class="focus-card-head">
-          <div>
-            <strong>${node.name || node.hash_prefix_hex}</strong>
-            <span>${nodeStateLabel(node)} · ${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>
-          </div>
-          <button type="button" class="ghost-button" data-clear-selection="1">${tr('clearFocus')}</button>
-        </div>
-        <div class="focus-card-grid">
-          <div class="focus-card-metric"><strong>${selectedLinks.length}</strong><span>${tr('neighborsCount')}</span></div>
-          <div class="focus-card-metric"><strong>${describeProbeResult(node)}</strong><span>${tr('lastProbeResult')}</span></div>
-          <div class="focus-card-metric"><strong>${formatShortWhen(node.last_data_at)}</strong><span>${tr('lastData')}</span></div>
-        </div>
-      `;
-      card.classList.add('visible');
-      for (const button of card.querySelectorAll('[data-clear-selection]')) {
-        button.addEventListener('click', clearSelection);
-      }
-    }
-
-    function clusterMarkerIcon(node, selected = false, neighbor = false) {
-      const classes = [selected ? 'is-selected' : '', neighbor ? 'is-neighbor' : ''].filter(Boolean).join(' ');
-      return L.divIcon({
-        className: 'map-node-icon',
-        html: `<div class="map-node-hitbox ${classes}"><span class="map-node-core" style="--node-color:${nodeColor(node)}"></span></div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
-      });
-    }
-
     function renderExpandedNode(node, state) {
       const selectedLinks = getSelectedLinks(state);
       if (!selectedLinks.length || (selectedNeighborId && !selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId))) {
@@ -1968,7 +1409,6 @@ INDEX_HTML = """<!doctype html>
 
     function renderMap(state) {
       markersLayer.clearLayers();
-      if (clusteredMarkersLayer) clusteredMarkersLayer.clearLayers();
       halosLayer.clearLayers();
       linksLayer.clearLayers();
       labelsLayer.clearLayers();
@@ -1980,24 +1420,7 @@ INDEX_HTML = """<!doctype html>
       const nodes = selectedSourceId
         ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
         : allMapNodes;
-      const useClusteredMobileMarkers = Boolean(clusteredMarkersLayer) && isMobilePortrait() && !selectedSourceId && !selectedNeighborId;
       const bounds = [];
-      if (useClusteredMobileMarkers) {
-        for (const node of nodes) {
-          const marker = L.marker([node.latitude, node.longitude], {
-            icon: clusterMarkerIcon(node),
-            keyboard: false,
-          });
-          marker.on('click', (event) => {
-            L.DomEvent.stopPropagation(event);
-            selectNode(node.identity_hex);
-          });
-          clusteredMarkersLayer.addLayer(marker);
-          bounds.push([node.latitude, node.longitude]);
-        }
-        if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
-        return;
-      }
       for (const node of nodes) {
         const selected = node.identity_hex === selectedSourceId;
         const neighbor = neighborIds.has(node.identity_hex);
@@ -2059,7 +1482,7 @@ INDEX_HTML = """<!doctype html>
         bounds.push([link.source_latitude, link.source_longitude]);
         bounds.push([link.target_latitude, link.target_longitude]);
       }
-      if (!isMobilePortrait() || selectedSourceId) renderLabels(nodes, neighborIds);
+      renderLabels(nodes, neighborIds);
       renderLinkLabels(selectedLinks, sourceNode);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
     }
