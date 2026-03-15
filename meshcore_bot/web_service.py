@@ -428,9 +428,6 @@ INDEX_HTML = """<!doctype html>
     .signal-label-chip span {
       display: block;
     }
-    #mobile-panel-handle {
-      display: none;
-    }
     @media (max-width: 860px) {
       body {
         overflow: auto;
@@ -603,34 +600,14 @@ INDEX_HTML = """<!doctype html>
         max-height: 50dvh;
       }
       #map-legend {
-        display: none;
+        margin: 8px 10px 0;
+        padding: 8px 10px;
+        border-radius: 14px;
+        font-size: 0.64rem;
       }
       #sidebar {
         margin: 0;
-        display: grid;
-        grid-template-rows: auto auto 1fr;
         border-radius: 22px 22px 0 0;
-        max-height: 44dvh;
-        overflow: hidden;
-        transition: max-height 180ms ease;
-      }
-      body.mobile-panel-expanded #sidebar {
-        max-height: 78dvh;
-      }
-      #mobile-panel-handle {
-        display: flex;
-        justify-content: center;
-        padding: 8px 0 6px;
-        border-bottom: 1px solid rgba(21, 33, 42, 0.06);
-        background: rgba(255, 255, 255, 0.96);
-      }
-      #mobile-panel-toggle {
-        width: 48px;
-        height: 5px;
-        border: 0;
-        border-radius: 999px;
-        background: rgba(21, 33, 42, 0.18);
-        cursor: pointer;
       }
       .summary-strip {
         padding: 0;
@@ -643,7 +620,7 @@ INDEX_HTML = """<!doctype html>
         background: rgba(237, 240, 236, 0.56);
       }
       .summary-card {
-        padding: 6px 3px 5px;
+        padding: 9px 4px 8px;
         border: 0;
         border-right: 1px solid var(--line);
         border-radius: 0;
@@ -653,17 +630,12 @@ INDEX_HTML = """<!doctype html>
         border-right: 0;
       }
       .summary-card strong {
-        font-size: 0.76rem;
-        line-height: 1;
+        font-size: 0.86rem;
       }
       .summary-card span {
-        margin-top: 1px;
-        font-size: 0.54rem;
-        line-height: 1.05;
+        font-size: 0.61rem;
       }
       .list-shell {
-        min-height: 0;
-        overflow: auto;
         padding: 0 0 18px;
       }
       .list-toolbar {
@@ -752,9 +724,6 @@ INDEX_HTML = """<!doctype html>
     <div id=\"map\"></div>
     <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
-      <div id=\"mobile-panel-handle\">
-        <button id=\"mobile-panel-toggle\" type=\"button\" aria-label=\"Rozwin panel\"></button>
-      </div>
       <section class=\"summary-strip\">
         <div id=\"summary\" class=\"summary-grid\"></div>
       </section>
@@ -1667,13 +1636,6 @@ INDEX_HTML = """<!doctype html>
     map.on('zoomend', () => {
       if (latestState) renderMap(latestState);
     });
-
-    const mobilePanelToggle = document.getElementById('mobile-panel-toggle');
-    if (mobilePanelToggle) {
-      mobilePanelToggle.addEventListener('click', () => {
-        document.body.classList.toggle('mobile-panel-expanded');
-      });
-    }
 
     document.documentElement.lang = currentLanguage;
     renderLegend();
