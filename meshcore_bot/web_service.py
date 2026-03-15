@@ -438,32 +438,40 @@ INDEX_HTML = """<!doctype html>
         height: auto;
         min-height: 100dvh;
         overflow: visible;
+        gap: 10px;
         padding-bottom: max(12px, env(safe-area-inset-bottom));
       }
       #map {
         position: relative;
         inset: auto;
-        flex: 0 0 clamp(220px, 34dvh, 320px);
-        min-height: clamp(220px, 34dvh, 320px);
+        order: 1;
+        flex: 0 0 clamp(180px, 26dvh, 240px);
+        min-height: clamp(180px, 26dvh, 240px);
       }
       #sidebar {
         position: relative;
+        order: 3;
         left: auto;
         right: auto;
         top: auto;
         bottom: auto;
         width: auto;
         max-height: none;
-        margin: -18px 12px 0;
-        border-radius: 24px 24px 20px 20px;
+        margin: 0 12px 0;
+        border-radius: 20px;
         background: var(--panel-strong);
       }
       #map-legend {
-        left: 12px;
-        top: 12px;
+        position: relative;
+        order: 2;
+        left: auto;
+        right: auto;
+        top: auto;
         bottom: auto;
-        max-width: min(220px, calc(100vw - 24px));
-        padding: 8px 10px;
+        max-width: none;
+        margin: 0 12px;
+        padding: 10px 12px;
+        border-radius: 16px;
         font-size: 0.7rem;
       }
       .summary-strip {
@@ -546,6 +554,15 @@ INDEX_HTML = """<!doctype html>
       .chart-meta {
         white-space: normal;
       }
+      .legend-group + .legend-group {
+        margin-top: 12px;
+      }
+      #map-legend .legend-row {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        column-gap: 8px;
+      }
       .leaflet-left .leaflet-control {
         margin-left: 10px;
       }
@@ -555,14 +572,14 @@ INDEX_HTML = """<!doctype html>
     }
     @media (max-width: 520px) {
       #map {
-        flex-basis: clamp(200px, 30dvh, 260px);
-        min-height: clamp(200px, 30dvh, 260px);
+        flex-basis: clamp(150px, 22dvh, 200px);
+        min-height: clamp(150px, 22dvh, 200px);
       }
       #sidebar {
-        margin: -12px 10px 0;
+        margin: 0 10px 0;
       }
       #map-legend {
-        max-width: min(180px, calc(100vw - 20px));
+        margin: 0 10px;
         font-size: 0.66rem;
       }
       .summary-strip {

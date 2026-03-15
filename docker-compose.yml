@@ -78,10 +78,17 @@ services:
       init-db:
         condition: service_completed_successfully
     ports:
-      - "8080:8080"
+      - "80:8080"
+    networks:
+      vmbr106:
+        ipv4_address: 172.30.106.8
     volumes:
       - ./config:/app/config
       - ./data:/app/data
 
 volumes:
   gateway-sockets:
+
+networks:
+  vmbr106:
+    external: true
