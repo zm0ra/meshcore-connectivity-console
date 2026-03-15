@@ -610,39 +610,27 @@ INDEX_HTML = """<!doctype html>
         display: grid;
         grid-template-rows: auto auto 1fr;
         border-radius: 22px 22px 0 0;
-        height: 44dvh;
+        max-height: 44dvh;
         overflow: hidden;
-        transition: height 180ms ease;
+        transition: max-height 180ms ease;
       }
       body.mobile-panel-expanded #sidebar {
-        height: 78dvh;
+        max-height: 78dvh;
       }
       #mobile-panel-handle {
         display: flex;
         justify-content: center;
-        padding: 4px 0 2px;
+        padding: 8px 0 6px;
         border-bottom: 1px solid rgba(21, 33, 42, 0.06);
         background: rgba(255, 255, 255, 0.96);
       }
       #mobile-panel-toggle {
-        position: relative;
-        width: 100%;
-        height: 18px;
-        border: 0;
-        background: transparent;
-        cursor: pointer;
-      }
-      #mobile-panel-toggle::before {
-        content: '';
-        display: block;
         width: 48px;
         height: 5px;
-        margin: 0 auto;
+        border: 0;
         border-radius: 999px;
         background: rgba(21, 33, 42, 0.18);
-      }
-      body.mobile-panel-expanded #mobile-panel-toggle::before {
-        background: rgba(44, 113, 209, 0.34);
+        cursor: pointer;
       }
       .summary-strip {
         padding: 0;
