@@ -53,9 +53,6 @@ INDEX_HTML = """<!doctype html>
       inset: 0;
       background: #e8eeeb;
     }
-    #mobile-toolbar-host {
-      display: none;
-    }
     .overlay {
       position: absolute;
       z-index: 1000;
@@ -600,14 +597,6 @@ INDEX_HTML = """<!doctype html>
       }
     }
     @media (max-width: 860px) and (orientation: portrait) {
-      #mobile-toolbar-host {
-        display: block;
-        position: relative;
-        order: 1;
-        margin: 12px 12px 0;
-        border-radius: 18px;
-        background: var(--panel-strong);
-      }
       #map-legend {
         display: none;
       }
@@ -652,7 +641,6 @@ INDEX_HTML = """<!doctype html>
 </head>
 <body>
   <div id=\"app\">
-    <div id="mobile-toolbar-host" class="overlay"></div>
     <div id=\"map\"></div>
     <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
@@ -1399,63 +1387,33 @@ INDEX_HTML = """<!doctype html>
               return `
                 <tr${activeClass}>
                   <td><button type=\"button\" data-neighbor=\"${link.target_identity_hex}\">${link.target_name}</button></td>
-
-              function toolbarHtml() {
-                return `
-                  <div class="list-toolbar">
-                    <label for="sort-mode">${tr('sortLabel')}</label>
-                    <div class="toolbar-cluster">
-                      <div class="mobile-view-toggle" role="group" aria-label="${tr('viewLabel')}">
-                        <button type="button" class="view-button${currentMobileView === 'map' ? ' active' : ''}" data-mobile-view="map">${tr('viewMap')}</button>
-                        <button type="button" class="view-button${currentMobileView === 'list' ? ' active' : ''}" data-mobile-view="list">${tr('viewList')}</button>
-                      </div>
-                      <select id="sort-mode" class="sort-select" data-sort-mode="1">
-                        <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>${tr('sortLastAdvert')}</option>
-                        <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>${tr('sortLastData')}</option>
-                        <option value="alphabetical"${nodeSortMode === 'alphabetical' ? ' selected' : ''}>${tr('sortAlphabetical')}</option>
-                      </select>
-                      <div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}">
-                        <button type="button" class="lang-button${currentLanguage === 'pl' ? ' active' : ''}" data-language="pl">PL</button>
-                        <button type="button" class="lang-button${currentLanguage === 'en' ? ' active' : ''}" data-language="en">EN</button>
-                      </div>
-                    </div>
-                  </div>
-                `;
-              }
-
-              function bindToolbarControls(root) {
-                if (!root) return;
-                for (const button of root.querySelectorAll('[data-language]')) {
-                  button.addEventListener('click', () => setLanguage(button.dataset.language));
-                }
-                for (const button of root.querySelectorAll('[data-mobile-view]')) {
-                  button.addEventListener('click', () => setMobileView(button.dataset.mobileView));
-                }
-                for (const select of root.querySelectorAll('[data-sort-mode]')) {
-                  select.addEventListener('change', () => {
-                    nodeSortMode = select.value;
-                    render(latestState);
-                  });
-                }
-              }
                   <td>${typeof link.last_heard_seconds === 'number' ? humanizeSeconds(link.last_heard_seconds) : timeAgo(link.collected_at)}</td>
                   <td>${lineSignalMetric(link).label}</td>
                   <td>${distance === null ? '-' : `${distance.toFixed(1)} km`}</td>
-                const mobileToolbarHost = document.getElementById('mobile-toolbar-host');
-                const showSeparateMobileToolbar = isPortraitMobileView();
                 </tr>
               `;
             }).join('')}
           </tbody>
-                if (showSeparateMobileToolbar) {
-                  mobileToolbarHost.innerHTML = toolbarHtml();
-                  bindToolbarControls(mobileToolbarHost);
-                } else if (mobileToolbarHost) {
-                  mobileToolbarHost.innerHTML = '';
-                }
-                if (!showSeparateMobileToolbar) {
-                  html += toolbarHtml();
-                }
+        </table>
+      ` : `<div class=\"empty-note\">${tr('emptyNoNeighborLinks')}</div>`;
+      return `
+        <div class=\"node-expand\">
+          <div class=\"expand-head\">
+            <strong>${tr('inspection')}</strong>
+            <button type=\"button\" class=\"ghost-button\" data-clear-selection=\"1\">${tr('clearFocus')}</button>
+          </div>
+          <div class=\"detail-grid\">
+            <div class=\"detail-cell\"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastSuccessfulProbe')}</strong>${formatWhen(node.last_successful_probe_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastProbeResult')}</strong>${describeProbeResult(node)}</div>
+            <div class=\"detail-cell\"><strong>${tr('lastProbeAttempt')}</strong>${formatWhen(node.last_probe_at)}</div>
+          </div>
+          <div>
+            <div class=\"expand-head\"><strong>${tr('directNeighbors')}</strong><span class=\"node-state-tag\">${selectedLinks.length}</span></div>
+            ${neighborRows}
+          </div>
           ${renderSignalChart(node, selectedLink, historyRows)}
         </div>
       `;
@@ -1466,7 +1424,18 @@ INDEX_HTML = """<!doctype html>
         <div class=\"node-row${node.identity_hex === selectedSourceId ? ' active' : ''}\">
           <button type=\"button\" class=\"node-row-button\" data-node=\"${node.identity_hex}\">
             <span class=\"status-dot\" style=\"background:${nodeColor(node)}\"></span>
-                bindToolbarControls(container);
+            <span class=\"node-main\">
+              <span class=\"node-name\">${node.name || node.hash_prefix_hex}</span>
+              <span class=\"node-age\">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>
+            </span>
+            <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
+          </button>
+          ${node.identity_hex === selectedSourceId ? renderExpandedNode(node, state) : ''}
+        </div>
+      `;
+    }
+
+    function renderNodeSections(state) {
       const container = document.getElementById('node-sections');
       const nodes = sortNodes(relevantNodes(state));
       const selectedNode = selectedSourceId ? nodes.find((node) => node.identity_hex === selectedSourceId) : null;
