@@ -490,6 +490,62 @@ class BotDatabase:
                 enqueued += 1
         return enqueued
 
+    def schedule_recent_failed_repeater_probe_jobs(
+        self,
+        *,
+        endpoint_names: list[str],
+        seen_within_secs: float,
+        reason: str,
+        success_cooldown_secs: float,
+        failure_cooldown_secs: float,
+        now: datetime | None = None,
+    ) -> int:
+        if seen_within_secs <= 0 or not endpoint_names:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        recent_cutoff_iso = (now - timedelta(seconds=seen_within_secs)).isoformat()
+        placeholders = ",".join("?" for _ in endpoint_names)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                WITH latest_advert AS (
+                    SELECT ra.repeater_id, ra.endpoint_name
+                    FROM repeater_adverts ra
+                    JOIN (
+                        SELECT repeater_id, MAX(id) AS max_id
+                        FROM repeater_adverts
+                        GROUP BY repeater_id
+                    ) latest ON latest.max_id = ra.id
+                )
+                SELECT r.id,
+                       la.endpoint_name,
+                       r.last_seen_at,
+                       r.last_probe_status,
+                       r.last_probe_at
+                FROM repeaters r
+                JOIN latest_advert la ON la.repeater_id = r.id
+                WHERE r.last_seen_at >= ?
+                  AND la.endpoint_name IN ({placeholders})
+                  AND r.last_probe_status = 'failed'
+                ORDER BY r.last_seen_at DESC, r.id DESC
+                """,
+                (recent_cutoff_iso, *endpoint_names),
+            ).fetchall()
+
+        enqueued = 0
+        for row in rows:
+            job_id = self.enqueue_probe_job(
+                repeater_id=int(row["id"]),
+                endpoint_name=str(row["endpoint_name"]),
+                reason=reason,
+                success_cooldown_secs=success_cooldown_secs,
+                failure_cooldown_secs=failure_cooldown_secs,
+            )
+            if job_id is not None:
+                enqueued += 1
+        return enqueued
+
     def claim_probe_job(self) -> dict[str, object] | None:
         started_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> dict[str, object] | None:
@@ -1068,6 +1124,44 @@ class BotDatabase:
                 continue
             bucket.append(dict(row))
         return history
+
+    def latest_repeater_signal_by_name(self, name: str) -> dict[str, object] | None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            return None
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT r.id AS repeater_id,
+                       r.pubkey_hex,
+                       COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS repeater_name,
+                       rss.observed_at,
+                       rss.last_snr,
+                       rss.last_rssi
+                FROM repeaters r
+                LEFT JOIN repeater_probe_runs pr
+                  ON pr.id = (
+                      SELECT pr2.id
+                      FROM repeater_probe_runs pr2
+                      WHERE pr2.repeater_id = r.id AND pr2.result = 'success'
+                      ORDER BY COALESCE(pr2.finished_at, pr2.started_at) DESC, pr2.id DESC
+                      LIMIT 1
+                  )
+                LEFT JOIN repeater_status_snapshots rss
+                  ON rss.id = (
+                      SELECT rss2.id
+                      FROM repeater_status_snapshots rss2
+                      WHERE rss2.probe_run_id = pr.id
+                      ORDER BY rss2.observed_at DESC, rss2.id DESC
+                      LIMIT 1
+                  )
+                WHERE LOWER(COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8))) = LOWER(?)
+                ORDER BY r.last_seen_at DESC, r.id DESC
+                LIMIT 1
+                """,
+                (normalized_name,),
+            ).fetchone()
+            return dict(row) if row is not None else None
 
     def list_probe_jobs(self, limit: int = 100) -> list[dict[str, object]]:
         with self.connect() as connection:

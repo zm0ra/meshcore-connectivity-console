@@ -2,11 +2,13 @@ import asyncio
 import struct
 
 from datetime import UTC, datetime, timedelta
+from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
-from meshcore_bot.config import AppConfig, EndpointConfig, GatewayConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
+from meshcore_bot.config import AppConfig, BotConfig, EndpointConfig, GatewayConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
+from meshcore_bot.bot_service import ChannelCommandBotService
 from meshcore_bot.bridge_gateway import BridgeGatewayService
 from meshcore_bot.database import BotDatabase
 from meshcore_bot.identity import LocalIdentity
@@ -14,17 +16,21 @@ from meshcore_bot.ingest_service import AdvertIngestService
 from meshcore_bot.mesh_builders import (
     build_advert_packet,
     build_datagram_payload,
+    build_group_text_packet,
     build_login_packet,
     build_mesh_packet,
+    build_private_text_packet,
     next_request_tag,
     next_wire_timestamp,
     parse_anon_request,
     parse_encrypted_datagram,
+    parse_group_text,
+    parse_text_plaintext,
 )
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
 from meshcore_bot.config import load_config
-from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, select_login_candidates, select_login_route_attempts
+from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
     parse_login_response,
@@ -32,6 +38,7 @@ from meshcore_bot.repeater_protocol import (
     parse_owner_info_response,
     parse_status_response,
 )
+from meshcore_bot.tcp_client import MeshcoreTCPClient
 from meshcore_bot.tcp_client import ReceivedPacket
 
 
@@ -39,6 +46,7 @@ class FakeTCPClient:
     def __init__(self, received_packets: list[ReceivedPacket]) -> None:
         self.received_packets = list(received_packets)
         self.sent_packets: list[bytes] = []
+        self.quiet_windows: list[float] = []
 
     async def connect(self) -> None:
         return None
@@ -49,6 +57,9 @@ class FakeTCPClient:
     async def send_packet(self, packet: bytes) -> str:
         self.sent_packets.append(packet)
         return packet.hex().upper()
+
+    async def activate_quiet_window(self, *, seconds: float) -> None:
+        self.quiet_windows.append(seconds)
 
     async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
         if not self.received_packets:
@@ -85,11 +96,29 @@ def build_test_app_config(tmp_path) -> AppConfig:
             advert_reprobe_success_cooldown_secs=60.0,
             advert_reprobe_failure_cooldown_secs=300.0,
             scheduled_reprobe_interval_secs=7200.0,
+            night_failed_retry_start_hour=1,
+            night_failed_retry_end_hour=7,
+            night_failed_retry_interval_secs=3600.0,
             poll_interval_secs=2.0,
             request_timeout_secs=1.0,
             route_freshness_secs=1800.0,
             neighbours_page_size=15,
             neighbours_prefix_len=4,
+        ),
+        bot=BotConfig(
+            enabled=True,
+            sender_name="",
+            channels=("#bot-test",),
+            enabled_commands=("!ping", "!test", "!help"),
+            min_response_delay_secs=1.0,
+            response_attempts=2,
+            echo_ack_timeout_secs=0.0,
+            response_retry_delay_secs=1.75,
+            response_retry_backoff_multiplier=1.0,
+            response_retry_max_delay_secs=10.0,
+            quiet_window_secs=8.0,
+            command_dedup_ttl_secs=30.0,
+            include_test_signal=True,
         ),
         web=WebConfig(host="127.0.0.1", port=8080),
         gateway=GatewayConfig(
@@ -189,6 +218,9 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
         scheduled_reprobe_interval_secs=7200.0,
+        night_failed_retry_start_hour=1,
+        night_failed_retry_end_hour=7,
+        night_failed_retry_interval_secs=3600.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -218,6 +250,9 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
         scheduled_reprobe_interval_secs=7200.0,
+        night_failed_retry_start_hour=1,
+        night_failed_retry_end_hour=7,
+        night_failed_retry_interval_secs=3600.0,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -243,6 +278,29 @@ def test_build_advert_packet_roundtrip() -> None:
     assert advert.name == "441CFEA26666"
 
 
+def test_build_advert_packet_supports_flood_and_monotonic_timestamp() -> None:
+    identity = LocalIdentity.generate()
+    first = build_advert_packet(
+        identity=identity,
+        name="meshcore-bot",
+        advert_type=int(AdvertType.CHAT),
+        route_type=RouteType.FLOOD,
+        timestamp=123456,
+    )
+    second = build_advert_packet(
+        identity=identity,
+        name="meshcore-bot",
+        advert_type=int(AdvertType.CHAT),
+        route_type=RouteType.FLOOD,
+        timestamp=123456,
+    )
+    assert first.summary.route_type is RouteType.FLOOD
+    first_advert = parse_advert(first.summary)
+    second_advert = parse_advert(second.summary)
+    assert first_advert.timestamp == 123456
+    assert second_advert.timestamp == 123456
+
+
 def test_next_wire_timestamp_is_monotonic() -> None:
     first = next_wire_timestamp(100)
     second = next_wire_timestamp(99)
@@ -250,6 +308,369 @@ def test_next_wire_timestamp_is_monotonic() -> None:
     assert first == 100
     assert second == 99
     assert third == 101
+
+
+def test_group_text_packet_roundtrip() -> None:
+    secret = derive_hashtag_secret("#bot-test")
+    packet = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, attempt=2)
+    parsed = parse_group_text(packet.summary, channel_secret=secret)
+    assert parsed is not None
+    assert parsed.text == "alice: !ping"
+    assert parsed.attempt == 2
+
+
+def test_bot_service_replies_to_ping(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+    assert fake_client.quiet_windows == [service.QUIET_WINDOW_SECS]
+    decoded_packets = [parse_group_text(parse_packet(packet), channel_secret=secret) for packet in fake_client.sent_packets]
+    assert all(decoded is not None for decoded in decoded_packets)
+    attempts = [cast(Any, decoded).attempt for decoded in decoded_packets]
+    assert attempts == [0, 1]
+    texts = [cast(Any, decoded).text for decoded in decoded_packets]
+    assert all(text.startswith("meshcore-bot: pong @[alice] ") for text in texts)
+    assert texts[0].endswith("UTC tx 1/2")
+    assert texts[1].endswith("UTC tx 2/2")
+
+
+def test_bot_service_replies_to_help(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!help", channel_secret=secret)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+    decoded_packets = [parse_group_text(parse_packet(packet), channel_secret=secret) for packet in fake_client.sent_packets]
+    assert all(decoded is not None for decoded in decoded_packets)
+    texts = [cast(Any, decoded).text for decoded in decoded_packets]
+    assert texts == [
+        "meshcore-bot: !ping !test !help tx 1/2",
+        "meshcore-bot: !ping !test !help tx 2/2",
+    ]
+
+
+def test_bot_service_ignores_unconfigured_channel(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=derive_hashtag_secret("#other"))
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert fake_client.sent_packets == []
+
+
+def test_bot_service_replies_on_second_configured_channel(tmp_path) -> None:
+    config = replace(
+        build_test_app_config(tmp_path),
+        bot=replace(build_test_app_config(tmp_path).bot, channels=("#bot-test", "#mesh-alerts")),
+    )
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#mesh-alerts")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+    decoded_packets = [parse_group_text(parse_packet(packet), channel_secret=secret) for packet in fake_client.sent_packets]
+    assert all(decoded is not None for decoded in decoded_packets)
+
+
+def test_bot_service_replies_to_test_with_signal_when_known(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name=config.endpoints[0].name,
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=repeater_identity.public_key,
+        advert_name="alice",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=123,
+        path_len=0,
+        path_hex="",
+        raw_packet_hex="AA",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name=config.endpoints[0].name)
+    database.complete_probe_run(
+        probe_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=3,
+        firmware_capability_level=2,
+        login_server_time=123,
+        error_message=None,
+    )
+    database.save_status_snapshot(
+        probe_run_id=probe_run_id,
+        status={
+            "batt_milli_volts": 4100,
+            "curr_tx_queue_len": 1,
+            "noise_floor": -110,
+            "last_rssi": -87,
+            "n_packets_recv": 1,
+            "n_packets_sent": 2,
+            "total_air_time_secs": 3,
+            "total_up_time_secs": 4,
+            "n_sent_flood": 5,
+            "n_sent_direct": 6,
+            "n_recv_flood": 7,
+            "n_recv_direct": 8,
+            "err_events": 0,
+            "last_snr": 4.5,
+            "n_direct_dups": 0,
+            "n_flood_dups": 0,
+            "total_rx_air_time_secs": 9,
+            "n_recv_errors": 0,
+        },
+    )
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!test", channel_secret=secret)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+    decoded_packets = [parse_group_text(parse_packet(packet), channel_secret=secret) for packet in fake_client.sent_packets]
+    assert all(decoded is not None for decoded in decoded_packets)
+    attempts = [cast(Any, decoded).attempt for decoded in decoded_packets]
+    assert attempts == [0, 1]
+    texts = [cast(Any, decoded).text for decoded in decoded_packets]
+    assert all(text.startswith("meshcore-bot: @[alice] hops: 0 ") for text in texts)
+    assert all("SNR: 4.5" in text for text in texts)
+    assert all("RSSI: -87" in text for text in texts)
+    assert texts[0].endswith("RSSI: -87 tx 1/2")
+    assert texts[1].endswith("RSSI: -87 tx 2/2")
+
+
+def test_bot_service_ignores_duplicate_flood_copies(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, timestamp=123456)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+
+
+def test_bot_service_cancels_retry_after_seeing_own_echo(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, timestamp=123456)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 1.0
+    service.RESPONSE_RETRY_DELAY_SECS = 1.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.01)
+        sent_summary = parse_packet(fake_client.sent_packets[0])
+        echoed = ReceivedPacket(
+            observed_at=datetime.now(tz=UTC).isoformat(),
+            frame_hex=fake_client.sent_packets[0].hex().upper(),
+            packet_hex=fake_client.sent_packets[0].hex().upper(),
+            summary=sent_summary,
+        )
+        await service._handle_packet(config.endpoints[0], fake_client, echoed)
+        await asyncio.sleep(0.05)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == 1
+
+
+def test_bot_service_retries_only_after_missing_echo(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, timestamp=123456)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = FakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.01
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.05)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
+
+
+def test_bot_service_retry_delay_uses_backoff_multiplier(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    service.RESPONSE_RETRY_DELAY_SECS = 1.5
+    service.RESPONSE_RETRY_BACKOFF_MULTIPLIER = 1.7
+    service.RESPONSE_RETRY_MAX_DELAY_SECS = 10.0
+
+    assert round(service._retry_delay_for_attempt(1), 2) == 1.50
+    assert round(service._retry_delay_for_attempt(2), 2) == 2.55
+    assert round(service._retry_delay_for_attempt(3), 2) == 4.33
+
+
+def test_bot_service_retry_delay_respects_max_cap(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    service.RESPONSE_RETRY_DELAY_SECS = 2.0
+    service.RESPONSE_RETRY_BACKOFF_MULTIPLIER = 2.0
+    service.RESPONSE_RETRY_MAX_DELAY_SECS = 10.0
+
+    assert round(service._retry_delay_for_attempt(1), 2) == 2.00
+    assert round(service._retry_delay_for_attempt(2), 2) == 4.00
+    assert round(service._retry_delay_for_attempt(3), 2) == 8.00
+    assert round(service._retry_delay_for_attempt(4), 2) == 10.00
+
+
+def test_private_text_packet_roundtrip() -> None:
+    local_identity = LocalIdentity.generate()
+    remote_identity = LocalIdentity.generate()
+    packet = build_private_text_packet(
+        identity=local_identity,
+        remote_public_key=remote_identity.public_key,
+        message="!ping",
+        attempt=1,
+    )
+    decrypted = parse_encrypted_datagram(
+        packet.summary,
+        shared_secret=remote_identity.calc_shared_secret(local_identity.public_key),
+    )
+    parsed = parse_text_plaintext(decrypted.plaintext)
+    assert parsed is not None
+    timestamp, text_type, attempt, text = parsed
+    assert timestamp > 1_600_000_000
+    assert text_type == 0
+    assert attempt == 1
+    assert text == "!ping"
 
 
 def test_build_login_packet_uses_time_like_timestamp() -> None:
@@ -504,6 +925,85 @@ def test_bridge_gateway_ignores_idle_receive_timeout_without_reconnect(tmp_path)
     assert client.receive_calls == 2
     assert client.close_calls == 1
     assert service._broadcast_packet.await_count == 1
+
+
+def test_bridge_gateway_reconnects_after_connection_error(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    received_packet = build_received_packet()
+
+    class FakeGatewayTCPClient:
+        instances: list[FakeGatewayTCPClient] = []
+
+        def __init__(self, host: str, port: int) -> None:
+            self.host = host
+            self.port = port
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.receive_calls = 0
+            FakeGatewayTCPClient.instances.append(self)
+
+        async def connect(self) -> None:
+            self.connect_calls += 1
+
+        async def close(self) -> None:
+            self.close_calls += 1
+
+        async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
+            self.receive_calls += 1
+            if len(FakeGatewayTCPClient.instances) == 1:
+                raise ConnectionError("connection closed by peer")
+            return received_packet
+
+    service = BridgeGatewayService(config)
+    runtime = service._endpoint_runtimes["test-endpoint"]
+
+    async def stop_after_broadcast(endpoint_name: str, packet: ReceivedPacket) -> None:
+        assert endpoint_name == "test-endpoint"
+        assert packet is received_packet
+        service._stop_event.set()
+
+    with patch("meshcore_bot.bridge_gateway.MeshcoreTCPClient", FakeGatewayTCPClient):
+        service._broadcast_packet = AsyncMock(side_effect=stop_after_broadcast)
+        asyncio.run(service._run_endpoint(runtime))
+
+    assert len(FakeGatewayTCPClient.instances) == 2
+    assert FakeGatewayTCPClient.instances[0].connect_calls == 1
+    assert FakeGatewayTCPClient.instances[0].close_calls == 1
+    assert FakeGatewayTCPClient.instances[1].connect_calls == 1
+    assert FakeGatewayTCPClient.instances[1].close_calls == 1
+    assert service._broadcast_packet.await_count == 1
+
+
+def test_meshcore_tcp_client_surfaces_remote_disconnect_without_hanging() -> None:
+    async def scenario() -> None:
+        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(handle_client, host="127.0.0.1", port=0)
+        port = server.sockets[0].getsockname()[1]
+        client = MeshcoreTCPClient("127.0.0.1", port)
+        try:
+            await client.connect()
+            try:
+                await client.receive_packet(timeout=1.0)
+            except ConnectionError as exc:
+                assert "connection closed by peer" in str(exc)
+            else:
+                raise AssertionError("expected receive_packet to surface connection closure")
+
+            try:
+                await client.send_packet(b"\x00")
+            except ConnectionError as exc:
+                assert "connection closed by peer" in str(exc)
+            else:
+                raise AssertionError("expected send_packet to fail after reader disconnect")
+        finally:
+            await client.close()
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
 
 
 def test_ingest_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None:
@@ -826,6 +1326,120 @@ def test_schedule_stale_repeater_probe_jobs_only_enqueues_recent_repeaters_with_
         (unseen_repeater_id, "scheduled stale refresh", "pending"),
     ]
     assert old_repeater_id not in {row[0] for row in rows}
+
+
+def test_schedule_recent_failed_repeater_probe_jobs_only_enqueues_recent_failed_repeaters_with_adverts(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    now = datetime(2026, 3, 15, 2, 0, tzinfo=UTC)
+
+    failed_identity = LocalIdentity.generate()
+    success_identity = LocalIdentity.generate()
+    old_failed_identity = LocalIdentity.generate()
+
+    failed_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=20)).isoformat(),
+        public_key=failed_identity.public_key,
+        advert_name="failed-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    success_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=15)).isoformat(),
+        public_key=success_identity.public_key,
+        advert_name="success-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    old_failed_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(hours=9)).isoformat(),
+        public_key=old_failed_identity.public_key,
+        advert_name="old-failed-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    failed_run_id = database.create_probe_run(repeater_id=failed_repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        failed_run_id,
+        repeater_id=failed_repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="login timeout",
+    )
+
+    success_run_id = database.create_probe_run(repeater_id=success_repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        success_run_id,
+        repeater_id=success_repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message=None,
+    )
+
+    old_failed_run_id = database.create_probe_run(repeater_id=old_failed_repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        old_failed_run_id,
+        repeater_id=old_failed_repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="login timeout",
+    )
+
+    enqueued = database.schedule_recent_failed_repeater_probe_jobs(
+        endpoint_names=["test-endpoint"],
+        seen_within_secs=2 * 3600.0,
+        reason=GuestProbeWorker.NIGHT_FAILED_RETRY_REASON,
+        success_cooldown_secs=3600.0,
+        failure_cooldown_secs=3600.0,
+        now=now,
+    )
+
+    assert enqueued == 1
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT repeater_id, reason, status FROM probe_jobs WHERE reason = ? ORDER BY repeater_id ASC",
+            (GuestProbeWorker.NIGHT_FAILED_RETRY_REASON,),
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (failed_repeater_id, GuestProbeWorker.NIGHT_FAILED_RETRY_REASON, "pending"),
+    ]
+    assert success_repeater_id not in {row[0] for row in rows}
+    assert old_failed_repeater_id not in {row[0] for row in rows}
+
+
+def test_is_within_hour_window_supports_night_range() -> None:
+    assert is_within_hour_window(hour=1, start_hour=1, end_hour=7) is True
+    assert is_within_hour_window(hour=6, start_hour=1, end_hour=7) is True
+    assert is_within_hour_window(hour=7, start_hour=1, end_hour=7) is False
+    assert is_within_hour_window(hour=23, start_hour=22, end_hour=5) is True
+    assert is_within_hour_window(hour=3, start_hour=22, end_hour=5) is True
+    assert is_within_hour_window(hour=12, start_hour=22, end_hour=5) is False
 
 
 def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tmp_path) -> None:

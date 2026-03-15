@@ -25,4 +25,5 @@ class NeighboursWorkerApp:
             endpoint_name=endpoint.name,
             control_socket_path=self.config.gateway.control_socket_path,
             event_socket_path=self.config.gateway.event_socket_path,
+            traffic_class="probe",
         )

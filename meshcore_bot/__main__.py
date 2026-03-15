@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 
+from .bot_service import ChannelCommandBotService
 from .bridge_gateway import BridgeGatewayService
 from .config import load_config
 from .database import BotDatabase
@@ -50,6 +51,9 @@ def main() -> None:
     run_neighbours_worker = subparsers.add_parser("run-neighbours-worker", help="run neighbours ingest and probe worker")
     run_neighbours_worker.add_argument("--config", default="config/config.toml", help="path to TOML config")
 
+    run_bot_worker = subparsers.add_parser("run-bot-worker", help="run hashtag command bot worker")
+    run_bot_worker.add_argument("--config", default="config/config.toml", help="path to TOML config")
+
     run_web = subparsers.add_parser("run-web", help="run status web service")
     run_web.add_argument("--config", default="config/config.toml", help="path to TOML config")
 
@@ -94,10 +98,28 @@ def main() -> None:
                 "advert_reprobe_success_cooldown_secs": config.probe.advert_reprobe_success_cooldown_secs,
                 "advert_reprobe_failure_cooldown_secs": config.probe.advert_reprobe_failure_cooldown_secs,
                 "scheduled_reprobe_interval_secs": config.probe.scheduled_reprobe_interval_secs,
+                "night_failed_retry_start_hour": config.probe.night_failed_retry_start_hour,
+                "night_failed_retry_end_hour": config.probe.night_failed_retry_end_hour,
+                "night_failed_retry_interval_secs": config.probe.night_failed_retry_interval_secs,
                 "poll_interval_secs": config.probe.poll_interval_secs,
                 "request_timeout_secs": config.probe.request_timeout_secs,
                 "neighbours_page_size": config.probe.neighbours_page_size,
                 "neighbours_prefix_len": config.probe.neighbours_prefix_len,
+            },
+            "bot": {
+                "enabled": config.bot.enabled,
+                "sender_name": config.bot.sender_name,
+                "channels": list(config.bot.channels),
+                "enabled_commands": list(config.bot.enabled_commands),
+                "min_response_delay_secs": config.bot.min_response_delay_secs,
+                "response_attempts": config.bot.response_attempts,
+                "echo_ack_timeout_secs": config.bot.echo_ack_timeout_secs,
+                "response_retry_delay_secs": config.bot.response_retry_delay_secs,
+                "response_retry_backoff_multiplier": config.bot.response_retry_backoff_multiplier,
+                "response_retry_max_delay_secs": config.bot.response_retry_max_delay_secs,
+                "quiet_window_secs": config.bot.quiet_window_secs,
+                "command_dedup_ttl_secs": config.bot.command_dedup_ttl_secs,
+                "include_test_signal": config.bot.include_test_signal,
             },
             "web": {
                 "host": config.web.host,
@@ -174,6 +196,10 @@ def main() -> None:
 
     if command == "run-neighbours-worker":
         asyncio.run(NeighboursWorkerApp(config, database).run())
+        return
+
+    if command == "run-bot-worker":
+        asyncio.run(ChannelCommandBotService(config, database).run())
         return
 
     if command == "run-web":

@@ -84,8 +84,8 @@ class AdvertIngestService:
     async def _handle_packet(self, endpoint: EndpointConfig, packet: ReceivedPacket) -> None:
         self.stats.packets_seen += 1
         summary = packet.summary
-        self.logger.info(
-            "decoded rx frame endpoint=%s %s frame=%s packet=%s",
+        self.logger.debug(
+            "[RX] endpoint=%s %s frame=%s packet=%s",
             endpoint.name,
             describe_packet_summary(summary),
             packet.frame_hex,
@@ -116,6 +116,14 @@ class AdvertIngestService:
             return
 
         self.stats.repeater_adverts_seen += 1
+        self.logger.info(
+            "[ADVERT] endpoint=%s repeater=%s pubkey=%s path_len=%s path=%s",
+            endpoint.name,
+            (advert.name or advert.public_key.hex().upper()[:8]).strip(),
+            advert.public_key.hex().upper()[:12],
+            summary.path_len,
+            summary.path_bytes.hex().upper() or "-",
+        )
         repeater_id = self.database.upsert_repeater_from_advert(
             endpoint_name=endpoint.name,
             observed_at=packet.observed_at,
@@ -138,7 +146,7 @@ class AdvertIngestService:
         if job_id is not None:
             self.stats.jobs_enqueued += 1
             self.logger.info(
-                "queued probe job %s for repeater %s via %s",
+                "[PROBE-QUEUE] job=%s repeater=%s via=%s",
                 job_id,
                 advert.public_key.hex().upper()[:12],
                 endpoint.name,

@@ -52,6 +52,23 @@ services:
       - ./data:/app/data
       - gateway-sockets:/app/data/gateway
 
+  bot-worker:
+    build:
+      context: .
+    command: ["python", "-m", "meshcore_bot", "run-bot-worker", "--config", "/app/config/config.toml"]
+    restart: unless-stopped
+    depends_on:
+      bridge-gateway:
+        condition: service_started
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
+
   web:
     build:
       context: .

@@ -36,11 +36,31 @@ class ProbeConfig:
     advert_reprobe_success_cooldown_secs: float
     advert_reprobe_failure_cooldown_secs: float
     scheduled_reprobe_interval_secs: float
+    night_failed_retry_start_hour: int
+    night_failed_retry_end_hour: int
+    night_failed_retry_interval_secs: float
     poll_interval_secs: float
     request_timeout_secs: float
     route_freshness_secs: float
     neighbours_page_size: int
     neighbours_prefix_len: int
+
+
+@dataclass(frozen=True)
+class BotConfig:
+    enabled: bool
+    sender_name: str
+    channels: tuple[str, ...]
+    enabled_commands: tuple[str, ...]
+    min_response_delay_secs: float
+    response_attempts: int
+    echo_ack_timeout_secs: float
+    response_retry_delay_secs: float
+    response_retry_backoff_multiplier: float
+    response_retry_max_delay_secs: float
+    quiet_window_secs: float
+    command_dedup_ttl_secs: float
+    include_test_signal: bool
 
 
 @dataclass(frozen=True)
@@ -69,6 +89,7 @@ class AppConfig:
     storage: StorageConfig
     identity: IdentityConfig
     probe: ProbeConfig
+    bot: BotConfig
     web: WebConfig
     gateway: GatewayConfig
     endpoints: tuple[EndpointConfig, ...]
@@ -84,6 +105,7 @@ def load_config(config_path: str | Path) -> AppConfig:
     storage = raw.get("storage", {})
     identity = raw.get("identity", {})
     probe = raw.get("probe", {})
+    bot = raw.get("bot", {})
     web = raw.get("web", {})
     gateway = raw.get("gateway", {})
     legacy_advert_reprobe_cooldown_secs = float(probe.get("advert_reprobe_cooldown_secs", 60.0))
@@ -127,11 +149,32 @@ def load_config(config_path: str | Path) -> AppConfig:
                 probe.get("advert_reprobe_failure_cooldown_secs", legacy_advert_reprobe_cooldown_secs)
             ),
             scheduled_reprobe_interval_secs=float(probe.get("scheduled_reprobe_interval_secs", 7200.0)),
+            night_failed_retry_start_hour=int(probe.get("night_failed_retry_start_hour", 1)),
+            night_failed_retry_end_hour=int(probe.get("night_failed_retry_end_hour", 7)),
+            night_failed_retry_interval_secs=float(probe.get("night_failed_retry_interval_secs", 3600.0)),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
             route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),
             neighbours_page_size=int(probe.get("neighbours_page_size", 15)),
             neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 4)),
+        ),
+        bot=BotConfig(
+            enabled=bool(bot.get("enabled", True)),
+            sender_name=str(bot.get("sender_name", "")).strip(),
+            channels=tuple(str(item).strip() for item in bot.get("channels", ["#bot-test"]) if str(item).strip()),
+            enabled_commands=tuple(
+                str(item).strip().lower() for item in bot.get("enabled_commands", ["!ping", "!test", "!help"])
+                if str(item).strip()
+            ),
+            min_response_delay_secs=float(bot.get("min_response_delay_secs", 1.0)),
+            response_attempts=max(1, int(bot.get("response_attempts", 2))),
+            echo_ack_timeout_secs=max(0.0, float(bot.get("echo_ack_timeout_secs", 1.5))),
+            response_retry_delay_secs=float(bot.get("response_retry_delay_secs", 1.75)),
+            response_retry_backoff_multiplier=max(1.0, float(bot.get("response_retry_backoff_multiplier", 1.6))),
+            response_retry_max_delay_secs=max(0.0, float(bot.get("response_retry_max_delay_secs", 10.0))),
+            quiet_window_secs=float(bot.get("quiet_window_secs", 8.0)),
+            command_dedup_ttl_secs=float(bot.get("command_dedup_ttl_secs", 30.0)),
+            include_test_signal=bool(bot.get("include_test_signal", True)),
         ),
         web=WebConfig(
             host=str(web.get("host", "0.0.0.0")),

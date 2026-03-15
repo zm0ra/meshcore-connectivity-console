@@ -1,26 +1,85 @@
 # meshcore-bot
 
-Focused rebuild of the MeshCore TCP bot with the first goal of harvesting repeater data over RS232Bridge TCP on port 5002.
+Docker-first MeshCore runtime for two concrete jobs:
 
-Current scope:
-- RS232Bridge framing helpers
-- MeshCore packet parsing primitives
-- Bridge gateway process owning the single TCP connection per endpoint
-- Neighbours worker process handling advert ingestion and repeater harvesting over gateway IPC
-- SQLite schema for repeater adverts and guest probe runs
-- CLI bootstrap for initializing storage
+- harvesting repeater data over RS232Bridge TCP on port `5002`
+- running a small channel bot on configured MeshCore hashtag channels
 
-Reference notes live in ../trunk/ and drive the protocol implementation.
+Reference and reverse-engineering notes live in `../trunk/`. Runtime code lives only in this directory.
 
-Runtime split in Docker:
-- `bridge-gateway`: only process allowed to connect to RS232Bridge
-- `neighbours-worker`: advert ingestion plus repeater neighbour harvesting
-- `web`: status UI over SQLite
+## Runtime layout
 
-Probe scheduling details:
-- advert-triggered probe jobs are rate-limited per repeater and endpoint to avoid floods from duplicate adverts
-- successful advert probes can be retriggered sooner than failed ones because they use separate cooldowns
-- manual jobs keep bypassing that cooldown because they use distinct reasons
-- old failed probe jobs can be pruned explicitly with `python -m meshcore_bot cleanup-probe-jobs --failed-older-than-hours 12`
+- `bridge-gateway`: the only process allowed to hold the TCP connection to RS232Bridge
+- `neighbours-worker`: advert ingestion plus repeater probing over gateway IPC
+- `bot-worker`: channel-only command bot over gateway IPC
+- `web`: SQLite-backed status UI
 
-SQLite stays file-based in the shared volume. It is not extracted into a separate process because that would add coordination complexity without improving correctness for the current single-host deployment.
+SQLite stays file-based in the shared volume. There is no separate database container because this deployment is intentionally single-host and that extra moving part would not improve correctness.
+
+## Bot scope
+
+The bot is intentionally narrow:
+
+- it listens only on hashtag channels from `[bot].channels`
+- it supports only commands from `[bot].enabled_commands`
+- current supported commands are `!ping`, `!test`, and `!help`
+- it does not send self adverts
+- it does not handle private messages
+
+All bot behavior is configured in one place: `[bot]` in `config/config.toml`.
+
+## Probe scheduling
+
+- advert-triggered probe jobs are rate-limited per repeater and endpoint
+- successful advert probes can be retriggered sooner than failed ones
+- failed repeaters that are still advertising can be retried automatically during the night window, default `01:00-07:00`, once per hour
+- manual jobs bypass advert cooldowns because they use distinct reasons
+- old failed jobs can be pruned with `python -m meshcore_bot cleanup-probe-jobs --failed-older-than-hours 12`
+
+## Configuration
+
+Main runtime configuration lives in `config/config.toml`.
+
+Most important sections:
+
+- `[endpoints]`: RS232Bridge TCP targets
+- `[gateway]`: Unix sockets shared between containers
+- `[probe]`: repeater probe behavior, credentials, retry windows
+- `[bot]`: enabled channels, supported commands, reply timing, quiet window
+- `[web]`: dashboard bind address
+
+Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
+
+## Local Docker run
+
+Build and start the full stack:
+
+```bash
+docker compose up -d --build
+```
+
+Check logs:
+
+```bash
+docker compose logs --tail 100 bridge-gateway neighbours-worker bot-worker web
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
+
+## Production copy checklist
+
+Before copying this to the target machine:
+
+1. Review `config/config.toml`, especially `[endpoints]`, `[probe]`, and `[bot]`.
+2. Ensure `data/` is persistent on the target host.
+3. Bring the stack up with `docker compose up -d --build`.
+4. Verify `bridge-gateway` logs show `gateway connected` for the production endpoint.
+5. Verify `bot-worker` is listening on the channels you configured.
+
+## Current status
+
+This repo is intended for deployment once configuration is reviewed. It is not trying to be full Companion parity. The bot layer is now deliberately minimal so operational behavior is easier to reason about and support.

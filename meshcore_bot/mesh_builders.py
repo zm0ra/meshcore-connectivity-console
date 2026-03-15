@@ -4,8 +4,9 @@ import struct
 import time
 from dataclasses import dataclass
 
+from .channels import channel_hash
 from .identity import LocalIdentity
-from .mesh_crypto import encrypt_then_mac
+from .mesh_crypto import encrypt_then_mac, mac_then_decrypt
 from .mesh_packets import ADV_FEAT1_MASK, ADV_FEAT2_MASK, ADV_LATLON_MASK, ADV_NAME_MASK, PacketSummary, PayloadType, RouteType, parse_packet
 
 
@@ -35,6 +36,15 @@ class DecryptedDatagram:
     destination_hash: bytes
     source_hash: bytes
     plaintext: bytes
+
+
+@dataclass(slots=True)
+class GroupText:
+    channel_hash: int
+    timestamp: int
+    text_type: int
+    attempt: int
+    text: str
 
 
 class DatagramParseError(ValueError):
@@ -177,18 +187,20 @@ def build_advert_packet(
     latitude: float | None = None,
     longitude: float | None = None,
     advert_type: int = 1,
+    route_type: RouteType = RouteType.DIRECT,
+    timestamp: int | None = None,
 ) -> PacketEnvelope:
-    timestamp = int(time.time())
+    emitted_timestamp = next_wire_timestamp(timestamp)
     app_data = _build_advert_app_data(
         name=name,
         latitude=latitude,
         longitude=longitude,
         advert_type=advert_type,
     )
-    signed_message = identity.public_key + struct.pack("<I", timestamp) + app_data
+    signed_message = identity.public_key + struct.pack("<I", emitted_timestamp) + app_data
     signature = identity.sign(signed_message)
     payload = signed_message[:36] + signature + app_data
-    return build_mesh_packet(route_type=RouteType.DIRECT, payload_type=PayloadType.ADVERT, payload=payload)
+    return build_mesh_packet(route_type=route_type, payload_type=PayloadType.ADVERT, payload=payload)
 
 
 def build_request_packet(
@@ -214,6 +226,97 @@ def build_request_packet(
         encoded_path_len=encoded_path_len,
         path_bytes=path_bytes,
     )
+
+
+def build_private_text_packet(
+    *,
+    identity: LocalIdentity,
+    remote_public_key: bytes,
+    message: str,
+    timestamp: int | None = None,
+    attempt: int = 0,
+    encoded_path_len: int = 0,
+    path_bytes: bytes = b"",
+) -> PacketEnvelope:
+    shared_secret = identity.calc_shared_secret(remote_public_key)
+    wire_timestamp = next_wire_timestamp(timestamp)
+    flags = attempt & 0x03
+    plaintext = struct.pack("<IB", wire_timestamp, flags) + message.encode("utf-8")
+    payload = build_datagram_payload(
+        destination_public_key=remote_public_key,
+        source_identity=identity,
+        shared_secret=shared_secret,
+        plaintext=plaintext,
+    )
+    route_type = RouteType.DIRECT if encoded_path_len else RouteType.FLOOD
+    return build_mesh_packet(
+        route_type=route_type,
+        payload_type=PayloadType.TXT_MSG,
+        payload=payload,
+        encoded_path_len=encoded_path_len,
+        path_bytes=path_bytes,
+    )
+
+
+def build_group_text_packet(
+    *,
+    sender_name: str,
+    message: str,
+    channel_secret: bytes,
+    timestamp: int | None = None,
+    attempt: int = 0,
+) -> PacketEnvelope:
+    wire_timestamp = next_wire_timestamp(timestamp)
+    flags = attempt & 0x03
+    plaintext = struct.pack("<IB", wire_timestamp, flags) + f"{sender_name}: {message}".encode("utf-8")
+    payload = bytes([channel_hash(channel_secret)]) + encrypt_then_mac(channel_secret, plaintext)
+    return build_mesh_packet(
+        route_type=RouteType.FLOOD,
+        payload_type=PayloadType.GRP_TXT,
+        payload=payload,
+    )
+
+
+def parse_text_plaintext(plaintext: bytes) -> tuple[int, int, int, str] | None:
+    if len(plaintext) < 5:
+        return None
+    timestamp = struct.unpack_from("<I", plaintext, 0)[0]
+    flags = plaintext[4]
+    text_type = (flags >> 2) & 0x3F
+    attempt = flags & 0x03
+    text = plaintext[5:].decode("utf-8", errors="replace").rstrip("\x00")
+    return timestamp, text_type, attempt, text
+
+
+def parse_group_text(summary: PacketSummary, *, channel_secret: bytes) -> GroupText | None:
+    if summary.payload_type is not PayloadType.GRP_TXT or len(summary.payload) < 3:
+        return None
+    expected_channel_hash = channel_hash(channel_secret)
+    if summary.payload[0] != expected_channel_hash:
+        return None
+    try:
+        plaintext = mac_then_decrypt(channel_secret, summary.payload[1:])
+    except ValueError:
+        return None
+    parsed = parse_text_plaintext(plaintext)
+    if parsed is None:
+        return None
+    timestamp, text_type, attempt, text = parsed
+    return GroupText(
+        channel_hash=expected_channel_hash,
+        timestamp=timestamp,
+        text_type=text_type,
+        attempt=attempt,
+        text=text,
+    )
+
+
+def split_sender_and_message(text: str) -> tuple[str | None, str]:
+    sender, separator, message = text.partition(":")
+    if not separator:
+        return None, text.strip()
+    sender_name = sender.strip() or None
+    return sender_name, message.strip()
 
 
 def parse_encrypted_datagram(summary: PacketSummary, *, shared_secret: bytes) -> DecryptedDatagram:
@@ -264,6 +367,3 @@ def parse_path_response(summary: PacketSummary, *, shared_secret: bytes) -> Path
 
 def next_request_tag() -> int:
     return next_wire_timestamp()
-
-
-from .mesh_crypto import mac_then_decrypt

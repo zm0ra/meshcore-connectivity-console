@@ -9,10 +9,18 @@ from .tcp_client import ReceivedPacket
 
 
 class GatewayTransportClient:
-    def __init__(self, *, endpoint_name: str, control_socket_path: str | Path, event_socket_path: str | Path) -> None:
+    def __init__(
+        self,
+        *,
+        endpoint_name: str,
+        control_socket_path: str | Path,
+        event_socket_path: str | Path,
+        traffic_class: str = "default",
+    ) -> None:
         self.endpoint_name = endpoint_name
         self.control_socket_path = str(control_socket_path)
         self.event_socket_path = str(event_socket_path)
+        self.traffic_class = traffic_class
         self._control_reader: asyncio.StreamReader | None = None
         self._control_writer: asyncio.StreamWriter | None = None
         self._event_reader: asyncio.StreamReader | None = None
@@ -42,6 +50,7 @@ class GatewayTransportClient:
             "command": "send_packet",
             "endpoint_name": self.endpoint_name,
             "packet_hex": packet.hex().upper(),
+            "traffic_class": self.traffic_class,
         }
         async with self._command_lock:
             self._control_writer.write((json.dumps(message, ensure_ascii=True) + "\n").encode("ascii"))
@@ -53,6 +62,25 @@ class GatewayTransportClient:
         if not response.get("ok"):
             raise RuntimeError(str(response.get("error") or "gateway send failed"))
         return str(response["frame_hex"])
+
+    async def activate_quiet_window(self, *, seconds: float) -> None:
+        if self._control_reader is None or self._control_writer is None:
+            raise RuntimeError("gateway control socket is not connected")
+        message = {
+            "command": "set_quiet_window",
+            "endpoint_name": self.endpoint_name,
+            "seconds": max(0.0, float(seconds)),
+            "traffic_class": self.traffic_class,
+        }
+        async with self._command_lock:
+            self._control_writer.write((json.dumps(message, ensure_ascii=True) + "\n").encode("ascii"))
+            await self._control_writer.drain()
+            response_line = await self._control_reader.readline()
+        if not response_line:
+            raise ConnectionError("gateway control socket closed")
+        response = json.loads(response_line.decode("utf-8"))
+        if not response.get("ok"):
+            raise RuntimeError(str(response.get("error") or "gateway quiet window failed"))
 
     async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
         if self._event_reader is None:

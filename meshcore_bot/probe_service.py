@@ -80,6 +80,17 @@ def is_recent_observation(observed_at: str | None, max_age_secs: float, *, now: 
     return 0 <= age_secs <= max_age_secs
 
 
+def is_within_hour_window(*, hour: int, start_hour: int, end_hour: int) -> bool:
+    normalized_hour = hour % 24
+    normalized_start = start_hour % 24
+    normalized_end = end_hour % 24
+    if normalized_start == normalized_end:
+        return True
+    if normalized_start < normalized_end:
+        return normalized_start <= normalized_hour < normalized_end
+    return normalized_hour >= normalized_start or normalized_hour < normalized_end
+
+
 def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_zero_hop_visible: bool) -> list[tuple[int, bytes]]:
     attempts: list[tuple[int, bytes]] = []
     seen: set[tuple[int, bytes]] = set()
@@ -98,6 +109,7 @@ def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_z
 
 class GuestProbeWorker:
     SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
+    NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
 
     def __init__(
         self,
@@ -138,9 +150,8 @@ class GuestProbeWorker:
         self._stop_event.set()
 
     def _schedule_stale_reprobes_if_due(self) -> None:
+        now_utc = datetime.now(tz=UTC)
         interval_secs = self.config.probe.scheduled_reprobe_interval_secs
-        if interval_secs <= 0:
-            return
         now_monotonic = time.monotonic()
         if now_monotonic < self._next_scheduled_reprobe_scan_monotonic:
             return
@@ -148,16 +159,49 @@ class GuestProbeWorker:
         endpoint_names = sorted(self._endpoint_map)
         if not endpoint_names:
             return
-        enqueued = self.database.schedule_stale_repeater_probe_jobs(
-            endpoint_names=endpoint_names,
-            stale_after_secs=interval_secs,
-            seen_within_secs=max(interval_secs * 3, interval_secs),
-            reason="scheduled stale refresh",
-            success_cooldown_secs=interval_secs,
-            failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
+        if interval_secs > 0:
+            enqueued = self.database.schedule_stale_repeater_probe_jobs(
+                endpoint_names=endpoint_names,
+                stale_after_secs=interval_secs,
+                seen_within_secs=max(interval_secs * 3, interval_secs),
+                reason="scheduled stale refresh",
+                success_cooldown_secs=interval_secs,
+                failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
+                now=now_utc,
+            )
+            if enqueued:
+                self.logger.info("scheduled stale reprobe jobs=%s stale_after_secs=%s", enqueued, interval_secs)
+
+        night_interval_secs = self.config.probe.night_failed_retry_interval_secs
+        if night_interval_secs <= 0:
+            return
+        if not is_within_hour_window(
+            hour=now_utc.astimezone().hour,
+            start_hour=self.config.probe.night_failed_retry_start_hour,
+            end_hour=self.config.probe.night_failed_retry_end_hour,
+        ):
+            return
+        night_seen_within_secs = max(
+            night_interval_secs * 2,
+            self.config.probe.advert_reprobe_failure_cooldown_secs,
+            1800.0,
         )
-        if enqueued:
-            self.logger.info("scheduled stale reprobe jobs=%s stale_after_secs=%s", enqueued, interval_secs)
+        enqueued_failed = self.database.schedule_recent_failed_repeater_probe_jobs(
+            endpoint_names=endpoint_names,
+            seen_within_secs=night_seen_within_secs,
+            reason=self.NIGHT_FAILED_RETRY_REASON,
+            success_cooldown_secs=night_interval_secs,
+            failure_cooldown_secs=night_interval_secs,
+            now=now_utc,
+        )
+        if enqueued_failed:
+            self.logger.info(
+                "scheduled night failed retries jobs=%s window=%02d-%02d interval_secs=%s",
+                enqueued_failed,
+                self.config.probe.night_failed_retry_start_hour,
+                self.config.probe.night_failed_retry_end_hour,
+                night_interval_secs,
+            )
 
     async def _run_job(self, job: dict[str, object]) -> None:
         job_id = int(cast(int, job["id"]))

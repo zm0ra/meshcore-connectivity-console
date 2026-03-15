@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,8 @@ class _EndpointRuntime:
     endpoint: EndpointConfig
     client: MeshcoreTCPClient | None = None
     connected_event: asyncio.Event | None = None
+    send_lock: asyncio.Lock | None = None
+    quiet_until_monotonic: float = 0.0
 
 
 class BridgeGatewayService:
@@ -30,7 +33,7 @@ class BridgeGatewayService:
         self._subscribers: set[asyncio.StreamWriter] = set()
         self._subscribers_lock = asyncio.Lock()
         self._endpoint_runtimes = {
-            endpoint.name: _EndpointRuntime(endpoint=endpoint, connected_event=asyncio.Event())
+            endpoint.name: _EndpointRuntime(endpoint=endpoint, connected_event=asyncio.Event(), send_lock=asyncio.Lock())
             for endpoint in config.endpoints
             if endpoint.enabled
         }
@@ -125,12 +128,24 @@ class BridgeGatewayService:
         except Exception as exc:
             return {"ok": False, "error": f"invalid json: {exc}"}
         command = payload.get("command")
-        if command != "send_packet":
-            return {"ok": False, "error": f"unsupported command {command}"}
         endpoint_name = str(payload.get("endpoint_name") or "")
         runtime = self._endpoint_runtimes.get(endpoint_name)
-        if runtime is None or runtime.connected_event is None:
+        if runtime is None or runtime.connected_event is None or runtime.send_lock is None:
             return {"ok": False, "error": f"unknown endpoint {endpoint_name}"}
+        if command == "set_quiet_window":
+            seconds = max(0.0, float(payload.get("seconds") or 0.0))
+            runtime.quiet_until_monotonic = max(runtime.quiet_until_monotonic, time.monotonic() + seconds)
+            self.logger.info(
+                "[GATEWAY-QUIET] endpoint=%s quiet_for=%.2fs until=%.3f requested_by=%s",
+                endpoint_name,
+                seconds,
+                runtime.quiet_until_monotonic,
+                str(payload.get("traffic_class") or "unknown"),
+            )
+            return {"ok": True}
+        if command != "send_packet":
+            return {"ok": False, "error": f"unsupported command {command}"}
+        traffic_class = str(payload.get("traffic_class") or "default")
         try:
             await asyncio.wait_for(runtime.connected_event.wait(), timeout=5.0)
         except asyncio.TimeoutError:
@@ -139,9 +154,31 @@ class BridgeGatewayService:
             return {"ok": False, "error": f"endpoint {endpoint_name} has no active client"}
         try:
             packet = bytes.fromhex(str(payload["packet_hex"]))
-            frame_hex = await runtime.client.send_packet(packet)
+            if traffic_class != "bot":
+                while True:
+                    remaining = runtime.quiet_until_monotonic - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self.logger.info(
+                        "[GATEWAY-DEFER] endpoint=%s traffic_class=%s sleep=%.2fs",
+                        endpoint_name,
+                        traffic_class,
+                        remaining,
+                    )
+                    await asyncio.sleep(min(remaining, 0.5))
+            async with runtime.send_lock:
+                frame_hex = await runtime.client.send_packet(packet)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+        self.logger.info(
+            "[GATEWAY-TX] endpoint=%s traffic_class=%s host=%s port=%s packet=%s frame=%s",
+            endpoint_name,
+            traffic_class,
+            runtime.endpoint.raw_host,
+            runtime.endpoint.raw_port,
+            packet.hex().upper(),
+            frame_hex,
+        )
         return {"ok": True, "frame_hex": frame_hex}
 
     async def _handle_event_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
