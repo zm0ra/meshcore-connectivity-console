@@ -136,29 +136,6 @@ INDEX_HTML = """<!doctype html>
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    .mobile-view-toggle {
-      display: none;
-      align-items: center;
-      gap: 4px;
-      padding: 3px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.6);
-    }
-    .view-button {
-      border: 0;
-      border-radius: 999px;
-      background: transparent;
-      color: var(--muted);
-      padding: 4px 9px;
-      font: inherit;
-      font-size: 0.7rem;
-      cursor: pointer;
-    }
-    .view-button.active {
-      background: rgba(44, 113, 209, 0.14);
-      color: var(--ink);
-    }
     .sort-select {
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -501,17 +478,17 @@ INDEX_HTML = """<!doctype html>
         padding: 14px 12px 10px;
       }
       .summary-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
       .summary-card {
-        padding: 8px 4px;
+        padding: 10px 8px;
       }
       .summary-card strong {
-        font-size: 0.78rem;
+        font-size: 0.88rem;
       }
       .summary-card span {
-        font-size: 0.6rem;
+        font-size: 0.72rem;
       }
       .list-shell {
         padding: 12px 12px 18px;
@@ -524,9 +501,6 @@ INDEX_HTML = """<!doctype html>
       }
       .toolbar-cluster {
         justify-content: space-between;
-      }
-      .mobile-view-toggle {
-        display: inline-flex;
       }
       .sort-select {
         min-height: 38px;
@@ -594,28 +568,6 @@ INDEX_HTML = """<!doctype html>
       }
       .leaflet-top .leaflet-control {
         margin-top: 10px;
-      }
-    }
-    @media (max-width: 860px) and (orientation: portrait) {
-      #map-legend {
-        display: none;
-      }
-      body[data-mobile-view="map"] #map {
-        display: block;
-        order: 2;
-        flex: 1 1 auto;
-        min-height: calc(100dvh - 86px);
-      }
-      body[data-mobile-view="map"] #sidebar {
-        display: none;
-      }
-      body[data-mobile-view="list"] #map {
-        display: none;
-      }
-      body[data-mobile-view="list"] #sidebar {
-        display: grid;
-        order: 2;
-        margin-top: 0;
       }
     }
     @media (max-width: 520px) {
@@ -712,9 +664,6 @@ INDEX_HTML = """<!doctype html>
         sortLastAdvert: 'ostatni advert',
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
-        viewMap: 'Mapa',
-        viewList: 'Lista',
-        viewLabel: 'Widok',
         languageLabel: 'Język',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
@@ -778,9 +727,6 @@ INDEX_HTML = """<!doctype html>
         sortLastAdvert: 'last advert',
         sortLastData: 'last data fetch',
         sortAlphabetical: 'alphabetical',
-        viewMap: 'Map',
-        viewList: 'List',
-        viewLabel: 'View',
         languageLabel: 'Language',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
@@ -809,7 +755,6 @@ INDEX_HTML = """<!doctype html>
     let hoveredNodeId = null;
     let nodeSortMode = 'last_advert';
     let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
-    let currentMobileView = localStorage.getItem('meshcoreDashboardMobileView') || 'map';
     let hasFitBounds = false;
 
     function strings() {
@@ -826,31 +771,6 @@ INDEX_HTML = """<!doctype html>
       localStorage.setItem('meshcoreDashboardLanguage', language);
       document.documentElement.lang = language;
       renderLegend();
-      if (latestState) render(latestState);
-    }
-
-    function isPortraitMobileView() {
-      return window.matchMedia('(max-width: 860px) and (orientation: portrait)').matches;
-    }
-
-    function applyMobileView() {
-      if (!isPortraitMobileView()) {
-        document.body.dataset.mobileView = 'split';
-        window.requestAnimationFrame(() => map.invalidateSize(false));
-        return;
-      }
-      const view = currentMobileView === 'list' ? 'list' : 'map';
-      document.body.dataset.mobileView = view;
-      if (view === 'map') {
-        window.requestAnimationFrame(() => map.invalidateSize(false));
-      }
-    }
-
-    function setMobileView(view) {
-      if (view !== 'map' && view !== 'list') return;
-      currentMobileView = view;
-      localStorage.setItem('meshcoreDashboardMobileView', view);
-      applyMobileView();
       if (latestState) render(latestState);
     }
 
@@ -1445,10 +1365,6 @@ INDEX_HTML = """<!doctype html>
         <div class="list-toolbar">
           <label for="sort-mode">${tr('sortLabel')}</label>
           <div class="toolbar-cluster">
-            <div class="mobile-view-toggle" role="group" aria-label="${tr('viewLabel')}">
-              <button type="button" class="view-button${currentMobileView === 'map' ? ' active' : ''}" data-mobile-view="map">${tr('viewMap')}</button>
-              <button type="button" class="view-button${currentMobileView === 'list' ? ' active' : ''}" data-mobile-view="list">${tr('viewList')}</button>
-            </div>
             <select id="sort-mode" class="sort-select" data-sort-mode="1">
               <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>${tr('sortLastAdvert')}</option>
               <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>${tr('sortLastData')}</option>
@@ -1473,9 +1389,6 @@ INDEX_HTML = """<!doctype html>
       }
       for (const button of container.querySelectorAll('[data-language]')) {
         button.addEventListener('click', () => setLanguage(button.dataset.language));
-      }
-      for (const button of container.querySelectorAll('[data-mobile-view]')) {
-        button.addEventListener('click', () => setMobileView(button.dataset.mobileView));
       }
       for (const select of container.querySelectorAll('[data-sort-mode]')) {
         select.addEventListener('change', () => {
@@ -1579,7 +1492,6 @@ INDEX_HTML = """<!doctype html>
       renderLegend();
       renderSummary(state);
       renderNodeSections(state);
-      applyMobileView();
       renderMap(state);
     }
 
@@ -1596,10 +1508,8 @@ INDEX_HTML = """<!doctype html>
     map.on('zoomend', () => {
       if (latestState) renderMap(latestState);
     });
-    window.addEventListener('resize', applyMobileView);
 
     document.documentElement.lang = currentLanguage;
-    applyMobileView();
     renderLegend();
     refresh();
     setInterval(refresh, 5000);
