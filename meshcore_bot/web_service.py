@@ -597,25 +597,57 @@ INDEX_HTML = """<!doctype html>
       }
     }
     @media (max-width: 860px) and (orientation: portrait) {
+      #app {
+        display: block;
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+        padding-bottom: 0;
+      }
+      #map {
+        position: absolute;
+        inset: 0;
+        display: block;
+        min-height: auto;
+        height: auto;
+      }
+      #sidebar {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: auto;
+        bottom: calc(env(safe-area-inset-bottom) + 76px);
+        width: auto;
+        height: min(20dvh, 180px);
+        max-height: 20dvh;
+        margin: 0;
+        overflow: hidden;
+        border-radius: 18px;
+        z-index: 1200;
+      }
       #map-legend {
         display: none;
       }
-      body[data-mobile-view="map"] #map {
-        display: block;
-        order: 2;
-        flex: 1 1 auto;
-        min-height: calc(100dvh - 86px);
-      }
-      body[data-mobile-view="map"] #sidebar {
+      .summary-strip {
         display: none;
       }
-      body[data-mobile-view="list"] #map {
+      .list-shell {
+        padding: 8px 10px 10px;
+        overflow: auto;
+        overscroll-behavior: contain;
+      }
+      .list-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        margin: 0 0 8px;
+        background: var(--panel-strong);
+      }
+      .mobile-view-toggle {
         display: none;
       }
-      body[data-mobile-view="list"] #sidebar {
-        display: grid;
-        order: 2;
-        margin-top: 0;
+      .section-heading {
+        margin-top: 6px;
       }
     }
     @media (max-width: 520px) {
