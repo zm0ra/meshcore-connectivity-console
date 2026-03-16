@@ -136,6 +136,37 @@ INDEX_HTML = """<!doctype html>
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .primary-toggle,
+    .secondary-toggle,
+    .filter-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+      flex-wrap: wrap;
+    }
+    .secondary-toggle,
+    .filter-toggle {
+      margin-bottom: 8px;
+    }
+    .segmented-button {
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 10px;
+      font: inherit;
+      font-size: 0.72rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .segmented-button.active {
+      background: rgba(44, 113, 209, 0.14);
+      color: var(--ink);
+    }
     .mobile-view-toggle {
       display: none;
       align-items: center;
@@ -371,6 +402,125 @@ INDEX_HTML = """<!doctype html>
       line-height: 1.3;
       padding: 4px 0 2px;
     }
+    .panel-stack {
+      display: grid;
+      gap: 10px;
+    }
+    .relation-grid,
+    .route-result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .relation-card,
+    .route-card {
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.48);
+    }
+    .relation-card strong,
+    .route-card strong {
+      display: block;
+      font-size: 0.9rem;
+      line-height: 1.1;
+    }
+    .relation-card span,
+    .route-card span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 0.68rem;
+    }
+    .relation-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+    }
+    .relation-table th,
+    .relation-table td {
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(21, 33, 42, 0.08);
+      text-align: left;
+      vertical-align: top;
+    }
+    .relation-table th {
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
+    .direction-chip,
+    .stale-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 52px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.66rem;
+      line-height: 1.2;
+    }
+    .direction-chip {
+      background: rgba(44, 113, 209, 0.12);
+      color: var(--ink);
+    }
+    .stale-chip {
+      background: rgba(198, 74, 61, 0.12);
+      color: var(--red);
+    }
+    .route-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: end;
+    }
+    .field-stack {
+      display: grid;
+      gap: 5px;
+    }
+    .field-stack label {
+      color: var(--muted);
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .route-select {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.76);
+      color: var(--ink);
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 0.78rem;
+    }
+    .swap-button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--ink);
+      padding: 0 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .route-path {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      font-size: 0.74rem;
+    }
+    .route-step {
+      padding: 4px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.62);
+    }
+    .route-arrow {
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
     .legend-group + .legend-group {
       margin-top: 9px;
     }
@@ -528,6 +678,12 @@ INDEX_HTML = """<!doctype html>
       .mobile-view-toggle {
         display: inline-flex;
       }
+      .primary-toggle,
+      .secondary-toggle,
+      .filter-toggle {
+        width: 100%;
+        justify-content: flex-start;
+      }
       .sort-select {
         min-height: 38px;
         font-size: 0.94rem;
@@ -572,6 +728,11 @@ INDEX_HTML = """<!doctype html>
         display: block;
         overflow-x: auto;
         white-space: nowrap;
+      }
+      .relation-grid,
+      .route-result-grid,
+      .route-controls {
+        grid-template-columns: 1fr;
       }
       .chart-head {
         align-items: flex-start;
@@ -683,6 +844,7 @@ INDEX_HTML = """<!doctype html>
   <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
   <script>
     const ACTIVE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+    const LINK_STALE_SECONDS = 6 * 60 * 60;
     const LOW_ZOOM_LABEL_THRESHOLD = 10;
     const HIGH_ZOOM_LABEL_THRESHOLD = 12;
     const MAX_COLLISION_LABELS = 18;
@@ -743,6 +905,44 @@ INDEX_HTML = """<!doctype html>
         viewMap: 'Mapa',
         viewList: 'Lista',
         viewLabel: 'Widok',
+        panelMap: 'Mapa',
+        panelConnectivity: 'Lacznosc',
+        panelRoute: 'Trasa',
+        panelAnalysis: 'Analiza',
+        focusRepeater: 'Fokus',
+        relationModeOut: 'Widze',
+        relationModeIn: 'Widza',
+        relationModeMutual: 'Wzajemne',
+        relationFilterAll: 'Wszystkie',
+        relationFilterTwoWay: '2-way',
+        relationFilterOut: 'Out',
+        relationFilterIn: 'In',
+        connectivityHint: 'Wybierz repeater, aby zobaczyc kierunki lacznosci i relacje jedno- oraz dwukierunkowe.',
+        connectivitySummaryOut: 'widze',
+        connectivitySummaryIn: 'widza',
+        connectivitySummaryMutual: 'wzajemne',
+        connectivitySummaryOneWay: '1-way',
+        connectivityTablePeer: 'Repeater',
+        connectivityTableType: 'Typ',
+        connectivityTableOut: 'A->B',
+        connectivityTableIn: 'B->A',
+        connectivityTableAge: 'Ostatnio',
+        connectivityTableSignal: 'SNR',
+        relationTypeOut: 'out',
+        relationTypeIn: 'in',
+        relationTypeMutual: '2-way',
+        staleShort: 'stare',
+        routeSource: 'Start',
+        routeTarget: 'Cel',
+        routeSwap: 'Zamien',
+        routeForward: 'A->B',
+        routeBackward: 'B->A',
+        routeNoSelection: 'Wybierz dwa repeatery, aby policzyc trase w obu kierunkach.',
+        routeSameNode: 'Start i cel musza byc rozne.',
+        routeNoPath: 'Brak trasy.',
+        routeHopCount: 'hopow',
+        routeUsesStale: 'uzyto starych linkow',
+        routeFreshOnly: 'swieze linki',
         languageLabel: 'Język',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
@@ -809,6 +1009,44 @@ INDEX_HTML = """<!doctype html>
         viewMap: 'Map',
         viewList: 'List',
         viewLabel: 'View',
+        panelMap: 'Map',
+        panelConnectivity: 'Connectivity',
+        panelRoute: 'Route',
+        panelAnalysis: 'Analysis',
+        focusRepeater: 'Focus',
+        relationModeOut: 'Out',
+        relationModeIn: 'In',
+        relationModeMutual: 'Mutual',
+        relationFilterAll: 'All',
+        relationFilterTwoWay: '2-way',
+        relationFilterOut: 'Out',
+        relationFilterIn: 'In',
+        connectivityHint: 'Select a repeater to inspect incoming, outgoing, and mutual connectivity.',
+        connectivitySummaryOut: 'outgoing',
+        connectivitySummaryIn: 'incoming',
+        connectivitySummaryMutual: 'mutual',
+        connectivitySummaryOneWay: 'one-way',
+        connectivityTablePeer: 'Repeater',
+        connectivityTableType: 'Type',
+        connectivityTableOut: 'A->B',
+        connectivityTableIn: 'B->A',
+        connectivityTableAge: 'Last seen',
+        connectivityTableSignal: 'SNR',
+        relationTypeOut: 'out',
+        relationTypeIn: 'in',
+        relationTypeMutual: '2-way',
+        staleShort: 'stale',
+        routeSource: 'Source',
+        routeTarget: 'Target',
+        routeSwap: 'Swap',
+        routeForward: 'A->B',
+        routeBackward: 'B->A',
+        routeNoSelection: 'Pick two repeaters to calculate both route directions.',
+        routeSameNode: 'Source and target must be different.',
+        routeNoPath: 'No route available.',
+        routeHopCount: 'hops',
+        routeUsesStale: 'stale links used',
+        routeFreshOnly: 'fresh links',
         languageLabel: 'Language',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
@@ -837,7 +1075,11 @@ INDEX_HTML = """<!doctype html>
     let hoveredNodeId = null;
     let nodeSortMode = 'last_advert';
     let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
-    let currentMobileView = localStorage.getItem('meshcoreDashboardMobileView') || 'map';
+    let currentPanel = localStorage.getItem('meshcoreDashboardPanel') || 'map';
+    let connectivityDirection = localStorage.getItem('meshcoreDashboardConnectivityDirection') || 'out';
+    let connectivityFilter = localStorage.getItem('meshcoreDashboardConnectivityFilter') || 'all';
+    let routeSourceId = null;
+    let routeTargetId = null;
     let hasFitBounds = false;
 
     function strings() {
@@ -861,24 +1103,42 @@ INDEX_HTML = """<!doctype html>
       return window.matchMedia('(max-width: 860px) and (orientation: portrait)').matches;
     }
 
+    function isAnalysisPanel() {
+      return currentPanel === 'connectivity' || currentPanel === 'route';
+    }
+
     function applyMobileView() {
       if (!isPortraitMobileView()) {
         document.body.dataset.mobileView = 'split';
         window.requestAnimationFrame(() => map.invalidateSize(false));
         return;
       }
-      const view = currentMobileView === 'list' ? 'list' : 'map';
+      const view = currentPanel === 'map' ? 'map' : 'list';
       document.body.dataset.mobileView = view;
       if (view === 'map') {
         window.requestAnimationFrame(() => map.invalidateSize(false));
       }
     }
 
-    function setMobileView(view) {
-      if (view !== 'map' && view !== 'list') return;
-      currentMobileView = view;
-      localStorage.setItem('meshcoreDashboardMobileView', view);
+    function setPanel(panel) {
+      if (!['map', 'connectivity', 'route'].includes(panel)) return;
+      currentPanel = panel;
+      localStorage.setItem('meshcoreDashboardPanel', panel);
       applyMobileView();
+      if (latestState) render(latestState);
+    }
+
+    function setConnectivityDirection(direction) {
+      if (!['out', 'in', 'mutual'].includes(direction)) return;
+      connectivityDirection = direction;
+      localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
+      if (latestState) render(latestState);
+    }
+
+    function setConnectivityFilter(filter) {
+      if (!['all', '2way', 'out', 'in'].includes(filter)) return;
+      connectivityFilter = filter;
+      localStorage.setItem('meshcoreDashboardConnectivityFilter', filter);
       if (latestState) render(latestState);
     }
 
@@ -998,6 +1258,138 @@ INDEX_HTML = """<!doctype html>
 
     function relevantNodes(state) {
       return state.nodes || [];
+    }
+
+    function connectivityData(state) {
+      const nodes = sortNodes(relevantNodes(state));
+      const nodeIndex = new Map(nodes.map((node) => [node.identity_hex, node]));
+      const edges = [];
+      const pairSet = new Set();
+      for (const link of (state.management?.map_links || [])) {
+        if (!nodeIndex.has(link.source_identity_hex) || !nodeIndex.has(link.target_identity_hex)) continue;
+        if (link.source_identity_hex === link.target_identity_hex) continue;
+        const ageSeconds = typeof link.last_heard_seconds === 'number'
+          ? link.last_heard_seconds
+          : Math.max(0, Math.floor((Date.now() - new Date(link.collected_at).getTime()) / 1000));
+        const edge = {
+          ...link,
+          age_seconds: ageSeconds,
+          stale: ageSeconds > LINK_STALE_SECONDS,
+          mutual: false,
+        };
+        pairSet.add(`${edge.source_identity_hex}|${edge.target_identity_hex}`);
+        edges.push(edge);
+      }
+      for (const edge of edges) {
+        edge.mutual = pairSet.has(`${edge.target_identity_hex}|${edge.source_identity_hex}`);
+      }
+      const relationMap = new Map(nodes.map((node) => [node.identity_hex, { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] }]));
+      for (const edge of edges) {
+        relationMap.get(edge.source_identity_hex)?.outgoing.push(edge);
+        relationMap.get(edge.target_identity_hex)?.incoming.push(edge);
+        if (edge.mutual) {
+          relationMap.get(edge.source_identity_hex)?.mutual.push(edge);
+        } else {
+          relationMap.get(edge.source_identity_hex)?.oneWayOutgoing.push(edge);
+          relationMap.get(edge.target_identity_hex)?.oneWayIncoming.push(edge);
+        }
+      }
+      return {
+        nodes,
+        nodeIndex,
+        edges,
+        relationMap,
+        summary: {
+          directed: edges.length,
+          mutual: edges.filter((edge) => edge.mutual).length / 2,
+          oneWay: edges.filter((edge) => !edge.mutual).length,
+          stale: edges.filter((edge) => edge.stale).length,
+        },
+      };
+    }
+
+    function selectedConnectivityNode(state) {
+      const data = connectivityData(state);
+      return data.nodeIndex.get(selectedSourceId) || null;
+    }
+
+    function relationRows(state, nodeId) {
+      if (!nodeId) return [];
+      const data = connectivityData(state);
+      const relations = data.relationMap.get(nodeId);
+      if (!relations) return [];
+      const peers = new Map();
+      for (const edge of relations.outgoing) {
+        const row = peers.get(edge.target_identity_hex) || { peerId: edge.target_identity_hex, outEdge: null, inEdge: null };
+        row.outEdge = edge;
+        peers.set(edge.target_identity_hex, row);
+      }
+      for (const edge of relations.incoming) {
+        const row = peers.get(edge.source_identity_hex) || { peerId: edge.source_identity_hex, outEdge: null, inEdge: null };
+        row.inEdge = edge;
+        peers.set(edge.source_identity_hex, row);
+      }
+      return Array.from(peers.values()).map((row) => {
+        const peerNode = data.nodeIndex.get(row.peerId);
+        const relationType = row.outEdge && row.inEdge ? '2way' : row.outEdge ? 'out' : 'in';
+        const freshestAge = Math.min(
+          row.outEdge?.age_seconds ?? Number.POSITIVE_INFINITY,
+          row.inEdge?.age_seconds ?? Number.POSITIVE_INFINITY,
+        );
+        return {
+          ...row,
+          peerName: peerNode?.name || row.peerId.slice(0, 8),
+          relationType,
+          freshestAge: Number.isFinite(freshestAge) ? freshestAge : null,
+          stale: Boolean(row.outEdge?.stale || row.inEdge?.stale),
+        };
+      }).filter((row) => {
+        if (connectivityFilter === 'all') return true;
+        return row.relationType === connectivityFilter;
+      }).sort((left, right) => {
+        const typeRank = { '2way': 0, out: 1, in: 2 };
+        if (typeRank[left.relationType] !== typeRank[right.relationType]) {
+          return typeRank[left.relationType] - typeRank[right.relationType];
+        }
+        return left.peerName.localeCompare(right.peerName);
+      });
+    }
+
+    function routePath(edges, sourceId, targetId) {
+      if (!sourceId || !targetId || sourceId === targetId) return null;
+      const adjacency = new Map();
+      for (const edge of edges) {
+        const bucket = adjacency.get(edge.source_identity_hex) || [];
+        bucket.push(edge);
+        adjacency.set(edge.source_identity_hex, bucket);
+      }
+      for (const bucket of adjacency.values()) {
+        bucket.sort((left, right) => ((right.snr ?? -999) - (left.snr ?? -999)) || (left.age_seconds - right.age_seconds));
+      }
+      const queue = [[sourceId]];
+      const visited = new Set([sourceId]);
+      while (queue.length) {
+        const path = queue.shift();
+        const current = path[path.length - 1];
+        if (current === targetId) return path;
+        for (const edge of (adjacency.get(current) || [])) {
+          if (visited.has(edge.target_identity_hex)) continue;
+          visited.add(edge.target_identity_hex);
+          queue.push(path.concat(edge.target_identity_hex));
+        }
+      }
+      return null;
+    }
+
+    function buildRouteResult(state, sourceId, targetId) {
+      const data = connectivityData(state);
+      const freshEdges = data.edges.filter((edge) => !edge.stale);
+      const freshPath = routePath(freshEdges, sourceId, targetId);
+      const path = freshPath || routePath(data.edges, sourceId, targetId);
+      if (!path) {
+        return { path: null, usesStale: false };
+      }
+      return { path, usesStale: !freshPath };
     }
 
     function getSelectedNode(state) {
@@ -1150,6 +1542,158 @@ INDEX_HTML = """<!doctype html>
       document.getElementById('summary').innerHTML = html;
     }
 
+    function renderPrimaryTabs() {
+      const isMobile = isPortraitMobileView();
+      if (isMobile) {
+        return `
+          <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
+            <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
+            <button type="button" class="segmented-button${isAnalysisPanel() ? ' active' : ''}" data-panel="connectivity">${tr('panelAnalysis')}</button>
+          </div>
+        `;
+      }
+      return `
+        <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
+          <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
+        </div>
+      `;
+    }
+
+    function renderAnalysisTabs() {
+      if (!isPortraitMobileView() || !isAnalysisPanel()) return '';
+      return `
+        <div class="secondary-toggle" role="group" aria-label="${tr('panelAnalysis')}">
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
+        </div>
+      `;
+    }
+
+    function relationTypeLabel(type) {
+      if (type === '2way') return tr('relationTypeMutual');
+      if (type === 'out') return tr('relationTypeOut');
+      return tr('relationTypeIn');
+    }
+
+    function renderConnectivityPanel(state) {
+      const data = connectivityData(state);
+      const node = selectedConnectivityNode(state);
+      if (!node) {
+        return `<div class="panel-stack"><div class="empty-note">${tr('connectivityHint')}</div><div class="node-list">${data.nodes.map((candidate) => rowHtml(candidate, state)).join('')}</div></div>`;
+      }
+      const rows = relationRows(state, node.identity_hex);
+      const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
+      const filterButtons = `
+        <div class="filter-toggle" role="group" aria-label="${tr('panelConnectivity')}">
+          <button type="button" class="segmented-button${connectivityFilter === 'all' ? ' active' : ''}" data-connectivity-filter="all">${tr('relationFilterAll')}</button>
+          <button type="button" class="segmented-button${connectivityFilter === '2way' ? ' active' : ''}" data-connectivity-filter="2way">${tr('relationFilterTwoWay')}</button>
+          <button type="button" class="segmented-button${connectivityFilter === 'out' ? ' active' : ''}" data-connectivity-filter="out">${tr('relationFilterOut')}</button>
+          <button type="button" class="segmented-button${connectivityFilter === 'in' ? ' active' : ''}" data-connectivity-filter="in">${tr('relationFilterIn')}</button>
+        </div>
+      `;
+      const directionButtons = `
+        <div class="secondary-toggle" role="group" aria-label="${tr('panelConnectivity')}">
+          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${tr('relationModeOut')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${tr('relationModeIn')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual">${tr('relationModeMutual')}</button>
+        </div>
+      `;
+      const rowsHtml = rows.length ? `
+        <table class="relation-table">
+          <thead>
+            <tr>
+              <th>${tr('connectivityTablePeer')}</th>
+              <th>${tr('connectivityTableType')}</th>
+              <th>${tr('connectivityTableOut')}</th>
+              <th>${tr('connectivityTableIn')}</th>
+              <th>${tr('connectivityTableAge')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${row.peerName}</td>
+                <td><span class="direction-chip">${relationTypeLabel(row.relationType)}</span>${row.stale ? ` <span class="stale-chip">${tr('staleShort')}</span>` : ''}</td>
+                <td>${row.outEdge ? lineSignalMetric(row.outEdge).short : '-'}</td>
+                <td>${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}</td>
+                <td>${row.freshestAge === null ? '-' : humanizeSeconds(row.freshestAge)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : `<div class="empty-note">${tr('emptyNoNeighborLinks')}</div>`;
+      return `
+        <div class="panel-stack">
+          ${directionButtons}
+          ${filterButtons}
+          <div class="relation-grid">
+            <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
+            <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
+            <div class="relation-card"><strong>${relations.mutual.length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
+          </div>
+          ${rowsHtml}
+          <div class="section-heading">${tr('focusRepeater')}</div>
+          <div class="node-list">${data.nodes.map((candidate) => rowHtml(candidate, state)).join('')}</div>
+        </div>
+      `;
+    }
+
+    function routeSummaryCard(title, routeResult, data) {
+      if (!routeResult.path) {
+        return `<div class="route-card"><strong>${title}</strong><span>${tr('routeNoPath')}</span></div>`;
+      }
+      const pathHtml = routeResult.path.map((identityHex, index) => {
+        const node = data.nodeIndex.get(identityHex);
+        return `${index ? '<span class="route-arrow">-></span>' : ''}<span class="route-step">${node?.name || identityHex.slice(0, 8)}</span>`;
+      }).join('');
+      return `
+        <div class="route-card">
+          <strong>${title}</strong>
+          <span>${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span>
+          <div class="route-path">${pathHtml}</div>
+        </div>
+      `;
+    }
+
+    function renderRoutePanel(state) {
+      const data = connectivityData(state);
+      const options = data.nodes.map((node) => `<option value="${node.identity_hex}">${node.name}</option>`).join('');
+      let body = `<div class="empty-note">${tr('routeNoSelection')}</div>`;
+      if (routeSourceId && routeTargetId) {
+        if (routeSourceId === routeTargetId) {
+          body = `<div class="empty-note">${tr('routeSameNode')}</div>`;
+        } else {
+          const forward = buildRouteResult(state, routeSourceId, routeTargetId);
+          const backward = buildRouteResult(state, routeTargetId, routeSourceId);
+          body = `<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div>`;
+        }
+      }
+      return `
+        <div class="panel-stack">
+          <div class="route-controls">
+            <div class="field-stack">
+              <label for="route-source">${tr('routeSource')}</label>
+              <select id="route-source" class="route-select" data-route-source="1">
+                <option value=""></option>
+                ${options}
+              </select>
+            </div>
+            <button type="button" class="swap-button" data-route-swap="1">${tr('routeSwap')}</button>
+            <div class="field-stack">
+              <label for="route-target">${tr('routeTarget')}</label>
+              <select id="route-target" class="route-select" data-route-target="1">
+                <option value=""></option>
+                ${options}
+              </select>
+            </div>
+          </div>
+          ${body}
+        </div>
+      `;
+    }
+
     function selectNode(identityHex) {
       if (selectedSourceId === identityHex) {
         clearSelection();
@@ -1158,6 +1702,10 @@ INDEX_HTML = """<!doctype html>
       selectedSourceId = identityHex;
       selectedNeighborId = null;
       if (!latestState) return;
+      if (currentPanel === 'connectivity') {
+        render(latestState);
+        return;
+      }
       const selectedNode = getSelectedNode(latestState);
       const allMapNodes = deriveMapNodes(sortNodes(relevantNodes(latestState)));
       const neighborIds = selectedNeighborIds(latestState);
@@ -1458,7 +2006,7 @@ INDEX_HTML = """<!doctype html>
             </span>
             <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
           </button>
-          ${node.identity_hex === selectedSourceId ? renderExpandedNode(node, state) : ''}
+          ${node.identity_hex === selectedSourceId && currentPanel === 'map' ? renderExpandedNode(node, state) : ''}
         </div>
       `;
     }
@@ -1471,12 +2019,9 @@ INDEX_HTML = """<!doctype html>
       let html = '';
       html += `
         <div class="list-toolbar">
-          <label for="sort-mode">${tr('sortLabel')}</label>
+          ${renderPrimaryTabs()}
           <div class="toolbar-cluster">
-            <div class="mobile-view-toggle" role="group" aria-label="${tr('viewLabel')}">
-              <button type="button" class="view-button${currentMobileView === 'map' ? ' active' : ''}" data-mobile-view="map">${tr('viewMap')}</button>
-              <button type="button" class="view-button${currentMobileView === 'list' ? ' active' : ''}" data-mobile-view="list">${tr('viewList')}</button>
-            </div>
+            <label for="sort-mode">${tr('sortLabel')}</label>
             <select id="sort-mode" class="sort-select" data-sort-mode="1">
               <option value="last_advert"${nodeSortMode === 'last_advert' ? ' selected' : ''}>${tr('sortLastAdvert')}</option>
               <option value="last_data"${nodeSortMode === 'last_data' ? ' selected' : ''}>${tr('sortLastData')}</option>
@@ -1489,25 +2034,60 @@ INDEX_HTML = """<!doctype html>
           </div>
         </div>
       `;
-      if (selectedNode) {
-        html += `<div class=\"section-heading\">${tr('selectedRepeater')}</div>`;
-        html += `<div class=\"node-list\">${rowHtml(selectedNode, state)}</div>`;
+      html += renderAnalysisTabs();
+      if (currentPanel === 'connectivity') {
+        html += renderConnectivityPanel(state);
+      } else if (currentPanel === 'route') {
+        html += renderRoutePanel(state);
+      } else {
+        if (selectedNode) {
+          html += `<div class="section-heading">${tr('selectedRepeater')}</div>`;
+          html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
+        }
+        html += `<div class="section-heading">${selectedNode ? tr('otherRepeaters') : tr('repeaters')}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${tr('emptyNoOtherRepeaters')}</div>`}</div>`;
       }
-      html += `<div class=\"section-heading\">${selectedNode ? tr('otherRepeaters') : tr('repeaters')}</div>`;
-      html += `<div class=\"node-list\">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class=\"empty-note\">${tr('emptyNoOtherRepeaters')}</div>`}</div>`;
       container.innerHTML = html;
       for (const button of container.querySelectorAll('[data-node]')) {
         button.addEventListener('click', () => selectNode(button.dataset.node));
       }
+      for (const button of container.querySelectorAll('[data-panel]')) {
+        button.addEventListener('click', () => setPanel(button.dataset.panel));
+      }
       for (const button of container.querySelectorAll('[data-language]')) {
         button.addEventListener('click', () => setLanguage(button.dataset.language));
       }
-      for (const button of container.querySelectorAll('[data-mobile-view]')) {
-        button.addEventListener('click', () => setMobileView(button.dataset.mobileView));
+      for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
+        button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
+      }
+      for (const button of container.querySelectorAll('[data-connectivity-filter]')) {
+        button.addEventListener('click', () => setConnectivityFilter(button.dataset.connectivityFilter));
       }
       for (const select of container.querySelectorAll('[data-sort-mode]')) {
         select.addEventListener('change', () => {
           nodeSortMode = select.value;
+          render(latestState);
+        });
+      }
+      for (const select of container.querySelectorAll('[data-route-source]')) {
+        select.value = routeSourceId || '';
+        select.addEventListener('change', () => {
+          routeSourceId = select.value || null;
+          render(latestState);
+        });
+      }
+      for (const select of container.querySelectorAll('[data-route-target]')) {
+        select.value = routeTargetId || '';
+        select.addEventListener('change', () => {
+          routeTargetId = select.value || null;
+          render(latestState);
+        });
+      }
+      for (const button of container.querySelectorAll('[data-route-swap]')) {
+        button.addEventListener('click', () => {
+          const previousSource = routeSourceId;
+          routeSourceId = routeTargetId;
+          routeTargetId = previousSource;
           render(latestState);
         });
       }
@@ -1523,6 +2103,14 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderMap(state) {
+      if (currentPanel === 'connectivity') {
+        renderConnectivityMap(state);
+        return;
+      }
+      if (currentPanel === 'route') {
+        renderRouteMap(state);
+        return;
+      }
       markersLayer.clearLayers();
       halosLayer.clearLayers();
       linksLayer.clearLayers();
@@ -1599,6 +2187,113 @@ INDEX_HTML = """<!doctype html>
       }
       renderLabels(nodes, neighborIds);
       renderLinkLabels(selectedLinks, sourceNode);
+      if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
+    }
+
+    function drawMapNodes(nodeMap, focusId, highlightedIds = new Set()) {
+      const bounds = [];
+      for (const node of nodeMap) {
+        if (!isFiniteCoordinate(node.latitude, node.longitude)) continue;
+        const selected = node.identity_hex === focusId;
+        const neighbor = highlightedIds.has(node.identity_hex);
+        const marker = L.circleMarker([node.latitude, node.longitude], markerStyle(node, false, selected, neighbor)).addTo(markersLayer);
+        marker.on('click', (event) => {
+          L.DomEvent.stopPropagation(event);
+          if (currentPanel === 'route') {
+            if (!routeSourceId || (routeSourceId && routeTargetId)) {
+              routeSourceId = node.identity_hex;
+              routeTargetId = null;
+            } else if (routeSourceId !== node.identity_hex) {
+              routeTargetId = node.identity_hex;
+            }
+          } else {
+            selectedSourceId = node.identity_hex;
+          }
+          render(latestState);
+        });
+        bounds.push([node.latitude, node.longitude]);
+      }
+      return bounds;
+    }
+
+    function renderConnectivityMap(state) {
+      markersLayer.clearLayers();
+      halosLayer.clearLayers();
+      linksLayer.clearLayers();
+      labelsLayer.clearLayers();
+      linkLabelsLayer.clearLayers();
+      const data = connectivityData(state);
+      const focusId = selectedSourceId;
+      let edges = [];
+      if (focusId) {
+        if (connectivityDirection === 'out') {
+          edges = data.edges.filter((edge) => edge.source_identity_hex === focusId);
+        } else if (connectivityDirection === 'in') {
+          edges = data.edges.filter((edge) => edge.target_identity_hex === focusId);
+        } else {
+          edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
+        }
+      }
+      const highlightedIds = new Set();
+      for (const edge of edges) {
+        highlightedIds.add(edge.source_identity_hex);
+        highlightedIds.add(edge.target_identity_hex);
+      }
+      const nodes = focusId
+        ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex))
+        : data.nodes;
+      const bounds = drawMapNodes(nodes, focusId, highlightedIds);
+      for (const edge of edges) {
+        const sourceNode = data.nodeIndex.get(edge.source_identity_hex);
+        const targetNode = data.nodeIndex.get(edge.target_identity_hex);
+        if (!sourceNode || !targetNode) continue;
+        if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+        L.polyline([
+          [sourceNode.latitude, sourceNode.longitude],
+          [targetNode.latitude, targetNode.longitude],
+        ], {
+          color: edge.mutual ? '#2e8b57' : lineColor(edge),
+          weight: edge.stale ? 1.5 : 2.6,
+          opacity: edge.stale ? 0.4 : 0.84,
+          dashArray: edge.stale ? '5 5' : null,
+        }).addTo(linksLayer);
+      }
+      renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
+      if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
+    }
+
+    function renderRouteMap(state) {
+      markersLayer.clearLayers();
+      halosLayer.clearLayers();
+      linksLayer.clearLayers();
+      labelsLayer.clearLayers();
+      linkLabelsLayer.clearLayers();
+      const data = connectivityData(state);
+      const highlightedIds = new Set([routeSourceId, routeTargetId].filter(Boolean));
+      const forward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
+      const pathIds = new Set(forward?.path || []);
+      for (const identityHex of pathIds) highlightedIds.add(identityHex);
+      const nodes = highlightedIds.size
+        ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex))
+        : data.nodes;
+      const bounds = drawMapNodes(nodes, routeSourceId, highlightedIds);
+      if (forward?.path) {
+        for (let index = 0; index < forward.path.length - 1; index += 1) {
+          const sourceNode = data.nodeIndex.get(forward.path[index]);
+          const targetNode = data.nodeIndex.get(forward.path[index + 1]);
+          if (!sourceNode || !targetNode) continue;
+          if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+          L.polyline([
+            [sourceNode.latitude, sourceNode.longitude],
+            [targetNode.latitude, targetNode.longitude],
+          ], {
+            color: '#2c71d1',
+            weight: 3,
+            opacity: 0.9,
+          }).addTo(linksLayer);
+        }
+      }
+      renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
     }
 
