@@ -1230,6 +1230,7 @@ INDEX_HTML = """<!doctype html>
     let routeSourceId = null;
     let routeTargetId = null;
     let hasFitBounds = false;
+    let pendingRefreshState = null;
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -1242,6 +1243,21 @@ INDEX_HTML = """<!doctype html>
     function trFormat(key, value) {
       const entry = tr(key);
       return typeof entry === 'function' ? entry(value) : entry;
+    }
+
+    function isSidebarInteractionActive() {
+      const activeElement = document.activeElement;
+      if (!activeElement) return false;
+      if (!activeElement.closest || !activeElement.closest('#sidebar')) return false;
+      const tagName = activeElement.tagName;
+      return tagName === 'SELECT' || tagName === 'OPTION' || tagName === 'INPUT' || tagName === 'TEXTAREA';
+    }
+
+    function flushPendingRefresh() {
+      if (!pendingRefreshState || isSidebarInteractionActive()) return;
+      const state = pendingRefreshState;
+      pendingRefreshState = null;
+      render(state);
     }
 
     function setLanguage(language) {
@@ -2620,6 +2636,10 @@ INDEX_HTML = """<!doctype html>
     async function refresh() {
       const response = await fetch('/api/state');
       const state = await response.json();
+      if (isSidebarInteractionActive()) {
+        pendingRefreshState = state;
+        return;
+      }
       render(state);
     }
 
@@ -2631,6 +2651,13 @@ INDEX_HTML = """<!doctype html>
       if (latestState) renderMap(latestState);
     });
     window.addEventListener('resize', applyMobileView);
+    document.addEventListener('focusin', () => {
+      if (!isSidebarInteractionActive()) return;
+      pendingRefreshState = null;
+    });
+    document.addEventListener('focusout', () => {
+      window.setTimeout(flushPendingRefresh, 0);
+    });
 
     document.documentElement.lang = currentLanguage;
     applyMobileView();
