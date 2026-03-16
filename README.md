@@ -16,6 +16,25 @@ Reference and reverse-engineering notes live in `../trunk/`. Runtime code lives 
 
 SQLite stays file-based in the shared volume. There is no separate database container because this deployment is intentionally single-host and that extra moving part would not improve correctness.
 
+## RS232 over TCP requirement
+
+This runtime does not talk to a repeater over USB directly. It expects an RS232Bridge-compatible TCP endpoint, typically on port `5002`.
+
+That part is not plug-and-play in stock repeater / Companion setups. To use this project you need both:
+
+- a MeshCore repeater / Companion build that exposes the RS232 serial interface you want to consume
+- a separate serial-to-TCP bridge that publishes that RS232 stream on the network in the framing expected by this runtime
+
+In this deployment we use [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp) for that bridge layer.
+
+Practical meaning:
+
+- first get your repeater / Companion side working with RS232 available on the serial pins you intend to use
+- then put the TCP bridge in front of it
+- only after that point this repo can connect via `[endpoints].raw_host` and `[endpoints].raw_port`
+
+If you do not already have RS232-over-TCP exposed, this repo alone is not enough to create it.
+
 ## Bot scope
 
 The bot is intentionally narrow:
