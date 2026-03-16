@@ -76,11 +76,10 @@ Before copying this to the target machine:
 
 1. Review `config/config.toml`, especially `[endpoints]`, `[probe]`, and `[bot]`.
 2. Ensure `data/` is persistent on the target host.
-3. Ensure the external Docker network `vmbr106` already exists on the target host.
-4. The public `web` container is pinned to `172.30.106.8` on `vmbr106` and publishes HTTP on port `80`.
-5. Bring the stack up with `docker compose up -d --build`.
-6. Verify `bridge-gateway` logs show `gateway connected` for the production endpoint.
-7. Verify `bot-worker` is listening on the channels you configured.
+3. Review `docker-compose.yml` and adapt any host-specific network and publishing settings for your target environment.
+4. Bring the stack up with `docker compose up -d --build`.
+5. Verify `bridge-gateway` logs show `gateway connected` for the production endpoint.
+6. Verify `bot-worker` is listening on the channels you configured.
 
 ## Current status
 

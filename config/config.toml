@@ -55,7 +55,7 @@ enabled = true
 # Empty means: use [service].name as the sender name on radio.
 sender_name = ""
 # Add or remove hashtag channels here.
-channels = ["#bot-test"]
+channels = ["#bot-test", "#bot"]
 # Supported command set for the simplified bot.
 enabled_commands = ["!ping", "!test", "!help"]
 min_response_delay_secs = 1.0
