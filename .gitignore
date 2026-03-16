@@ -15,3 +15,6 @@ data/
 logs/
 .env
 .env.*
+config/config.toml
+docker-compose.yml
+docker-compose.override.yml

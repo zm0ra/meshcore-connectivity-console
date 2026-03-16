@@ -45,7 +45,7 @@ The bot is intentionally narrow:
 - it does not send self adverts
 - it does not handle private messages
 
-All bot behavior is configured in one place: `[bot]` in `config/config.toml`.
+All bot behavior is configured in one place: `[bot]` in your local `config/config.toml`, created from `config/config.example.toml`.
 
 ## Probe scheduling
 
@@ -57,7 +57,13 @@ All bot behavior is configured in one place: `[bot]` in `config/config.toml`.
 
 ## Configuration
 
-Main runtime configuration lives in `config/config.toml`.
+Public example configuration lives in `config/config.example.toml`.
+
+For local/runtime use:
+
+- copy `config/config.example.toml` to `config/config.toml`
+- copy `docker-compose.example.yml` to `docker-compose.yml`
+- fill in your own endpoints, credentials, channels, and host-specific Docker settings
 
 Most important sections:
 
@@ -67,13 +73,15 @@ Most important sections:
 - `[bot]`: enabled channels, supported commands, reply timing, quiet window
 - `[web]`: dashboard bind address
 
-Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
+Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved local configuration.
 
 ## Local Docker run
 
 Build and start the full stack:
 
 ```bash
+cp config/config.example.toml config/config.toml
+cp docker-compose.example.yml docker-compose.yml
 docker compose up -d --build
 ```
 
@@ -93,12 +101,14 @@ docker compose down
 
 Before copying this to the target machine:
 
-1. Review `config/config.toml`, especially `[endpoints]`, `[probe]`, and `[bot]`.
+1. Create and review `config/config.toml` from `config/config.example.toml`, especially `[endpoints]`, `[probe]`, and `[bot]`.
 2. Ensure `data/` is persistent on the target host.
-3. Review `docker-compose.yml` and adapt any host-specific network and publishing settings for your target environment.
+3. Create and review `docker-compose.yml` from `docker-compose.example.yml` and adapt host-specific network and publishing settings for your target environment.
 4. Bring the stack up with `docker compose up -d --build`.
 5. Verify `bridge-gateway` logs show `gateway connected` for the production endpoint.
 6. Verify `bot-worker` is listening on the channels you configured.
+
+The public repo keeps only example configuration. Local runtime copies such as `config/config.toml`, `docker-compose.yml`, and `docker-compose.override.yml` are intentionally not tracked.
 
 ## Current status
 
