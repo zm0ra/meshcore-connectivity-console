@@ -455,12 +455,22 @@ INDEX_HTML = """<!doctype html>
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 6px;
     }
+    .route-result-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: stretch;
+    }
     .relation-card,
     .route-card {
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.48);
+    }
+    .route-card {
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      min-height: 220px;
     }
     .relation-card strong,
     .route-card strong {
@@ -567,18 +577,30 @@ INDEX_HTML = """<!doctype html>
       cursor: pointer;
     }
     .route-path {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
       gap: 6px;
-      align-items: center;
+      align-content: start;
       font-size: 0.74rem;
       margin-top: 8px;
+    }
+    .route-hop-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .route-hop-arrow {
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-align: center;
+      min-width: 20px;
     }
     .route-step {
       padding: 4px 8px;
       border: 1px solid var(--line);
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.62);
+      min-width: 0;
     }
     .route-arrow {
       color: var(--muted);
@@ -1012,14 +1034,17 @@ INDEX_HTML = """<!doctype html>
         panelAnalysis: 'Analiza',
         focusRepeater: 'Fokus',
         relationModeOut: 'Widze',
-        relationModeIn: 'Widza',
-        relationModeMutual: 'Wzajemne',
+        relationModeIn: 'Widziany',
+        relationModeMutual: '2-way',
         relationFilterAll: 'Wszystkie',
         relationFilterTwoWay: '2-way',
         relationFilterOut: 'Out',
         relationFilterIn: 'In',
         relationDirectOut: 'bezposrednio widze',
         relationDirectIn: 'bezposrednio widza',
+        relationNodeSees: (name) => `${name} widzi`,
+        relationNodeSeenBy: (name) => `${name} widziany przez`,
+        relationNodeMutual: (name) => `${name} 2-way`,
         connectivityHint: 'Wybierz repeater, aby zobaczyc kierunki lacznosci i relacje jedno- oraz dwukierunkowe.',
         connectivitySelect: 'Repeater',
         connectivityVisible: 'Widoczne relacje',
@@ -1126,14 +1151,17 @@ INDEX_HTML = """<!doctype html>
         panelAnalysis: 'Analysis',
         focusRepeater: 'Focus',
         relationModeOut: 'Out',
-        relationModeIn: 'In',
-        relationModeMutual: 'Mutual',
+        relationModeIn: 'Seen by',
+        relationModeMutual: '2-way',
         relationFilterAll: 'All',
         relationFilterTwoWay: '2-way',
         relationFilterOut: 'Out',
         relationFilterIn: 'In',
         relationDirectOut: 'directly seen',
         relationDirectIn: 'directly seeing me',
+        relationNodeSees: (name) => `${name} sees`,
+        relationNodeSeenBy: (name) => `${name} seen by`,
+        relationNodeMutual: (name) => `${name} 2-way`,
         connectivityHint: 'Select a repeater to inspect incoming, outgoing, and mutual connectivity.',
         connectivitySelect: 'Repeater',
         connectivityVisible: 'Visible relations',
@@ -1198,7 +1226,7 @@ INDEX_HTML = """<!doctype html>
     let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
     let currentPanel = localStorage.getItem('meshcoreDashboardPanel') || 'map';
     let connectivityDirection = localStorage.getItem('meshcoreDashboardConnectivityDirection') || 'out';
-    let connectivityFilter = localStorage.getItem('meshcoreDashboardConnectivityFilter') || '2way';
+    let connectivityFilter = '2way';
     let routeSourceId = null;
     let routeTargetId = null;
     let hasFitBounds = false;
@@ -1209,6 +1237,11 @@ INDEX_HTML = """<!doctype html>
 
     function tr(key) {
       return strings()[key];
+    }
+
+    function trFormat(key, value) {
+      const entry = tr(key);
+      return typeof entry === 'function' ? entry(value) : entry;
     }
 
     function setLanguage(language) {
@@ -1255,9 +1288,6 @@ INDEX_HTML = """<!doctype html>
     function setConnectivityDirection(direction) {
       if (!['out', 'in', 'mutual'].includes(direction)) return;
       connectivityDirection = direction;
-      if (direction !== 'mutual' && connectivityFilter === 'all') {
-        connectivityFilter = '2way';
-      }
       localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
       if (latestState) render(latestState);
     }
@@ -1265,7 +1295,6 @@ INDEX_HTML = """<!doctype html>
     function setConnectivityFilter(filter) {
       if (!['2way', 'out', 'in'].includes(filter)) return;
       connectivityFilter = filter;
-      localStorage.setItem('meshcoreDashboardConnectivityFilter', filter);
       if (latestState) render(latestState);
     }
 
@@ -1677,6 +1706,61 @@ INDEX_HTML = """<!doctype html>
       map.flyTo(centeredTarget, targetZoom, { duration: 0.5 });
     }
 
+    function fitNodeCollection(nodes, focusId = null) {
+      const visible = nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude));
+      if (!visible.length) return;
+      const bounds = visible.map((node) => [node.latitude, node.longitude]);
+      if (bounds.length === 1) {
+        const targetNode = visible[0];
+        const insets = overlayInsets(36);
+        const targetZoom = Math.max(map.getZoom(), 11);
+        const centeredTarget = offsetLatLngForInsets([targetNode.latitude, targetNode.longitude], targetZoom, insets);
+        map.flyTo(centeredTarget, targetZoom, { duration: 0.5 });
+        return;
+      }
+      const insets = overlayInsets(30);
+      map.flyToBounds(bounds, {
+        paddingTopLeft: [insets.left, insets.top],
+        paddingBottomRight: [insets.right, insets.bottom],
+        maxZoom: focusId ? 12 : 10,
+        duration: 0.6,
+      });
+    }
+
+    function focusConnectivitySelection(state) {
+      const data = connectivityData(state);
+      const focusId = selectedSourceId;
+      if (!focusId) return;
+      let visibleIds = new Set([focusId]);
+      if (connectivityDirection === 'out') {
+        for (const edge of data.edges.filter((edge) => edge.source_identity_hex === focusId)) {
+          visibleIds.add(edge.target_identity_hex);
+        }
+      } else if (connectivityDirection === 'in') {
+        for (const edge of data.edges.filter((edge) => edge.target_identity_hex === focusId)) {
+          visibleIds.add(edge.source_identity_hex);
+        }
+      } else {
+        for (const edge of data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual)) {
+          visibleIds.add(edge.target_identity_hex);
+        }
+      }
+      fitNodeCollection(data.nodes.filter((node) => visibleIds.has(node.identity_hex)), focusId);
+    }
+
+    function focusRouteSelection(state) {
+      const data = connectivityData(state);
+      const ids = new Set([routeSourceId, routeTargetId].filter(Boolean));
+      if (!ids.size) return;
+      if (routeSourceId && routeTargetId && routeSourceId !== routeTargetId) {
+        const forward = buildRouteResult(state, routeSourceId, routeTargetId);
+        const backward = buildRouteResult(state, routeTargetId, routeSourceId);
+        for (const identityHex of (forward.path || [])) ids.add(identityHex);
+        for (const identityHex of (backward.path || [])) ids.add(identityHex);
+      }
+      fitNodeCollection(data.nodes.filter((node) => ids.has(node.identity_hex)), routeSourceId || routeTargetId);
+    }
+
     function renderSummary(state) {
       const nodes = relevantNodes(state);
       const html = [
@@ -1723,6 +1807,13 @@ INDEX_HTML = """<!doctype html>
       return tr('relationTypeIn');
     }
 
+    function connectivityModeLabel(node) {
+      const name = node?.name || tr('selectedRepeater');
+      if (connectivityDirection === 'out') return trFormat('relationNodeSees', name);
+      if (connectivityDirection === 'in') return trFormat('relationNodeSeenBy', name);
+      return trFormat('relationNodeMutual', name);
+    }
+
     function renderRelationList(rows) {
       if (!rows.length) {
         return `<div class="empty-note">${tr('connectivityNoRows')}</div>`;
@@ -1763,23 +1854,15 @@ INDEX_HTML = """<!doctype html>
       if (!node) {
         return `<div class="panel-stack"><div class="panel-card"><strong>${tr('panelConnectivity')}</strong><span>${tr('connectivityHint')}</span></div>${selector}</div>`;
       }
-      const mutualRowsAll = relationRows(state, node.identity_hex);
-      const mutualRows = relationRows(state, node.identity_hex, connectivityFilter);
+      const mutualRows = relationRows(state, node.identity_hex, '2way');
       const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
       const directionButtons = `
         <div class="secondary-toggle" role="group" aria-label="${tr('panelConnectivity')}">
-          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${tr('relationModeOut')}</button>
-          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${tr('relationModeIn')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${trFormat('relationNodeSees', node.name)}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${trFormat('relationNodeSeenBy', node.name)}</button>
           <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual">${tr('relationModeMutual')}</button>
         </div>
       `;
-      const filterButtons = connectivityDirection === 'mutual' ? `
-        <div class="filter-toggle" role="group" aria-label="${tr('panelConnectivity')}">
-          <button type="button" class="segmented-button${connectivityFilter === '2way' ? ' active' : ''}" data-connectivity-filter="2way">${tr('relationFilterTwoWay')}</button>
-          <button type="button" class="segmented-button${connectivityFilter === 'out' ? ' active' : ''}" data-connectivity-filter="out">${tr('relationFilterOut')}</button>
-          <button type="button" class="segmented-button${connectivityFilter === 'in' ? ' active' : ''}" data-connectivity-filter="in">${tr('relationFilterIn')}</button>
-        </div>
-      ` : '';
       const visibleRows = connectivityDirection === 'out'
         ? directRelationRows(state, node.identity_hex, 'out')
         : connectivityDirection === 'in'
@@ -1796,13 +1879,12 @@ INDEX_HTML = """<!doctype html>
         <div class="panel-stack">
           ${selector}
           ${directionButtons}
-          ${filterButtons}
           <div class="relation-grid">
             <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
             <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
-            <div class="relation-card"><strong>${mutualRowsAll.filter((row) => row.relationType === '2way').length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
+            <div class="relation-card"><strong>${mutualRows.length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
           </div>
-          <div class="panel-card"><strong>${node.name}</strong><span>${tr('connectivityVisible')}: ${visibleRows.length}</span></div>
+          <div class="panel-card"><strong>${connectivityModeLabel(node)}</strong><span>${tr('connectivityVisible')}: ${visibleRows.length}</span></div>
           ${renderRelationList(visibleRows)}
         </div>
       `;
@@ -1814,7 +1896,7 @@ INDEX_HTML = """<!doctype html>
       }
       const pathHtml = routeResult.path.map((identityHex, index) => {
         const node = data.nodeIndex.get(identityHex);
-        return `${index ? '<span class="route-arrow">-></span>' : ''}<span class="route-step">${node?.name || identityHex.slice(0, 8)}</span>`;
+        return `<div class="route-hop-row"><span class="route-hop-arrow">${index === 0 ? '•' : '->'}</span><span class="route-step">${node?.name || identityHex.slice(0, 8)}</span></div>`;
       }).join('');
       return `
         <div class="route-card">
@@ -2249,6 +2331,7 @@ INDEX_HTML = """<!doctype html>
         select.addEventListener('change', () => {
           selectedSourceId = select.value || null;
           selectedNeighborId = null;
+          if (latestState) focusConnectivitySelection(latestState);
           render(latestState);
         });
       }
@@ -2262,6 +2345,7 @@ INDEX_HTML = """<!doctype html>
         select.value = routeSourceId || '';
         select.addEventListener('change', () => {
           routeSourceId = select.value || null;
+          if (latestState) focusRouteSelection(latestState);
           render(latestState);
         });
       }
@@ -2269,6 +2353,7 @@ INDEX_HTML = """<!doctype html>
         select.value = routeTargetId || '';
         select.addEventListener('change', () => {
           routeTargetId = select.value || null;
+          if (latestState) focusRouteSelection(latestState);
           render(latestState);
         });
       }
@@ -2277,6 +2362,7 @@ INDEX_HTML = """<!doctype html>
           const previousSource = routeSourceId;
           routeSourceId = routeTargetId;
           routeTargetId = previousSource;
+          if (latestState) focusRouteSelection(latestState);
           render(latestState);
         });
       }
@@ -2395,8 +2481,12 @@ INDEX_HTML = """<!doctype html>
             } else if (routeSourceId !== node.identity_hex) {
               routeTargetId = node.identity_hex;
             }
+            focusRouteSelection(latestState);
           } else {
             selectedSourceId = node.identity_hex;
+            if (currentPanel === 'connectivity') {
+              focusConnectivitySelection(latestState);
+            }
           }
           render(latestState);
         });
@@ -2420,13 +2510,7 @@ INDEX_HTML = """<!doctype html>
         } else if (connectivityDirection === 'in') {
           edges = data.edges.filter((edge) => edge.target_identity_hex === focusId);
         } else {
-          if (connectivityFilter === '2way') {
-            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
-          } else if (connectivityFilter === 'out') {
-            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && !edge.mutual);
-          } else {
-            edges = data.edges.filter((edge) => edge.target_identity_hex === focusId && !edge.mutual);
-          }
+          edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
         }
       }
       const highlightedIds = new Set();
@@ -2447,7 +2531,7 @@ INDEX_HTML = """<!doctype html>
           [sourceNode.latitude, sourceNode.longitude],
           [targetNode.latitude, targetNode.longitude],
         ], {
-          color: edge.mutual ? '#2e8b57' : connectivityDirection === 'in' || (connectivityDirection === 'mutual' && connectivityFilter === 'in') ? '#2c71d1' : '#cfaa38',
+          color: edge.mutual ? '#2e8b57' : connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38',
           weight: edge.stale ? 1.5 : 2.6,
           opacity: edge.stale ? 0.4 : 0.84,
           dashArray: edge.stale ? '5 5' : null,
