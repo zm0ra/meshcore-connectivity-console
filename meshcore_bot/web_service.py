@@ -622,6 +622,14 @@ INDEX_HTML = """<!doctype html>
       border: 1px solid var(--line);
       font-size: 0.72rem;
       line-height: 1.2;
+      cursor: pointer;
+      font: inherit;
+      color: var(--ink);
+    }
+    .route-selection-chip.active {
+      background: rgba(44, 113, 209, 0.18);
+      border-color: rgba(44, 113, 209, 0.24);
+      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16);
     }
     .route-selection-chip strong {
       font-size: 0.7rem;
@@ -1029,7 +1037,7 @@ INDEX_HTML = """<!doctype html>
         viewList: 'Lista',
         viewLabel: 'Widok',
         panelMap: 'Mapa',
-        panelConnectivity: 'Lacznosc',
+        panelConnectivity: 'Łączność',
         panelRoute: 'Trasa',
         panelAnalysis: 'Analiza',
         focusRepeater: 'Fokus',
@@ -1068,12 +1076,12 @@ INDEX_HTML = """<!doctype html>
         routeSwap: 'Zamien',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Kliknij dwa punkty na mapie albo wybierz je z list rozwijanych.',
+        routePickHint: 'Wybierz A/B',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeStatusYes: 'trasa jest',
         routeStatusNo: 'brak trasy',
-        routeNoSelection: 'Wybierz dwa repeatery, aby policzyc trase w obu kierunkach.',
+        routeNoSelection: 'Ustaw A i B.',
         routeSameNode: 'Start i cel musza byc rozne.',
         routeNoPath: 'Brak trasy.',
         routeHopCount: 'hopow',
@@ -1185,12 +1193,12 @@ INDEX_HTML = """<!doctype html>
         routeSwap: 'Swap',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Click two nodes on the map or choose them from the selectors.',
+        routePickHint: 'Pick A/B',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeStatusYes: 'route found',
         routeStatusNo: 'no route',
-        routeNoSelection: 'Pick two repeaters to calculate both route directions.',
+        routeNoSelection: 'Set A and B.',
         routeSameNode: 'Source and target must be different.',
         routeNoPath: 'No route available.',
         routeHopCount: 'hops',
@@ -1229,6 +1237,7 @@ INDEX_HTML = """<!doctype html>
     let connectivityFilter = '2way';
     let routeSourceId = null;
     let routeTargetId = null;
+    let routeActiveEndpoint = 'source';
     let hasFitBounds = false;
     let pendingRefreshState = null;
 
@@ -1941,7 +1950,7 @@ INDEX_HTML = """<!doctype html>
       const targetName = data.nodeIndex.get(routeTargetId)?.name || '-';
       return `
         <div class="panel-stack">
-          <div class="panel-card"><strong>${tr('routePickHint')}</strong><span>${tr('routeNoSelection')}</span><div class="route-selection"><span class="route-selection-chip"><strong>${tr('routeSelectedA')}</strong>${sourceName}</span><span class="route-selection-chip"><strong>${tr('routeSelectedB')}</strong>${targetName}</span></div></div>
+          <div class="panel-card"><strong>${tr('routePickHint')}</strong><span>${tr('routeNoSelection')}</span><div class="route-selection"><button type="button" class="route-selection-chip${routeActiveEndpoint === 'source' ? ' active' : ''}" data-route-active="source"><strong>${tr('routeSelectedA')}</strong>${sourceName}</button><button type="button" class="route-selection-chip${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target"><strong>${tr('routeSelectedB')}</strong>${targetName}</button></div></div>
           <div class="route-controls">
             <div class="field-stack">
               <label for="route-source">${tr('routeSource')}</label>
@@ -2360,6 +2369,7 @@ INDEX_HTML = """<!doctype html>
       for (const select of container.querySelectorAll('[data-route-source]')) {
         select.value = routeSourceId || '';
         select.addEventListener('change', () => {
+          routeActiveEndpoint = 'source';
           routeSourceId = select.value || null;
           if (latestState) focusRouteSelection(latestState);
           render(latestState);
@@ -2368,8 +2378,15 @@ INDEX_HTML = """<!doctype html>
       for (const select of container.querySelectorAll('[data-route-target]')) {
         select.value = routeTargetId || '';
         select.addEventListener('change', () => {
+          routeActiveEndpoint = 'target';
           routeTargetId = select.value || null;
           if (latestState) focusRouteSelection(latestState);
+          render(latestState);
+        });
+      }
+      for (const button of container.querySelectorAll('[data-route-active]')) {
+        button.addEventListener('click', () => {
+          routeActiveEndpoint = button.dataset.routeActive === 'target' ? 'target' : 'source';
           render(latestState);
         });
       }
@@ -2491,11 +2508,10 @@ INDEX_HTML = """<!doctype html>
         marker.on('click', (event) => {
           L.DomEvent.stopPropagation(event);
           if (currentPanel === 'route') {
-            if (!routeSourceId || (routeSourceId && routeTargetId)) {
-              routeSourceId = node.identity_hex;
-              routeTargetId = null;
-            } else if (routeSourceId !== node.identity_hex) {
+            if (routeActiveEndpoint === 'target') {
               routeTargetId = node.identity_hex;
+            } else {
+              routeSourceId = node.identity_hex;
             }
             focusRouteSelection(latestState);
           } else {
@@ -2618,7 +2634,10 @@ INDEX_HTML = """<!doctype html>
       };
       drawRoute(forward, '#2c71d1');
       drawRoute(backward, '#cfaa38', '8 6');
-      renderLabels(allMapNodes, highlightedIds);
+      const labelNodes = routeSourceId && routeTargetId
+        ? allMapNodes.filter((node) => highlightedIds.has(node.identity_hex))
+        : allMapNodes;
+      renderLabels(labelNodes, highlightedIds);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
     }
 
