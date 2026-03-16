@@ -2564,16 +2564,14 @@ INDEX_HTML = """<!doctype html>
       labelsLayer.clearLayers();
       linkLabelsLayer.clearLayers();
       const data = connectivityData(state);
+      const allMapNodes = deriveMapNodes(data.nodes);
       const highlightedIds = new Set([routeSourceId, routeTargetId].filter(Boolean));
       const forward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
       const backward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeTargetId, routeSourceId) : null;
       const pathIds = new Set(forward?.path || []);
       for (const identityHex of (backward?.path || [])) pathIds.add(identityHex);
       for (const identityHex of pathIds) highlightedIds.add(identityHex);
-      const nodes = highlightedIds.size
-        ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex))
-        : data.nodes;
-      const bounds = drawMapNodes(nodes, routeSourceId, highlightedIds);
+      const bounds = drawMapNodes(allMapNodes, routeSourceId, highlightedIds);
       if (routeSourceId) {
         const sourceNode = data.nodeIndex.get(routeSourceId);
         if (sourceNode && isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude)) {
@@ -2620,7 +2618,7 @@ INDEX_HTML = """<!doctype html>
       };
       drawRoute(forward, '#2c71d1');
       drawRoute(backward, '#cfaa38', '8 6');
-      renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
+      renderLabels(allMapNodes, highlightedIds);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
     }
 
