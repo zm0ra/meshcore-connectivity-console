@@ -1,43 +1,103 @@
-# meshcore-bot
+# MeshCore Connectivity Console
 
-Docker-first MeshCore runtime for two concrete jobs:
+MeshCore Connectivity Console is a Docker-first MeshCore operations stack for collecting repeater neighbor data, probing reachable nodes, serving a connectivity dashboard, and running a small channel bot.
 
-- harvesting repeater data over RS232Bridge TCP on port `5002`
-- running a small channel bot on configured MeshCore hashtag channels
+The project is built around one hard requirement: it must talk to MeshCore over serial-over-TCP exposed by [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp). That bridge is not optional in this setup.
 
-Reference and reverse-engineering notes live in `../trunk/`. Runtime code lives only in this directory.
+## What it does
 
-## Runtime layout
+- connects to an RS232Bridge-compatible TCP endpoint, usually on port `5002`
+- ingests MeshCore adverts and stores repeater metadata in SQLite
+- logs into reachable repeaters and fetches neighbor snapshots
+- builds a directed connectivity graph from the latest known neighbor data
+- calculates directional path results for `A->B` and `B->A` separately
+- serves a desktop and mobile web UI for map, connectivity, and route analysis
+- runs a minimal hashtag-channel bot over the same gateway layer
 
-- `bridge-gateway`: the only process allowed to hold the TCP connection to RS232Bridge
-- `neighbours-worker`: advert ingestion plus repeater probing over gateway IPC
-- `bot-worker`: channel-only command bot over gateway IPC
-- `web`: SQLite-backed status UI
+## Why it is complicated
 
-SQLite stays file-based in the shared volume. There is no separate database container because this deployment is intentionally single-host and that extra moving part would not improve correctness.
+This is not a thin wrapper around an existing serial client.
 
-## RS232 over TCP requirement
+The runtime builds MeshCore packets itself, encrypts and MACs payloads itself, wraps them into the RS232 bridge framing itself, and sends those frames over TCP to the serial bridge. It also parses the replies itself.
 
-This runtime does not talk to a repeater over USB directly. It expects an RS232Bridge-compatible TCP endpoint, typically on port `5002`.
+In practice this means the stack owns the full path below:
 
-That part is not plug-and-play in stock repeater / Companion setups. To use this project you need both:
+1. build MeshCore request or text payloads
+2. encrypt and authenticate them using the expected MeshCore wire format
+3. wrap them in the RS232 bridge frame format
+4. send the frame to the serial-over-TCP bridge
+5. decode responses, store snapshots, and derive graph views for the UI
 
-- a MeshCore repeater / Companion build that exposes the RS232 serial interface you want to consume
-- a separate serial-to-TCP bridge that publishes that RS232 stream on the network in the framing expected by this runtime
+That is why this repository is more involved than a typical dashboard or bot project.
 
-In this deployment we use [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp) for that bridge layer.
+## Must-have dependency
 
-Practical meaning:
+This project requires a repeater or Companion-side setup that exposes the serial interface you want to consume, plus a separate serial-to-TCP bridge in front of it.
 
-- first get your repeater / Companion side working with RS232 available on the serial pins you intend to use
-- then put the TCP bridge in front of it
-- only after that point this repo can connect via `[endpoints].raw_host` and `[endpoints].raw_port`
+The expected bridge implementation is:
 
-If you do not already have RS232-over-TCP exposed, this repo alone is not enough to create it.
+- [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp)
+
+Without that bridge layer, this repository is not enough on its own.
+
+## Architecture
+
+The stack is split into four long-running services plus two one-shot initialization steps:
+
+- `init-db`: initializes the SQLite schema
+- `ensure-identity`: creates or loads the local MeshCore identity
+- `bridge-gateway`: the only process allowed to hold the TCP connection to the serial bridge
+- `neighbours-worker`: ingests adverts, schedules probes, fetches neighbor snapshots, and stores results
+- `bot-worker`: listens on configured hashtag channels and replies to a limited command set
+- `web`: serves the FastAPI dashboard and `/api/state`
+
+SQLite remains file-based in the shared volume. There is no separate database container.
+
+## Connectivity model
+
+The dashboard works on directed edges.
+
+- `A -> B` means repeater `A` reported that it sees repeater `B`
+- missing reverse edge does not imply symmetry
+- route search is directional and always computed independently for `A->B` and `B->A`
+- the graph represents the latest known neighbor snapshots, not a guaranteed live routing table
+
+The current implementation uses the latest known directed links and shortest-hop BFS for route exploration.
+
+## Desktop and mobile UI
+
+The web UI is designed for both desktop and mobile.
+
+- desktop uses a map-first operator workflow for connectivity and route inspection
+- mobile uses a split `Map` / `Analysis` flow instead of a compressed desktop clone
+- route results are shown per direction, not as a single symmetric answer
+- connectivity views explicitly distinguish outbound, inbound, and mutual visibility
+
+## Documentation
+
+Public documentation assets live in `docs/`.
+
+- `docs/README.md` contains the documentation asset layout
+- `docs/screenshots/README.md` contains the screenshot naming scheme and suggested captions
+
+## Screenshots
+
+Documentation screenshots should live under `docs/screenshots/`.
+
+Recommended filenames:
+
+- `docs/screenshots/dashboard-overview-desktop.png`
+- `docs/screenshots/connectivity-list-desktop.png`
+- `docs/screenshots/signal-history-desktop.png`
+- `docs/screenshots/mobile-map-outbound.png`
+- `docs/screenshots/mobile-map-mutual.png`
+- `docs/screenshots/route-analysis-desktop.png`
+
+Once those files are present in the repository, add them to this section with standard Markdown image references.
 
 ## Bot scope
 
-The bot is intentionally narrow:
+The bot is intentionally small and operationally narrow.
 
 - it listens only on hashtag channels from `[bot].channels`
 - it supports only commands from `[bot].enabled_commands`
@@ -45,39 +105,25 @@ The bot is intentionally narrow:
 - it does not send self adverts
 - it does not handle private messages
 
-All bot behavior is configured in one place: `[bot]` in your local `config/config.toml`, created from `config/config.example.toml`.
+## Public configuration
 
-## Probe scheduling
+The public repository is expected to keep only example configuration.
 
-- advert-triggered probe jobs are rate-limited per repeater and endpoint
-- successful advert probes can be retriggered sooner than failed ones
-- failed repeaters that are still advertising can be retried automatically during the night window, default `01:00-07:00`, once per hour
-- manual jobs bypass advert cooldowns because they use distinct reasons
-- old failed jobs can be pruned with `python -m meshcore_bot cleanup-probe-jobs --failed-older-than-hours 12`
+- `config/config.example.toml` contains placeholder values only
+- `docker-compose.example.yml` is the public compose baseline
+- local copies such as `config/config.toml`, `docker-compose.yml`, and `docker-compose.override.yml` should not be published with private endpoints or host-specific network details
 
-## Configuration
+Most important configuration sections:
 
-Public example configuration lives in `config/config.example.toml`.
-
-For local/runtime use:
-
-- copy `config/config.example.toml` to `config/config.toml`
-- copy `docker-compose.example.yml` to `docker-compose.yml`
-- fill in your own endpoints, credentials, channels, and host-specific Docker settings
-
-Most important sections:
-
-- `[endpoints]`: RS232Bridge TCP targets
+- `[endpoints]`: serial-over-TCP targets
 - `[gateway]`: Unix sockets shared between containers
 - `[probe]`: repeater probe behavior, credentials, retry windows
-- `[bot]`: enabled channels, supported commands, reply timing, quiet window
+- `[bot]`: enabled channels, commands, response behavior
 - `[web]`: dashboard bind address
 
 Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved local configuration.
 
-## Local Docker run
-
-Build and start the full stack:
+## Local run
 
 ```bash
 cp config/config.example.toml config/config.toml
@@ -97,19 +143,25 @@ Stop everything:
 docker compose down
 ```
 
-## Production copy checklist
+## Technical notes
 
-Before copying this to the target machine:
+Relevant implementation areas:
 
-1. Create and review `config/config.toml` from `config/config.example.toml`, especially `[endpoints]`, `[probe]`, and `[bot]`.
-2. Ensure `data/` is persistent on the target host.
-3. Create and review `docker-compose.yml` from `docker-compose.example.yml` and adapt host-specific network and publishing settings for your target environment.
-4. Bring the stack up with `docker compose up -d --build`.
-5. Verify `bridge-gateway` logs show `gateway connected` for the production endpoint.
-6. Verify `bot-worker` is listening on the channels you configured.
+- `meshcore_bot/mesh_builders.py`: builds MeshCore packets and parses encrypted replies
+- `meshcore_bot/rs232.py`: encodes and decodes RS232 bridge frames
+- `meshcore_bot/bridge_gateway.py`: owns the TCP session and exposes local gateway IPC
+- `meshcore_bot/neighbours_worker.py` and `meshcore_bot/probe_service.py`: probing, retries, and snapshot collection
+- `meshcore_bot/database.py`: SQLite persistence and web-facing graph queries
+- `meshcore_bot/web_service.py`: FastAPI app and the desktop/mobile dashboard
 
-The public repo keeps only example configuration. Local runtime copies such as `config/config.toml`, `docker-compose.yml`, and `docker-compose.override.yml` are intentionally not tracked.
+## Security and publishing notes
 
-## Current status
+This repository should not publish:
 
-This repo is intended for deployment once configuration is reviewed. It is not trying to be full Companion parity. The bot layer is now deliberately minimal so operational behavior is easier to reason about and support.
+- private endpoint addresses
+- live passwords
+- local identity files
+- local databases
+- host-specific Docker network settings
+
+Before pushing to a public remote, review tracked files and keep only sanitized examples.
