@@ -281,6 +281,13 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16), 0 1px 0 rgba(255, 255, 255, 0.9);
     }
+    .segmented-button:disabled,
+    .segmented-button.disabled {
+      opacity: 0.44;
+      color: var(--muted);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
     .mobile-view-toggle {
       display: none;
       align-items: center;
@@ -1716,19 +1723,18 @@ INDEX_HTML = """<!doctype html>
       if (latestState) render(latestState);
     }
 
-    function setConnectivityDirection(direction) {
-      if (!['out', 'in', 'mutual'].includes(direction)) return;
-      connectivityDirection = direction;
-      if (direction !== 'mutual') {
-        connectivityFilter = '2way';
-      }
-      localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
-      if (latestState) render(latestState);
+    function hasOwnNeighborData(node) {
+      return Boolean(node?.last_data_at);
     }
 
-    function setConnectivityFilter(filter) {
-      if (!['2way', 'out', 'in'].includes(filter)) return;
-      connectivityFilter = filter;
+    function setConnectivityDirection(direction) {
+      if (!['out', 'in', 'mutual'].includes(direction)) return;
+      const node = latestState ? selectedConnectivityNode(latestState) : null;
+      if ((direction === 'out' || direction === 'mutual') && node && !hasOwnNeighborData(node)) {
+        return;
+      }
+      connectivityDirection = direction;
+      localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
       if (latestState) render(latestState);
     }
 
@@ -2199,8 +2205,10 @@ INDEX_HTML = """<!doctype html>
       const data = connectivityData(state);
       const focusId = selectedSourceId;
       if (!focusId) return;
+      const focusNode = data.nodeIndex.get(focusId);
+      const canInspectOwnData = hasOwnNeighborData(focusNode);
       let visibleIds = new Set([focusId]);
-      if (connectivityDirection === 'out') {
+      if (connectivityDirection === 'out' && canInspectOwnData) {
         for (const edge of data.edges.filter((edge) => edge.source_identity_hex === focusId)) {
           visibleIds.add(edge.target_identity_hex);
         }
@@ -2208,7 +2216,7 @@ INDEX_HTML = """<!doctype html>
         for (const edge of data.edges.filter((edge) => edge.target_identity_hex === focusId)) {
           visibleIds.add(edge.source_identity_hex);
         }
-      } else {
+      } else if (canInspectOwnData) {
         for (const edge of data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual)) {
           visibleIds.add(edge.target_identity_hex);
         }
@@ -2289,25 +2297,23 @@ INDEX_HTML = """<!doctype html>
 
     function connectivityVisibleRows(state, nodeId) {
       if (!nodeId) return [];
+      const node = connectivityData(state).nodeIndex.get(nodeId);
+      const canInspectOwnData = hasOwnNeighborData(node);
       if (connectivityDirection === 'out') {
+        if (!canInspectOwnData) return [];
         return directRelationRows(state, nodeId, 'out');
       }
       if (connectivityDirection === 'in') {
         return directRelationRows(state, nodeId, 'in');
       }
-      const filtered = relationRows(state, nodeId, connectivityFilter).map((row) => ({
+      if (!canInspectOwnData) return [];
+      const filtered = relationRows(state, nodeId, '2way').map((row) => ({
         peerName: row.peerName,
         relationType: row.relationType,
         stale: row.stale,
-        metricText: row.relationType === '2way'
-          ? `${tr('connectivityTableOut')}: ${row.outEdge ? lineSignalMetric(row.outEdge).short : '-'}`
-          : row.outEdge
-            ? `${tr('connectivityTableOut')}: ${lineSignalMetric(row.outEdge).short}`
-            : `${tr('connectivityTableIn')}: ${lineSignalMetric(row.inEdge).short}`,
+        metricText: `${tr('connectivityTableOut')}: ${row.outEdge ? lineSignalMetric(row.outEdge).short : '-'}`,
         ageText: row.freshestAge === null ? '-' : humanizeSeconds(row.freshestAge),
-        secondaryText: row.relationType === '2way'
-          ? `${tr('connectivityTableIn')}: ${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}`
-          : null,
+        secondaryText: `${tr('connectivityTableIn')}: ${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}`,
       }));
       return filtered;
     }
@@ -2354,25 +2360,17 @@ INDEX_HTML = """<!doctype html>
       }
       const mutualRows = relationRows(state, node.identity_hex, '2way');
       const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
+      const canInspectOwnData = hasOwnNeighborData(node);
+      if (!canInspectOwnData && connectivityDirection !== 'in') {
+        connectivityDirection = 'in';
+      }
       const directionButtons = `
         <div class="secondary-toggle" role="group" aria-label="${tr('panelConnectivity')}">
-          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${tr('relationModeOut')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out"${canInspectOwnData ? '' : ' disabled'}>${tr('relationModeOut')}</button>
           <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${tr('relationModeIn')}</button>
-          <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual">${tr('relationModeMutual')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual"${canInspectOwnData ? '' : ' disabled'}>${tr('relationModeMutual')}</button>
         </div>
       `;
-      const filterButtons = connectivityDirection === 'mutual'
-        ? `
-            <div>
-              <div class="panel-section-head"><span class="panel-section-title">${tr('connectivityVisibleTitle')}</span><span class="panel-section-note">${tr('connectivityFilterHint')}</span></div>
-              <div class="filter-toggle" role="group" aria-label="${tr('connectivityVisibleTitle')}">
-                <button type="button" class="segmented-button${connectivityFilter === '2way' ? ' active' : ''}" data-connectivity-filter="2way">${tr('relationFilterTwoWay')}</button>
-                <button type="button" class="segmented-button${connectivityFilter === 'out' ? ' active' : ''}" data-connectivity-filter="out">${tr('relationFilterOut')}</button>
-                <button type="button" class="segmented-button${connectivityFilter === 'in' ? ' active' : ''}" data-connectivity-filter="in">${tr('relationFilterIn')}</button>
-              </div>
-            </div>
-          `
-        : '';
       const visibleRows = connectivityVisibleRows(state, node.identity_hex);
       const heroCount = visibleRows.length;
       return `
@@ -2380,7 +2378,6 @@ INDEX_HTML = """<!doctype html>
           <div class="panel-section">
             ${selector}
             ${directionButtons}
-            ${filterButtons}
             <div class="hero-card">
               <div>
                 <strong>${node.name}</strong>
@@ -2911,9 +2908,6 @@ INDEX_HTML = """<!doctype html>
       for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
         button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
       }
-      for (const button of container.querySelectorAll('[data-connectivity-filter]')) {
-        button.addEventListener('click', () => setConnectivityFilter(button.dataset.connectivityFilter));
-      }
       for (const select of container.querySelectorAll('[data-focus-node]')) {
         select.value = selectedSourceId || '';
         select.addEventListener('change', () => {
@@ -3085,20 +3079,16 @@ INDEX_HTML = """<!doctype html>
       linkLabelsLayer.clearLayers();
       const data = connectivityData(state);
       const focusId = selectedSourceId;
+      const focusNode = focusId ? data.nodeIndex.get(focusId) : null;
+      const canInspectOwnData = hasOwnNeighborData(focusNode);
       let edges = [];
       if (focusId) {
-        if (connectivityDirection === 'out') {
+        if (connectivityDirection === 'out' && canInspectOwnData) {
           edges = data.edges.filter((edge) => edge.source_identity_hex === focusId);
         } else if (connectivityDirection === 'in') {
           edges = data.edges.filter((edge) => edge.target_identity_hex === focusId);
-        } else {
-          if (connectivityFilter === '2way') {
-            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
-          } else if (connectivityFilter === 'out') {
-            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && !edge.mutual);
-          } else {
-            edges = data.edges.filter((edge) => edge.target_identity_hex === focusId && !edge.mutual);
-          }
+        } else if (canInspectOwnData) {
+          edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
         }
       }
       const highlightedIds = new Set();
@@ -3119,11 +3109,7 @@ INDEX_HTML = """<!doctype html>
         const targetNode = data.nodeIndex.get(edge.target_identity_hex);
         if (!sourceNode || !targetNode) continue;
         if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
-        const color = edge.mutual
-          ? '#2e8b57'
-          : connectivityDirection === 'in' || connectivityFilter === 'in'
-            ? '#2c71d1'
-            : '#cfaa38';
+        const color = edge.mutual ? '#2e8b57' : connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38';
         L.polyline([
           [sourceNode.latitude, sourceNode.longitude],
           [targetNode.latitude, targetNode.longitude],
