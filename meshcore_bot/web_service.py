@@ -222,6 +222,14 @@ INDEX_HTML = """<!doctype html>
       gap: 6px;
       min-width: 0;
     }
+    .toolbar-head-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 0 0 auto;
+    }
     .toolbar-title {
       font-size: 0.98rem;
       line-height: 1.1;
@@ -1110,6 +1118,9 @@ INDEX_HTML = """<!doctype html>
       .toolbar-head {
         align-items: stretch;
       }
+      .toolbar-head-actions {
+        justify-content: space-between;
+      }
       .toolbar-meta-group {
         justify-content: space-between;
       }
@@ -1321,8 +1332,8 @@ INDEX_HTML = """<!doctype html>
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
         summaryInactive: 'nieaktywne',
-        archivedToggle: 'archiwalne',
-        archivedToggleCount: (count) => `archiwalne ${count}`,
+        archivedToggle: '>24h',
+        archivedToggleCount: (count) => `>24h ${count}`,
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1459,8 +1470,8 @@ INDEX_HTML = """<!doctype html>
         summaryWithData: 'with data',
         summaryPending: 'pending',
         summaryInactive: 'inactive',
-        archivedToggle: 'archived',
-        archivedToggleCount: (count) => `archived ${count}`,
+        archivedToggle: '>24h',
+        archivedToggleCount: (count) => `>24h ${count}`,
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -2856,12 +2867,8 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
-      const archivedHtml = `
-        <div class="toolbar-meta-group">
-          <button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>
-        </div>
-      `;
-      const metaHtml = `${sortHtml}${archivedHtml}`;
+      const archivedHtml = `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
+      const metaHtml = `${sortHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       html += `
         <div class="list-toolbar">
@@ -2870,7 +2877,10 @@ INDEX_HTML = """<!doctype html>
               <strong class="toolbar-title">${panelTitle}</strong>
               <span class="toolbar-subtitle">${panelSubtitle}</span>
             </div>
-            ${langHtml}
+            <div class="toolbar-head-actions">
+              ${archivedHtml}
+              ${langHtml}
+            </div>
           </div>
           ${renderPrimaryTabs()}
           <div class="toolbar-meta">
