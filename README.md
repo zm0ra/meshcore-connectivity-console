@@ -82,18 +82,47 @@ Public documentation assets live in `docs/`.
 
 ## Screenshots
 
-Documentation screenshots should live under `docs/screenshots/`.
+Documentation screenshots live under `docs/screenshots/`.
 
-Recommended filenames:
+### Desktop overview
 
-- `docs/screenshots/dashboard-overview-desktop.png`
-- `docs/screenshots/connectivity-list-desktop.png`
-- `docs/screenshots/signal-history-desktop.png`
-- `docs/screenshots/mobile-map-outbound.png`
-- `docs/screenshots/mobile-map-mutual.png`
-- `docs/screenshots/route-analysis-desktop.png`
+![Dashboard overview](docs/screenshots/dashboard-overview-desktop.png)
 
-Once those files are present in the repository, add them to this section with standard Markdown image references.
+Top-level repeater inventory with the main navigation used for `Map`, `Connectivity`, and `Route` workflows.
+
+### Connectivity inspection
+
+![Connectivity list](docs/screenshots/connectivity-list-desktop.png)
+
+Neighbor inspection on desktop with relation rows, directional link rendering, and operator-focused context in the side panel.
+
+![Signal history](docs/screenshots/signal-history-desktop.png)
+
+Signal history for a selected relation, shown next to the currently visible connectivity graph.
+
+![Outbound connectivity](docs/screenshots/connectivity-outbound-desktop.png)
+
+Outbound-focused desktop map view highlighting what a selected repeater can currently see.
+
+![Comparison view](docs/screenshots/connectivity-comparison-desktop.png)
+
+Comparison-oriented connectivity view for distinguishing mutual and one-way relations.
+
+### Mobile flow
+
+![Mobile map overview](docs/screenshots/mobile-map-overview.png)
+
+Mobile map mode designed for quick directional inspection without compressing the full desktop layout.
+
+![Mobile map connectivity](docs/screenshots/mobile-map-connectivity.png)
+
+Mobile-first connectivity exploration with a simplified map and tap-oriented interaction model.
+
+### Route analysis
+
+![Route analysis](docs/screenshots/route-analysis-desktop.png)
+
+Directional route analysis where `A->B` and `B->A` are computed and shown independently.
 
 ## Bot scope
 
