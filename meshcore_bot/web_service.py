@@ -185,6 +185,27 @@ INDEX_HTML = """<!doctype html>
       gap: 8px;
       flex-wrap: wrap;
     }
+    .toolbar-toggle-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .toolbar-toggle-button.active {
+      background: rgba(44, 113, 209, 0.14);
+      border-color: rgba(44, 113, 209, 0.16);
+      color: var(--ink);
+    }
     .toolbar-note {
       color: var(--muted);
       font-size: 0.74rem;
@@ -1300,6 +1321,8 @@ INDEX_HTML = """<!doctype html>
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
         summaryInactive: 'nieaktywne',
+        archivedToggle: 'archiwalne',
+        archivedToggleCount: (count) => `archiwalne ${count}`,
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1436,6 +1459,8 @@ INDEX_HTML = """<!doctype html>
         summaryWithData: 'with data',
         summaryPending: 'pending',
         summaryInactive: 'inactive',
+        archivedToggle: 'archived',
+        archivedToggleCount: (count) => `archived ${count}`,
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -1576,6 +1601,7 @@ INDEX_HTML = """<!doctype html>
     let currentPanel = localStorage.getItem('meshcoreDashboardPanel') || 'map';
     let connectivityDirection = localStorage.getItem('meshcoreDashboardConnectivityDirection') || 'out';
     let connectivityFilter = '2way';
+    let showArchived = localStorage.getItem('meshcoreDashboardShowArchived') === 'true';
     let routeSourceId = null;
     let routeTargetId = null;
     let routeActiveEndpoint = 'source';
@@ -1692,6 +1718,12 @@ INDEX_HTML = """<!doctype html>
     function setConnectivityFilter(filter) {
       if (!['2way', 'out', 'in'].includes(filter)) return;
       connectivityFilter = filter;
+      if (latestState) render(latestState);
+    }
+
+    function setShowArchived(value) {
+      showArchived = Boolean(value);
+      localStorage.setItem('meshcoreDashboardShowArchived', showArchived ? 'true' : 'false');
       if (latestState) render(latestState);
     }
 
@@ -1812,7 +1844,33 @@ INDEX_HTML = """<!doctype html>
     }
 
     function relevantNodes(state) {
-      return state.nodes || [];
+      const nodes = state.nodes || [];
+      if (showArchived) return nodes;
+      return nodes.filter((node) => !isInactive(node));
+    }
+
+    function archivedNodeCount(state) {
+      return (state.nodes || []).filter((node) => isInactive(node)).length;
+    }
+
+    function normalizeVisibleSelections(state) {
+      const visibleIds = new Set(relevantNodes(state).map((node) => node.identity_hex));
+      if (selectedSourceId && !visibleIds.has(selectedSourceId)) {
+        selectedSourceId = null;
+        selectedNeighborId = null;
+      }
+      if (selectedNeighborId && !visibleIds.has(selectedNeighborId)) {
+        selectedNeighborId = null;
+      }
+      if (routeSourceId && !visibleIds.has(routeSourceId)) {
+        routeSourceId = null;
+      }
+      if (routeTargetId && !visibleIds.has(routeTargetId)) {
+        routeTargetId = null;
+      }
+      if (hoveredNodeId && !visibleIds.has(hoveredNodeId)) {
+        hoveredNodeId = null;
+      }
     }
 
     function connectivityData(state) {
@@ -2318,7 +2376,6 @@ INDEX_HTML = """<!doctype html>
                 <span>${tr('toolbarConnectivitySubtitle')}</span>
               </div>
               <div class="hero-meta">
-                <span class="hero-pill hero-pill-accent">${connectivityModeLabel(node)}</span>
                 <span class="hero-pill">${heroCount} ${tr('connectivityCountShort')}</span>
               </div>
             </div>
@@ -2785,8 +2842,9 @@ INDEX_HTML = """<!doctype html>
         : currentPanel === 'route'
           ? tr('toolbarRouteSubtitle')
           : tr('toolbarMapSubtitle');
+      const archivedCount = archivedNodeCount(state);
       let html = '';
-      const metaHtml = currentPanel === 'map'
+      const sortHtml = currentPanel === 'map'
         ? `
             <div class="toolbar-meta-group">
               <label for="sort-mode">${tr('sortLabel')}</label>
@@ -2798,6 +2856,12 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
+      const archivedHtml = `
+        <div class="toolbar-meta-group">
+          <button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>
+        </div>
+      `;
+      const metaHtml = `${sortHtml}${archivedHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       html += `
         <div class="list-toolbar">
@@ -2854,6 +2918,9 @@ INDEX_HTML = """<!doctype html>
           nodeSortMode = select.value;
           render(latestState);
         });
+      }
+      for (const button of container.querySelectorAll('[data-toggle-archived]')) {
+        button.addEventListener('click', () => setShowArchived(!showArchived));
       }
       for (const select of container.querySelectorAll('[data-route-source]')) {
         select.value = routeSourceId || '';
@@ -3120,6 +3187,7 @@ INDEX_HTML = """<!doctype html>
 
     function render(state) {
       latestState = state;
+      normalizeVisibleSelections(state);
       renderLegend();
       renderSummary(state);
       renderNodeSections(state);
