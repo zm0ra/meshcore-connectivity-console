@@ -1604,7 +1604,7 @@ INDEX_HTML = """<!doctype html>
         languageLabel: 'Język',
         sheetExpand: 'Rozwin',
         sheetCollapse: 'Zwin',
-        toolbarMapTitle: 'Powtarzacze',
+        toolbarMapTitle: 'Repeaters',
         toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
         toolbarConnectivityTitle: 'Łączność',
         toolbarConnectivitySubtitle: 'Kto widzi kogo.',
