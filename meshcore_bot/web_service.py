@@ -191,8 +191,15 @@ INDEX_HTML = """<!doctype html>
       line-height: 1.35;
     }
     .toolbar-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .toolbar-head-main {
       display: grid;
       gap: 6px;
+      min-width: 0;
     }
     .toolbar-title {
       font-size: 0.98rem;
@@ -300,8 +307,8 @@ INDEX_HTML = """<!doctype html>
       background: rgba(44, 113, 209, 0.14);
       color: var(--ink);
     }
-    .toolbar-meta-group-end {
-      margin-left: auto;
+    .toolbar-head .lang-toggle {
+      flex: 0 0 auto;
     }
     .section-heading {
       margin: 10px 2px 6px;
@@ -944,6 +951,9 @@ INDEX_HTML = """<!doctype html>
       }
       .toolbar-meta {
         flex-direction: column;
+        align-items: stretch;
+      }
+      .toolbar-head {
         align-items: stretch;
       }
       .toolbar-meta-group {
@@ -2561,24 +2571,19 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
-      const langHtml = `
-        <div class="toolbar-meta-group toolbar-meta-group-end">
-          <div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}">
-            <button type="button" class="lang-button" data-global-language="pl">PL</button>
-            <button type="button" class="lang-button" data-global-language="en">EN</button>
-          </div>
-        </div>
-      `;
+      const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       html += `
         <div class="list-toolbar">
           <div class="toolbar-head">
-            <strong class="toolbar-title">${panelTitle}</strong>
-            <span class="toolbar-subtitle">${panelSubtitle}</span>
+            <div class="toolbar-head-main">
+              <strong class="toolbar-title">${panelTitle}</strong>
+              <span class="toolbar-subtitle">${panelSubtitle}</span>
+            </div>
+            ${langHtml}
           </div>
           ${renderPrimaryTabs()}
           <div class="toolbar-meta">
             ${metaHtml}
-            ${langHtml}
           </div>
         </div>
       `;
