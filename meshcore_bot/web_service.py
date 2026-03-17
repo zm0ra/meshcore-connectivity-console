@@ -16,26 +16,30 @@ INDEX_HTML = """<!doctype html>
   <style>
     :root {
       color-scheme: light;
-      --bg: #edf0ec;
-      --panel: rgba(255, 255, 255, 0.82);
-      --panel-strong: rgba(255, 255, 255, 0.94);
+      --bg: #e8ece7;
+      --panel: rgba(248, 250, 248, 0.96);
+      --panel-strong: #ffffff;
+      --section: rgba(21, 33, 42, 0.045);
       --ink: #15212a;
       --muted: #6a7883;
       --line: rgba(21, 33, 42, 0.1);
+      --line-strong: rgba(21, 33, 42, 0.16);
       --green: #2e8b57;
       --blue: #2c71d1;
       --red: #c64a3d;
       --yellow: #cfaa38;
       --orange: #db7d31;
       --unknown: #98a4ad;
-      --shadow: 0 18px 42px rgba(21, 33, 42, 0.12);
+      --shadow: 0 20px 48px rgba(21, 33, 42, 0.14);
+      --shadow-soft: 0 8px 22px rgba(21, 33, 42, 0.08);
     }
     html, body {
       margin: 0;
       height: 100%;
       background: var(--bg);
       color: var(--ink);
-      font-family: Georgia, 'Iowan Old Style', serif;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-variant-numeric: tabular-nums;
       -webkit-text-size-adjust: 100%;
     }
     body {
@@ -59,17 +63,49 @@ INDEX_HTML = """<!doctype html>
       background: var(--panel);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
-      backdrop-filter: blur(14px);
+      backdrop-filter: blur(10px);
     }
     #sidebar {
       top: 16px;
       right: 16px;
       bottom: 16px;
-      width: min(372px, calc(100vw - 32px));
-      border-radius: 20px;
+      width: min(438px, calc(100vw - 32px));
+      border-radius: 24px;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr auto;
       overflow: hidden;
+      background: rgba(246, 248, 246, 0.98);
+      border-color: rgba(21, 33, 42, 0.08);
+    }
+    .sheet-toggle {
+      display: none;
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      padding: 8px 14px 6px;
+      cursor: pointer;
+      text-align: center;
+      font: inherit;
+      color: var(--muted);
+    }
+    .sheet-toggle span {
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .sheet-handle {
+      width: 42px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.18);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+    }
+    .sheet-label {
+      display: none;
+      margin-left: 8px;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
     #map-legend {
       left: 16px;
@@ -81,8 +117,9 @@ INDEX_HTML = """<!doctype html>
       color: var(--muted);
     }
     .summary-strip {
-      padding: 12px;
+      padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 248, 0.72));
     }
     .summary-grid {
       display: grid;
@@ -90,10 +127,11 @@ INDEX_HTML = """<!doctype html>
       gap: 6px;
     }
     .summary-card {
-      padding: 8px 7px;
-      border-radius: 10px;
+      padding: 10px 8px;
+      border-radius: 12px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.52);
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: var(--shadow-soft);
       text-align: center;
     }
     .summary-card strong {
@@ -110,16 +148,16 @@ INDEX_HTML = """<!doctype html>
     }
     .list-shell {
       overflow: auto;
-      padding: 10px 10px 14px;
+      padding: 12px 14px 16px;
     }
     .list-toolbar {
       display: grid;
-      gap: 8px;
-      margin: 2px 2px 10px;
-      padding: 9px 10px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.48);
+      gap: 10px;
+      margin: 0 0 12px;
+      padding: 14px;
+      border: 1px solid rgba(21, 33, 42, 0.08);
+      border-radius: 18px;
+      background: var(--section);
     }
     .list-toolbar label {
       color: var(--muted);
@@ -137,7 +175,7 @@ INDEX_HTML = """<!doctype html>
     .toolbar-meta {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       gap: 8px;
       flex-wrap: wrap;
     }
@@ -149,8 +187,22 @@ INDEX_HTML = """<!doctype html>
     }
     .toolbar-note {
       color: var(--muted);
-      font-size: 0.72rem;
-      line-height: 1.25;
+      font-size: 0.74rem;
+      line-height: 1.35;
+    }
+    .toolbar-head {
+      display: grid;
+      gap: 6px;
+    }
+    .toolbar-title {
+      font-size: 0.98rem;
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+    }
+    .toolbar-subtitle {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.32;
     }
     .primary-toggle,
     .secondary-toggle,
@@ -167,10 +219,10 @@ INDEX_HTML = """<!doctype html>
     .primary-toggle {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 4px;
-      padding: 4px;
-      border-radius: 14px;
-      background: rgba(21, 33, 42, 0.04);
+      gap: 6px;
+      padding: 6px;
+      border-radius: 16px;
+      background: rgba(21, 33, 42, 0.06);
     }
     .secondary-toggle,
     .filter-toggle {
@@ -178,19 +230,20 @@ INDEX_HTML = """<!doctype html>
     }
     .segmented-button {
       border: 0;
-      border-radius: 999px;
+      border-radius: 12px;
       background: transparent;
       color: var(--muted);
-      padding: 4px 10px;
+      padding: 8px 12px;
       font: inherit;
-      font-size: 0.72rem;
+      font-size: 0.77rem;
+      font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
     }
     .segmented-button.active {
       background: rgba(44, 113, 209, 0.18);
       color: var(--ink);
-      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16), 0 1px 0 rgba(255, 255, 255, 0.9);
     }
     .mobile-view-toggle {
       display: none;
@@ -217,21 +270,35 @@ INDEX_HTML = """<!doctype html>
     }
     .sort-select {
       border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
       color: var(--ink);
-      padding: 5px 10px;
+      padding: 8px 10px;
       font: inherit;
+      font-size: 0.76rem;
+    }
+    .sidebar-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+    }
+    .sidebar-footer-label {
+      color: var(--muted);
       font-size: 0.72rem;
+      line-height: 1.2;
     }
     .lang-toggle {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 3px;
+      padding: 4px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.82);
     }
     .lang-button {
       border: 0;
@@ -260,8 +327,9 @@ INDEX_HTML = """<!doctype html>
     }
     .node-row {
       border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.54);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
       overflow: hidden;
     }
     .node-row.active {
@@ -329,7 +397,7 @@ INDEX_HTML = """<!doctype html>
       padding: 7px 8px;
       border-radius: 10px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.42);
+      background: rgba(255, 255, 255, 0.84);
       font-size: 0.73rem;
       color: var(--muted);
       line-height: 1.22;
@@ -393,7 +461,7 @@ INDEX_HTML = """<!doctype html>
     .chart-shell {
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.46);
+      background: rgba(255, 255, 255, 0.88);
       padding: 8px;
     }
     .chart-head {
@@ -429,13 +497,22 @@ INDEX_HTML = """<!doctype html>
     }
     .panel-stack {
       display: grid;
+      gap: 12px;
+    }
+    .panel-section {
+      display: grid;
       gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(21, 33, 42, 0.08);
+      border-radius: 18px;
+      background: var(--section);
     }
     .panel-card {
-      padding: 10px;
+      padding: 12px;
       border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.52);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
     }
     .panel-card strong {
       display: block;
@@ -461,16 +538,17 @@ INDEX_HTML = """<!doctype html>
     }
     .relation-card,
     .route-card {
-      padding: 8px;
+      padding: 12px;
       border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.48);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
     }
     .route-card {
       display: grid;
       align-content: start;
-      gap: 6px;
-      min-height: 220px;
+      gap: 10px;
+      min-height: 0;
     }
     .relation-card strong,
     .route-card strong {
@@ -496,8 +574,9 @@ INDEX_HTML = """<!doctype html>
       gap: 10px;
       padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.54);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
     }
     .relation-main {
       min-width: 0;
@@ -527,13 +606,14 @@ INDEX_HTML = """<!doctype html>
       align-items: center;
       justify-content: center;
       min-width: 52px;
-      padding: 2px 7px;
+      padding: 3px 8px;
       border-radius: 999px;
-      font-size: 0.66rem;
+      font-size: 0.67rem;
+      font-weight: 600;
       line-height: 1.2;
     }
     .direction-chip {
-      background: rgba(44, 113, 209, 0.12);
+      background: rgba(46, 139, 87, 0.12);
       color: var(--ink);
     }
     .stale-chip {
@@ -545,6 +625,48 @@ INDEX_HTML = """<!doctype html>
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       gap: 8px;
       align-items: end;
+    }
+    .route-control-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: stretch;
+    }
+    .route-endpoint {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: var(--ink);
+    }
+    .route-endpoint.active {
+      border-color: rgba(44, 113, 209, 0.24);
+      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16), var(--shadow-soft);
+    }
+    .route-endpoint.route-endpoint-target.active {
+      border-color: rgba(207, 170, 56, 0.28);
+      box-shadow: inset 0 0 0 1px rgba(207, 170, 56, 0.18), var(--shadow-soft);
+    }
+    .route-endpoint-label {
+      color: var(--muted);
+      font-size: 0.67rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .route-endpoint-name {
+      font-size: 0.9rem;
+      line-height: 1.15;
+    }
+    .route-endpoint-hint {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.2;
     }
     .field-stack {
       display: grid;
@@ -560,28 +682,67 @@ INDEX_HTML = """<!doctype html>
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.76);
+      background: rgba(255, 255, 255, 0.96);
       color: var(--ink);
       padding: 8px 10px;
       font: inherit;
       font-size: 0.78rem;
     }
     .swap-button {
-      min-height: 38px;
+      min-height: 46px;
       border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.7);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
       color: var(--ink);
-      padding: 0 10px;
+      padding: 0 14px;
       font: inherit;
       cursor: pointer;
+      box-shadow: var(--shadow-soft);
+    }
+    .route-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .route-status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 88px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .route-status-badge.ok {
+      background: rgba(46, 139, 87, 0.14);
+      color: var(--green);
+    }
+    .route-status-badge.no {
+      background: rgba(198, 74, 61, 0.12);
+      color: var(--red);
+    }
+    .route-meta {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.2;
     }
     .route-path {
       display: grid;
       gap: 6px;
       align-content: start;
       font-size: 0.74rem;
-      margin-top: 8px;
+      margin-top: 0;
+    }
+    .route-path-inline {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .route-hop-row {
       display: grid;
@@ -596,45 +757,30 @@ INDEX_HTML = """<!doctype html>
       min-width: 20px;
     }
     .route-step {
-      padding: 4px 8px;
+      padding: 5px 9px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.62);
+      background: rgba(255, 255, 255, 0.96);
       min-width: 0;
     }
-    .route-arrow {
+    .route-arrow,
+    .route-inline-arrow {
       color: var(--muted);
       font-size: 0.72rem;
     }
-    .route-selection {
-      display: flex;
-      flex-wrap: wrap;
+    .route-empty {
+      display: grid;
       gap: 6px;
-      margin-top: 6px;
+      align-content: center;
+      min-height: 128px;
+      text-align: left;
     }
-    .route-selection-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 9px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid var(--line);
-      font-size: 0.72rem;
-      line-height: 1.2;
-      cursor: pointer;
-      font: inherit;
-      color: var(--ink);
+    .route-empty strong {
+      font-size: 0.86rem;
     }
-    .route-selection-chip.active {
-      background: rgba(44, 113, 209, 0.18);
-      border-color: rgba(44, 113, 209, 0.24);
-      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16);
-    }
-    .route-selection-chip strong {
-      font-size: 0.7rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+    .route-empty span {
+      margin-top: 0;
+      font-size: 0.74rem;
     }
     .legend-group + .legend-group {
       margin-top: 9px;
@@ -747,7 +893,7 @@ INDEX_HTML = """<!doctype html>
         max-height: none;
         margin: 0 12px 0;
         border-radius: 20px;
-        background: var(--panel-strong);
+        background: rgba(248, 250, 248, 0.98);
       }
       #map-legend {
         position: relative;
@@ -782,10 +928,8 @@ INDEX_HTML = """<!doctype html>
         padding: 12px 12px 18px;
       }
       .list-toolbar {
-        flex-direction: column;
-        align-items: stretch;
         gap: 8px;
-        padding: 10px;
+        padding: 12px;
       }
       .toolbar-cluster {
         justify-content: space-between;
@@ -813,6 +957,9 @@ INDEX_HTML = """<!doctype html>
         min-height: 38px;
         font-size: 0.94rem;
         padding: 7px 12px;
+      }
+      .sidebar-footer {
+        padding: 12px;
       }
       .lang-button {
         min-height: 34px;
@@ -856,6 +1003,7 @@ INDEX_HTML = """<!doctype html>
       }
       .relation-grid,
       .route-result-grid,
+      .route-control-bar,
       .route-controls {
         grid-template-columns: 1fr;
       }
@@ -910,12 +1058,27 @@ INDEX_HTML = """<!doctype html>
         top: auto;
         bottom: max(10px, env(safe-area-inset-bottom));
         width: auto;
-        height: min(20dvh, 180px);
-        max-height: 20dvh;
+        height: min(34dvh, 280px);
+        max-height: min(34dvh, 280px);
         margin: 0;
         overflow: hidden;
         border-radius: 18px;
         z-index: 1200;
+        transition: height 180ms ease, max-height 180ms ease, transform 180ms ease;
+      }
+      #sidebar.sheet-collapsed {
+        height: min(18dvh, 148px);
+        max-height: min(18dvh, 148px);
+      }
+      #sidebar.sheet-expanded {
+        height: min(74dvh, 640px);
+        max-height: min(74dvh, 640px);
+      }
+      .sheet-toggle {
+        display: block;
+      }
+      .sheet-label {
+        display: inline-block;
       }
       #map-legend {
         display: none;
@@ -933,6 +1096,10 @@ INDEX_HTML = """<!doctype html>
       }
       .mobile-view-toggle {
         display: none;
+      }
+      .sidebar-footer {
+        padding-top: 10px;
+        padding-bottom: 12px;
       }
       .section-heading {
         margin-top: 6px;
@@ -964,11 +1131,19 @@ INDEX_HTML = """<!doctype html>
     <div id=\"map\"></div>
     <div id=\"map-legend\" class=\"overlay\"></div>
     <aside id=\"sidebar\" class=\"overlay\">
+      <button id=\"sheet-toggle\" class=\"sheet-toggle\" type=\"button\" aria-expanded=\"false\"><span class=\"sheet-handle\"></span><span class=\"sheet-label\"></span></button>
       <section class=\"summary-strip\">
         <div id=\"summary\" class=\"summary-grid\"></div>
       </section>
       <section class=\"list-shell\">
         <div id=\"node-sections\"></div>
+      </section>
+      <section class=\"sidebar-footer\">
+        <span class=\"sidebar-footer-label\" id=\"sidebar-footer-label\"></span>
+        <div class=\"lang-toggle\" role=\"group\" aria-label=\"Language\">
+          <button type=\"button\" class=\"lang-button\" data-global-language=\"pl\">PL</button>
+          <button type=\"button\" class=\"lang-button\" data-global-language=\"en\">EN</button>
+        </div>
       </section>
     </aside>
   </div>
@@ -1088,6 +1263,15 @@ INDEX_HTML = """<!doctype html>
         routeUsesStale: 'uzyto starych linkow',
         routeFreshOnly: 'swieze linki',
         languageLabel: 'Język',
+        sheetExpand: 'Rozwin',
+        sheetCollapse: 'Zwin',
+        toolbarMapTitle: 'Powtarzacze',
+        toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
+        toolbarConnectivityTitle: 'Łączność',
+        toolbarConnectivitySubtitle: 'Jedno spojrzenie na kierunek i liczbę relacji.',
+        toolbarRouteTitle: 'Trasa',
+        toolbarRouteSubtitle: 'Najpierw ustaw A i B, potem porownaj oba kierunki.',
+        routeTapTarget: 'Klik na mapie ustawia ten punkt',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1205,6 +1389,15 @@ INDEX_HTML = """<!doctype html>
         routeUsesStale: 'stale links used',
         routeFreshOnly: 'fresh links',
         languageLabel: 'Language',
+        sheetExpand: 'Expand',
+        sheetCollapse: 'Collapse',
+        toolbarMapTitle: 'Repeaters',
+        toolbarMapSubtitle: 'Pick a node on the map or from the list.',
+        toolbarConnectivityTitle: 'Connectivity',
+        toolbarConnectivitySubtitle: 'One glance at direction and relation count.',
+        toolbarRouteTitle: 'Route',
+        toolbarRouteSubtitle: 'Set A and B first, then compare both directions.',
+        routeTapTarget: 'Map click sets this endpoint',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -1240,6 +1433,7 @@ INDEX_HTML = """<!doctype html>
     let routeActiveEndpoint = 'source';
     let hasFitBounds = false;
     let pendingRefreshState = null;
+    let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -1267,6 +1461,30 @@ INDEX_HTML = """<!doctype html>
       const state = pendingRefreshState;
       pendingRefreshState = null;
       render(state);
+    }
+
+    function syncSidebarSheetState() {
+      const sidebar = document.getElementById('sidebar');
+      const toggle = document.getElementById('sheet-toggle');
+      if (!sidebar || !toggle) return;
+      if (!isPortraitMobileView()) {
+        sidebar.classList.remove('sheet-collapsed', 'sheet-expanded');
+        toggle.setAttribute('aria-expanded', 'true');
+        const label = toggle.querySelector('.sheet-label');
+        if (label) label.textContent = '';
+        return;
+      }
+      sidebar.classList.toggle('sheet-collapsed', sidebarSheetState === 'collapsed');
+      sidebar.classList.toggle('sheet-expanded', sidebarSheetState !== 'collapsed');
+      toggle.setAttribute('aria-expanded', sidebarSheetState === 'collapsed' ? 'false' : 'true');
+      const label = toggle.querySelector('.sheet-label');
+      if (label) label.textContent = sidebarSheetState === 'collapsed' ? tr('sheetExpand') : tr('sheetCollapse');
+      localStorage.setItem('meshcoreDashboardSheetState', sidebarSheetState);
+    }
+
+    function toggleSidebarSheet() {
+      sidebarSheetState = sidebarSheetState === 'collapsed' ? 'expanded' : 'collapsed';
+      syncSidebarSheetState();
     }
 
     function setLanguage(language) {
@@ -1304,6 +1522,9 @@ INDEX_HTML = """<!doctype html>
       currentPanel = panel;
       if (panel === 'route' && !routeSourceId && selectedSourceId) {
         routeSourceId = selectedSourceId;
+      }
+      if (isPortraitMobileView()) {
+        sidebarSheetState = panel === 'map' ? 'collapsed' : 'expanded';
       }
       localStorage.setItem('meshcoreDashboardPanel', panel);
       applyMobileView();
@@ -1877,7 +2098,7 @@ INDEX_HTML = """<!doctype html>
         </div>
       `;
       if (!node) {
-        return `<div class="panel-stack"><div class="panel-card"><strong>${tr('panelConnectivity')}</strong><span>${tr('connectivityHint')}</span></div>${selector}</div>`;
+        return `<div class="panel-stack"><div class="panel-section"><div class="panel-card"><strong>${tr('panelConnectivity')}</strong><span>${tr('connectivityHint')}</span></div>${selector}</div></div>`;
       }
       const mutualRows = relationRows(state, node.identity_hex, '2way');
       const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
@@ -1900,35 +2121,46 @@ INDEX_HTML = """<!doctype html>
               ageText: row.freshestAge === null ? '-' : humanizeSeconds(row.freshestAge),
               secondaryText: `${tr('connectivityTableIn')}: ${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}`,
             }));
+      const heroCount = visibleRows.length;
       return `
         <div class="panel-stack">
-          ${selector}
-          ${directionButtons}
-          <div class="relation-grid">
-            <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
-            <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
-            <div class="relation-card"><strong>${mutualRows.length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
+          <div class="panel-section">
+            ${selector}
+            ${directionButtons}
+            <div class="panel-card"><strong>${connectivityModeLabel(node)} ${heroCount}</strong><span>${tr('connectivityVisible')}</span></div>
           </div>
-          <div class="panel-card"><strong>${connectivityModeLabel(node)}</strong><span>${tr('connectivityVisible')}: ${visibleRows.length}</span></div>
-          ${renderRelationList(visibleRows)}
+          <div class="panel-section">
+            <div class="relation-grid">
+              <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
+              <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
+              <div class="relation-card"><strong>${mutualRows.length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
+            </div>
+          </div>
+          <div class="panel-section">
+            ${renderRelationList(visibleRows)}
+          </div>
         </div>
       `;
     }
 
     function routeSummaryCard(title, routeResult, data) {
       if (!routeResult.path) {
-        return `<div class="route-card"><strong>${title}</strong><span>${tr('routeStatusNo')}</span><div class="empty-note">${tr('routeNoPath')}</div></div>`;
+        return `<div class="route-card"><strong>${title}</strong><div class="route-status-row"><span class="route-status-badge no">${tr('routeStatusNo')}</span></div><div class="route-empty"><strong>${tr('routeNoPath')}</strong><span>${tr('routePickHint')}</span></div></div>`;
       }
+      const compactPath = routeResult.path.length <= 4;
       const pathHtml = routeResult.path.map((identityHex, index) => {
         const node = data.nodeIndex.get(identityHex);
-        return `<div class="route-hop-row"><span class="route-hop-arrow">${index === 0 ? '•' : '->'}</span><span class="route-step">${node?.name || identityHex.slice(0, 8)}</span></div>`;
+        const name = node?.name || identityHex.slice(0, 8);
+        if (compactPath) {
+          return `${index === 0 ? '' : '<span class="route-inline-arrow">-></span>'}<span class="route-step">${name}</span>`;
+        }
+        return `<div class="route-hop-row"><span class="route-hop-arrow">${index === 0 ? '•' : '->'}</span><span class="route-step">${name}</span></div>`;
       }).join('');
       return `
         <div class="route-card">
           <strong>${title}</strong>
-          <span>${tr('routeStatusYes')}</span>
-          <span>${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span>
-          <div class="route-path">${pathHtml}</div>
+          <div class="route-status-row"><span class="route-status-badge ok">${tr('routeStatusYes')}</span><span class="route-meta">${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span></div>
+          <div class="route-path${compactPath ? ' route-path-inline' : ''}">${pathHtml}</div>
         </div>
       `;
     }
@@ -1936,36 +2168,50 @@ INDEX_HTML = """<!doctype html>
     function renderRoutePanel(state) {
       const data = connectivityData(state);
       const options = data.nodes.map((node) => `<option value="${node.identity_hex}">${node.name}</option>`).join('');
-      let body = `<div class="panel-card"><strong>${tr('panelRoute')}</strong><span>${tr('routeNoSelection')}</span></div>`;
+      let body = `<div class="panel-section"><div class="panel-card"><strong>${tr('panelRoute')}</strong><span>${tr('routeNoSelection')}</span></div></div>`;
       if (routeSourceId && routeTargetId) {
         if (routeSourceId === routeTargetId) {
-          body = `<div class="empty-note">${tr('routeSameNode')}</div>`;
+          body = `<div class="panel-section"><div class="empty-note">${tr('routeSameNode')}</div></div>`;
         } else {
           const forward = buildRouteResult(state, routeSourceId, routeTargetId);
           const backward = buildRouteResult(state, routeTargetId, routeSourceId);
-          body = `<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div>`;
+          body = `<div class="panel-section"><div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
         }
       }
       const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
       const targetName = data.nodeIndex.get(routeTargetId)?.name || '-';
       return `
         <div class="panel-stack">
-          <div class="panel-card"><strong>${tr('routePickHint')}</strong><span>${tr('routeNoSelection')}</span><div class="route-selection"><button type="button" class="route-selection-chip${routeActiveEndpoint === 'source' ? ' active' : ''}" data-route-active="source"><strong>${tr('routeSelectedA')}</strong>${sourceName}</button><button type="button" class="route-selection-chip${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target"><strong>${tr('routeSelectedB')}</strong>${targetName}</button></div></div>
-          <div class="route-controls">
-            <div class="field-stack">
-              <label for="route-source">${tr('routeSource')}</label>
-              <select id="route-source" class="route-select" data-route-source="1">
-                <option value=""></option>
-                ${options}
-              </select>
+          <div class="panel-section">
+            <div class="route-control-bar">
+              <button type="button" class="route-endpoint${routeActiveEndpoint === 'source' ? ' active' : ''}" data-route-active="source">
+                <span class="route-endpoint-label">${tr('routeSelectedA')}</span>
+                <strong class="route-endpoint-name">${sourceName}</strong>
+                <span class="route-endpoint-hint">${tr('routeTapTarget')}</span>
+              </button>
+              <button type="button" class="swap-button" data-route-swap="1">${tr('routeSwap')}</button>
+              <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
+                <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
+                <strong class="route-endpoint-name">${targetName}</strong>
+                <span class="route-endpoint-hint">${tr('routeTapTarget')}</span>
+              </button>
             </div>
-            <button type="button" class="swap-button" data-route-swap="1">${tr('routeSwap')}</button>
-            <div class="field-stack">
-              <label for="route-target">${tr('routeTarget')}</label>
-              <select id="route-target" class="route-select" data-route-target="1">
-                <option value=""></option>
-                ${options}
-              </select>
+            <div class="route-controls">
+              <div class="field-stack">
+                <label for="route-source">${tr('routeSource')}</label>
+                <select id="route-source" class="route-select" data-route-source="1">
+                  <option value=""></option>
+                  ${options}
+                </select>
+              </div>
+              <div></div>
+              <div class="field-stack">
+                <label for="route-target">${tr('routeTarget')}</label>
+                <select id="route-target" class="route-select" data-route-target="1">
+                  <option value=""></option>
+                  ${options}
+                </select>
+              </div>
             </div>
           </div>
           ${body}
@@ -2295,6 +2541,16 @@ INDEX_HTML = """<!doctype html>
       const nodes = sortNodes(relevantNodes(state));
       const selectedNode = selectedSourceId ? nodes.find((node) => node.identity_hex === selectedSourceId) : null;
       const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
+      const panelTitle = currentPanel === 'connectivity'
+        ? tr('toolbarConnectivityTitle')
+        : currentPanel === 'route'
+          ? tr('toolbarRouteTitle')
+          : tr('toolbarMapTitle');
+      const panelSubtitle = currentPanel === 'connectivity'
+        ? tr('toolbarConnectivitySubtitle')
+        : currentPanel === 'route'
+          ? tr('toolbarRouteSubtitle')
+          : tr('toolbarMapSubtitle');
       let html = '';
       const metaHtml = currentPanel === 'map'
         ? `
@@ -2307,18 +2563,16 @@ INDEX_HTML = """<!doctype html>
               </select>
             </div>
           `
-        : `<div class="toolbar-note">${currentPanel === 'connectivity' ? tr('connectivityHint') : tr('routePickHint')}</div>`;
+        : '';
       html += `
         <div class="list-toolbar">
+          <div class="toolbar-head">
+            <strong class="toolbar-title">${panelTitle}</strong>
+            <span class="toolbar-subtitle">${panelSubtitle}</span>
+          </div>
           ${renderPrimaryTabs()}
           <div class="toolbar-meta">
             ${metaHtml}
-            <div class="toolbar-meta-group">
-              <div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}">
-                <button type="button" class="lang-button${currentLanguage === 'pl' ? ' active' : ''}" data-language="pl">PL</button>
-                <button type="button" class="lang-button${currentLanguage === 'en' ? ' active' : ''}" data-language="en">EN</button>
-              </div>
-            </div>
           </div>
         </div>
       `;
@@ -2341,9 +2595,6 @@ INDEX_HTML = """<!doctype html>
       }
       for (const button of container.querySelectorAll('[data-panel]')) {
         button.addEventListener('click', () => setPanel(button.dataset.panel));
-      }
-      for (const button of container.querySelectorAll('[data-language]')) {
-        button.addEventListener('click', () => setLanguage(button.dataset.language));
       }
       for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
         button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
@@ -2646,6 +2897,13 @@ INDEX_HTML = """<!doctype html>
       renderLegend();
       renderSummary(state);
       renderNodeSections(state);
+      const footerLabel = document.getElementById('sidebar-footer-label');
+      if (footerLabel) footerLabel.textContent = tr('languageLabel');
+      for (const button of document.querySelectorAll('[data-global-language]')) {
+        button.classList.toggle('active', button.dataset.globalLanguage === currentLanguage);
+        button.onclick = () => setLanguage(button.dataset.globalLanguage);
+      }
+      syncSidebarSheetState();
       applyMobileView();
       renderMap(state);
     }
@@ -2667,7 +2925,14 @@ INDEX_HTML = """<!doctype html>
     map.on('zoomend', () => {
       if (latestState) renderMap(latestState);
     });
-    window.addEventListener('resize', applyMobileView);
+    const sheetToggle = document.getElementById('sheet-toggle');
+    if (sheetToggle) {
+      sheetToggle.addEventListener('click', toggleSidebarSheet);
+    }
+    window.addEventListener('resize', () => {
+      applyMobileView();
+      syncSidebarSheetState();
+    });
     document.addEventListener('focusin', () => {
       if (!isSidebarInteractionActive()) return;
       pendingRefreshState = null;
