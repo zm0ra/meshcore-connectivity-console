@@ -967,6 +967,96 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.78rem;
       line-height: 1.2;
     }
+    .mobile-map-stack {
+      display: grid;
+      gap: 8px;
+    }
+    .mobile-analysis-tabs {
+      display: none;
+    }
+    .mobile-summary-card {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.95);
+    }
+    .mobile-summary-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .mobile-summary-title {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .mobile-summary-title strong {
+      font-size: 0.84rem;
+      line-height: 1.15;
+    }
+    .mobile-summary-title span {
+      color: var(--muted);
+      font-size: 0.71rem;
+      line-height: 1.2;
+    }
+    .mobile-summary-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.05);
+      color: var(--ink);
+      font-size: 0.68rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .mobile-relation-list {
+      display: grid;
+      gap: 5px;
+    }
+    .mobile-relation-button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: inherit;
+      padding: 8px 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    .mobile-relation-button.active {
+      border-color: rgba(44, 113, 209, 0.24);
+      background: rgba(255, 255, 255, 0.98);
+    }
+    .mobile-relation-main {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .mobile-relation-main strong {
+      font-size: 0.78rem;
+      line-height: 1.2;
+    }
+    .mobile-relation-main span {
+      color: var(--muted);
+      font-size: 0.68rem;
+      line-height: 1.18;
+    }
+    .mobile-relation-meta {
+      display: grid;
+      gap: 4px;
+      justify-items: end;
+    }
     .legend-group + .legend-group {
       margin-top: 9px;
     }
@@ -1162,6 +1252,10 @@ INDEX_HTML = """<!doctype html>
       .mobile-view-toggle {
         display: inline-flex;
       }
+      .mobile-analysis-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
       .primary-toggle,
       .secondary-toggle,
       .filter-toggle {
@@ -1235,11 +1329,8 @@ INDEX_HTML = """<!doctype html>
       .route-controls {
         grid-template-columns: 1fr;
       }
-      .swap-button {
-        min-height: 52px;
-      }
       .relation-item {
-        flex-direction: column;
+        grid-template-columns: 1fr;
       }
       .relation-badges {
         justify-content: flex-start;
@@ -1325,9 +1416,6 @@ INDEX_HTML = """<!doctype html>
       .list-toolbar {
         margin: 0 0 8px;
       }
-      .mobile-view-toggle {
-        display: none;
-      }
       .section-heading {
         margin-top: 6px;
       }
@@ -1395,6 +1483,18 @@ INDEX_HTML = """<!doctype html>
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
         answerSelectedRepeater: 'Wybrany repeater',
+        mobileMapTitle: 'Mapa relacji',
+        mobileMapEmpty: 'Wybierz repeater, aby pokazać relacje na mapie.',
+        mobileMapVisible: 'widoczne',
+        mobileMapListTitle: 'Najbliższe relacje',
+        mobileMapNoRows: 'Brak relacji dla tego trybu.',
+        mobileMapPickRepeater: 'Wybierz repeater i tryb kierunku.',
+        mobileMapDirectionOut: 'Na mapie: Widzę',
+        mobileMapDirectionIn: 'Na mapie: Mnie widzą',
+        mobileAnalysisWidze: 'Widzę',
+        mobileAnalysisWidza: 'Mnie widzą',
+        mobileAnalysisMutual: '2-way',
+        mobileAnalysisRoute: 'Trasa',
         connectivityStateOut: (count) => `${count} bezpośrednich relacji wychodzących.`,
         connectivityStateIn: (count) => `${count} repeaterów widzi ten punkt.`,
         connectivityStateMutual: (count) => `${count} relacji wzajemnych.`,
@@ -1543,6 +1643,18 @@ INDEX_HTML = """<!doctype html>
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
         answerSelectedRepeater: 'Selected repeater',
+        mobileMapTitle: 'Relation map',
+        mobileMapEmpty: 'Select a repeater to show relations on the map.',
+        mobileMapVisible: 'visible',
+        mobileMapListTitle: 'Closest relations',
+        mobileMapNoRows: 'No relations for this mode.',
+        mobileMapPickRepeater: 'Select a repeater and direction mode.',
+        mobileMapDirectionOut: 'Map: Out',
+        mobileMapDirectionIn: 'Map: Seen by',
+        mobileAnalysisWidze: 'Out',
+        mobileAnalysisWidza: 'Seen by',
+        mobileAnalysisMutual: '2-way',
+        mobileAnalysisRoute: 'Route',
         connectivityStateOut: (count) => `${count} direct outgoing relations.`,
         connectivityStateIn: (count) => `${count} repeaters can see this node.`,
         connectivityStateMutual: (count) => `${count} mutual relations.`,
@@ -2342,12 +2454,26 @@ INDEX_HTML = """<!doctype html>
 
     function renderAnalysisTabs() {
       if (!isPortraitMobileView() || !isAnalysisPanel()) return '';
+      const selectedNode = latestState ? selectedConnectivityNode(latestState) : null;
+      const canInspectOwnData = !selectedNode || hasOwnNeighborData(selectedNode);
       return `
-        <div class="secondary-toggle" role="group" aria-label="${tr('panelAnalysis')}">
-          <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
+        <div class="secondary-toggle mobile-analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'out' ? ' active' : ''}" data-mobile-analysis="out"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisWidze')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'in' ? ' active' : ''}" data-mobile-analysis="in">${tr('mobileAnalysisWidza')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'mutual' ? ' active' : ''}" data-mobile-analysis="mutual"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisMutual')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-mobile-analysis="route">${tr('mobileAnalysisRoute')}</button>
         </div>
       `;
+    }
+
+    function setMobileAnalysisMode(mode) {
+      if (mode === 'route') {
+        setPanel('route');
+        return;
+      }
+      currentPanel = 'connectivity';
+      localStorage.setItem('meshcoreDashboardPanel', currentPanel);
+      setConnectivityDirection(mode);
     }
 
     function relationTypeLabel(type) {
@@ -2414,6 +2540,87 @@ INDEX_HTML = """<!doctype html>
       return filtered;
     }
 
+    function mobileMapRows(state, nodeId) {
+      if (!nodeId) return [];
+      const data = connectivityData(state);
+      const node = data.nodeIndex.get(nodeId);
+      const canInspectOwnData = hasOwnNeighborData(node);
+      const edges = connectivityDirection === 'out'
+        ? (canInspectOwnData ? data.edges.filter((edge) => edge.source_identity_hex === nodeId) : [])
+        : data.edges.filter((edge) => edge.target_identity_hex === nodeId);
+      return edges.map((edge) => {
+        const peerId = connectivityDirection === 'out' ? edge.target_identity_hex : edge.source_identity_hex;
+        const peerNode = data.nodeIndex.get(peerId);
+        return {
+          peerId,
+          peerName: peerNode?.name || peerId.slice(0, 8),
+          stale: Boolean(edge.stale),
+          metricText: lineSignalMetric(edge).short,
+          ageText: humanizeSeconds(edge.age_seconds),
+        };
+      }).sort((left, right) => left.peerName.localeCompare(right.peerName));
+    }
+
+    function renderMobileMapPanel(state) {
+      const data = connectivityData(state);
+      const node = selectedConnectivityNode(state);
+      const nodeOptions = data.nodes.map((candidate) => `<option value="${candidate.identity_hex}">${candidate.name}</option>`).join('');
+      const selector = `
+        <div class="field-stack">
+          <label for="mobile-map-node">${tr('connectivitySelect')}</label>
+          <select id="mobile-map-node" class="route-select" data-focus-node="1">
+            <option value=""></option>
+            ${nodeOptions}
+          </select>
+        </div>
+      `;
+      const canInspectOwnData = !node || hasOwnNeighborData(node);
+      if (node && !canInspectOwnData && connectivityDirection === 'out') {
+        connectivityDirection = 'in';
+      }
+      const directionButtons = `
+        <div class="secondary-toggle" role="group" aria-label="${tr('panelMap')}">
+          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out"${canInspectOwnData ? '' : ' disabled'}>${tr('relationModeOut')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${tr('relationModeIn')}</button>
+        </div>
+      `;
+      if (!node) {
+        return `<div class="mobile-map-stack">${selector}${directionButtons}${renderAnswerStrip(tr('mobileMapTitle'), '', tr('mobileMapPickRepeater'))}</div>`;
+      }
+      const rows = mobileMapRows(state, node.identity_hex);
+      const listHtml = rows.length
+        ? `<div class="mobile-relation-list">${rows.slice(0, 5).map((row) => `
+            <button type="button" class="mobile-relation-button${selectedNeighborId === row.peerId ? ' active' : ''}" data-mobile-peer="${row.peerId}">
+              <span class="mobile-relation-main">
+                <strong>${row.peerName}</strong>
+                <span>${row.metricText}</span>
+                <span>${tr('connectivityTableAge')}: ${row.ageText}</span>
+              </span>
+              <span class="mobile-relation-meta">
+                ${row.stale ? `<span class="stale-chip">${tr('staleShort')}</span>` : '<span></span>'}
+              </span>
+            </button>
+          `).join('')}</div>`
+        : `<div class="compact-note"><strong>${tr('mobileMapListTitle')}</strong>${tr('mobileMapNoRows')}</div>`;
+      const directionLabel = connectivityDirection === 'out' ? tr('mobileMapDirectionOut') : tr('mobileMapDirectionIn');
+      return `
+        <div class="mobile-map-stack">
+          ${selector}
+          ${directionButtons}
+          <div class="mobile-summary-card">
+            <div class="mobile-summary-head">
+              <div class="mobile-summary-title">
+                <strong>${node.name}</strong>
+                <span>${directionLabel}</span>
+              </div>
+              <span class="mobile-summary-count">${rows.length} ${tr('mobileMapVisible')}</span>
+            </div>
+            ${listHtml}
+          </div>
+        </div>
+      `;
+    }
+
     function renderRelationList(rows) {
       if (!rows.length) {
         return `<div class="compact-note"><strong>${tr('connectivityVisibleTitle')}</strong>${tr('connectivityNoRows')}</div>`;
@@ -2478,7 +2685,7 @@ INDEX_HTML = """<!doctype html>
         <div class="panel-stack">
           <div class="panel-section">
             ${selector}
-            ${directionButtons}
+            ${isPortraitMobileView() ? '' : directionButtons}
             ${renderAnswerStrip(node.name, connectivityModeLabel(node), connectivityStateText(node, heroCount, canInspectOwnData), summaryMetrics, !canInspectOwnData)}
           </div>
           <div class="panel-section">
@@ -2937,7 +3144,7 @@ INDEX_HTML = """<!doctype html>
           : tr('toolbarMapSubtitle');
       const archivedCount = archivedNodeCount(state);
       let html = '';
-      const sortHtml = currentPanel === 'map'
+      const sortHtml = currentPanel === 'map' && !isPortraitMobileView()
         ? `
             <div class="toolbar-meta-group">
               <label for="sort-mode">${tr('sortLabel')}</label>
@@ -2976,6 +3183,44 @@ INDEX_HTML = """<!doctype html>
       } else if (currentPanel === 'route') {
         html += renderRoutePanel(state);
       } else {
+        if (isPortraitMobileView()) {
+          html += renderMobileMapPanel(state);
+          container.innerHTML = html;
+          for (const button of container.querySelectorAll('[data-node]')) {
+            button.addEventListener('click', () => selectNode(button.dataset.node));
+          }
+          for (const button of container.querySelectorAll('[data-panel]')) {
+            button.addEventListener('click', () => setPanel(button.dataset.panel));
+          }
+          for (const button of container.querySelectorAll('[data-mobile-analysis]')) {
+            button.addEventListener('click', () => setMobileAnalysisMode(button.dataset.mobileAnalysis));
+          }
+          for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
+            button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
+          }
+          for (const select of container.querySelectorAll('[data-focus-node]')) {
+            select.value = selectedSourceId || '';
+            select.addEventListener('change', () => {
+              selectedSourceId = select.value || null;
+              selectedNeighborId = null;
+              render(latestState);
+            });
+          }
+          for (const button of container.querySelectorAll('[data-toggle-archived]')) {
+            button.addEventListener('click', () => setShowArchived(!showArchived));
+          }
+          for (const button of container.querySelectorAll('[data-mobile-peer]')) {
+            button.addEventListener('click', () => {
+              selectedNeighborId = selectedNeighborId === button.dataset.mobilePeer ? null : button.dataset.mobilePeer;
+              render(latestState);
+            });
+          }
+          for (const button of container.querySelectorAll('[data-global-language]')) {
+            button.classList.toggle('active', button.dataset.globalLanguage === currentLanguage);
+            button.onclick = () => setLanguage(button.dataset.globalLanguage);
+          }
+          return;
+        }
         if (selectedNode) {
           html += `<div class="section-heading">${tr('selectedRepeater')}</div>`;
           html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
@@ -2989,6 +3234,9 @@ INDEX_HTML = """<!doctype html>
       }
       for (const button of container.querySelectorAll('[data-panel]')) {
         button.addEventListener('click', () => setPanel(button.dataset.panel));
+      }
+      for (const button of container.querySelectorAll('[data-mobile-analysis]')) {
+        button.addEventListener('click', () => setMobileAnalysisMode(button.dataset.mobileAnalysis));
       }
       for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
         button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
@@ -3044,9 +3292,19 @@ INDEX_HTML = """<!doctype html>
           render(latestState);
         });
       }
+      for (const button of container.querySelectorAll('[data-mobile-peer]')) {
+        button.addEventListener('click', () => {
+          selectedNeighborId = selectedNeighborId === button.dataset.mobilePeer ? null : button.dataset.mobilePeer;
+          render(latestState);
+        });
+      }
     }
 
     function renderMap(state) {
+      if (currentPanel === 'map' && isPortraitMobileView()) {
+        renderMobileDirectionalMap(state);
+        return;
+      }
       if (currentPanel === 'connectivity') {
         renderConnectivityMap(state);
         return;
@@ -3210,6 +3468,57 @@ INDEX_HTML = """<!doctype html>
         } else {
           addDirectionalArrow(sourceNode, targetNode, color);
         }
+      }
+      renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
+      if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
+    }
+
+    function renderMobileDirectionalMap(state) {
+      markersLayer.clearLayers();
+      halosLayer.clearLayers();
+      linksLayer.clearLayers();
+      labelsLayer.clearLayers();
+      linkLabelsLayer.clearLayers();
+      const data = connectivityData(state);
+      const focusId = selectedSourceId;
+      const focusNode = focusId ? data.nodeIndex.get(focusId) : null;
+      const canInspectOwnData = hasOwnNeighborData(focusNode);
+      if (focusNode && connectivityDirection === 'out' && !canInspectOwnData) {
+        connectivityDirection = 'in';
+      }
+      const edges = focusId
+        ? (connectivityDirection === 'out'
+            ? (canInspectOwnData ? data.edges.filter((edge) => edge.source_identity_hex === focusId) : [])
+            : data.edges.filter((edge) => edge.target_identity_hex === focusId))
+        : [];
+      const highlightedIds = new Set(focusId ? [focusId] : []);
+      for (const edge of edges) {
+        highlightedIds.add(edge.source_identity_hex);
+        highlightedIds.add(edge.target_identity_hex);
+      }
+      const nodes = focusId ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex)) : data.nodes;
+      const bounds = drawMapNodes(nodes, focusId, highlightedIds);
+      if (focusNode) {
+        drawFocusHalo(focusNode, '#15212a', '#15212a', 19, 14);
+      }
+      for (const edge of edges) {
+        const sourceNode = data.nodeIndex.get(edge.source_identity_hex);
+        const targetNode = data.nodeIndex.get(edge.target_identity_hex);
+        if (!sourceNode || !targetNode) continue;
+        if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+        const peerId = connectivityDirection === 'out' ? edge.target_identity_hex : edge.source_identity_hex;
+        const isActive = !selectedNeighborId || selectedNeighborId === peerId;
+        const color = connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38';
+        L.polyline([
+          [sourceNode.latitude, sourceNode.longitude],
+          [targetNode.latitude, targetNode.longitude],
+        ], {
+          color,
+          weight: isActive ? 3.1 : 1.8,
+          opacity: isActive ? 0.88 : 0.22,
+          dashArray: edge.stale ? '5 5' : null,
+        }).addTo(linksLayer);
+        addDirectionalArrow(sourceNode, targetNode, color);
       }
       renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
