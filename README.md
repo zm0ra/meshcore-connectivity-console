@@ -75,7 +75,7 @@ The web UI is designed for both desktop and mobile.
 
 ## Documentation
 
-Public documentation assets live in `docs/`.
+Documentation assets live in `docs/`.
 
 - `docs/README.md` contains the documentation asset layout
 - `docs/screenshots/README.md` contains the screenshot naming scheme and suggested captions
@@ -134,13 +134,10 @@ The bot is intentionally small and operationally narrow.
 - it does not send self adverts
 - it does not handle private messages
 
-## Public configuration
+## Configuration
 
-The public repository is expected to keep only example configuration.
-
-- `config/config.example.toml` contains placeholder values only
-- `docker-compose.example.yml` is the public compose baseline
-- local copies such as `config/config.toml`, `docker-compose.yml`, and `docker-compose.override.yml` should not be published with private endpoints or host-specific network details
+- `config/config.example.toml` contains an example runtime configuration
+- `docker-compose.example.yml` contains the compose baseline
 
 Most important configuration sections:
 
@@ -150,7 +147,7 @@ Most important configuration sections:
 - `[bot]`: enabled channels, commands, response behavior
 - `[web]`: dashboard bind address
 
-Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved local configuration.
+Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
 
 ## Local run
 
@@ -183,14 +180,3 @@ Relevant implementation areas:
 - `meshcore_bot/database.py`: SQLite persistence and web-facing graph queries
 - `meshcore_bot/web_service.py`: FastAPI app and the desktop/mobile dashboard
 
-## Security and publishing notes
-
-This repository should not publish:
-
-- private endpoint addresses
-- live passwords
-- local identity files
-- local databases
-- host-specific Docker network settings
-
-Before pushing to a public remote, review tracked files and keep only sanitized examples.
