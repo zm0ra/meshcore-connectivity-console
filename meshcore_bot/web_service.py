@@ -277,20 +277,6 @@ INDEX_HTML = """<!doctype html>
       font: inherit;
       font-size: 0.76rem;
     }
-    .sidebar-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 12px 14px 14px;
-      border-top: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.62);
-    }
-    .sidebar-footer-label {
-      color: var(--muted);
-      font-size: 0.72rem;
-      line-height: 1.2;
-    }
     .lang-toggle {
       display: inline-flex;
       align-items: center;
@@ -313,6 +299,9 @@ INDEX_HTML = """<!doctype html>
     .lang-button.active {
       background: rgba(44, 113, 209, 0.14);
       color: var(--ink);
+    }
+    .toolbar-meta-group-end {
+      margin-left: auto;
     }
     .section-heading {
       margin: 10px 2px 6px;
@@ -622,22 +611,29 @@ INDEX_HTML = """<!doctype html>
     }
     .route-controls {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-columns: 1fr;
       gap: 8px;
       align-items: end;
     }
     .route-control-bar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
+      grid-template-columns: 1fr;
       gap: 8px;
       align-items: stretch;
     }
+    .route-picker-note {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.25;
+      text-align: center;
+    }
     .route-endpoint {
       display: grid;
-      grid-template-rows: auto minmax(2.6em, auto) auto;
+      grid-template-columns: 34px minmax(0, 1fr);
+      align-items: center;
       gap: 6px;
-      padding: 12px;
-      min-height: 108px;
+      padding: 12px 14px;
+      min-height: 0;
       border: 1px solid var(--line);
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.94);
@@ -656,25 +652,29 @@ INDEX_HTML = """<!doctype html>
       box-shadow: inset 0 0 0 1px rgba(207, 170, 56, 0.18), var(--shadow-soft);
     }
     .route-endpoint-label {
+      grid-row: 1 / span 2;
+      grid-column: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      background: rgba(44, 113, 209, 0.08);
       color: var(--muted);
       font-size: 0.67rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
+    .route-endpoint-target .route-endpoint-label {
+      background: rgba(207, 170, 56, 0.12);
+    }
     .route-endpoint-name {
-      display: -webkit-box;
+      grid-column: 2;
+      display: block;
       font-size: 0.9rem;
       line-height: 1.15;
-      min-height: 2.3em;
-      overflow: hidden;
       word-break: break-word;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
-    .route-endpoint-hint {
-      color: var(--muted);
-      font-size: 0.72rem;
-      line-height: 1.2;
     }
     .field-stack {
       display: grid;
@@ -695,20 +695,6 @@ INDEX_HTML = """<!doctype html>
       padding: 8px 10px;
       font: inherit;
       font-size: 0.78rem;
-    }
-    .swap-button {
-      min-height: 108px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.94);
-      color: var(--ink);
-      padding: 0 14px;
-      font: inherit;
-      cursor: pointer;
-      box-shadow: var(--shadow-soft);
     }
     .route-status-row {
       display: flex;
@@ -748,24 +734,12 @@ INDEX_HTML = """<!doctype html>
       align-content: start;
       font-size: 0.74rem;
       margin-top: 0;
-    }
-    .route-path-inline {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
+      justify-items: center;
     }
     .route-hop-row {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 8px;
-      align-items: center;
-    }
-    .route-hop-arrow {
-      color: var(--muted);
-      font-size: 0.76rem;
-      text-align: center;
-      min-width: 20px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
     }
     .route-step {
       padding: 5px 9px;
@@ -773,11 +747,7 @@ INDEX_HTML = """<!doctype html>
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.96);
       min-width: 0;
-    }
-    .route-arrow,
-    .route-inline-arrow {
-      color: var(--muted);
-      font-size: 0.72rem;
+      text-align: center;
     }
     .route-empty {
       display: grid;
@@ -831,10 +801,22 @@ INDEX_HTML = """<!doctype html>
       opacity: 0.7;
     }
     .node-label-icon,
-    .link-label-icon {
+    .link-label-icon,
+    .line-arrow-icon {
       background: transparent;
       border: 0;
       transform: translate(-50%, -50%);
+    }
+    .line-arrow-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
+      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
     }
     .node-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.1);
@@ -971,9 +953,6 @@ INDEX_HTML = """<!doctype html>
         min-height: 38px;
         font-size: 0.94rem;
         padding: 7px 12px;
-      }
-      .sidebar-footer {
-        padding: 12px;
       }
       .lang-button {
         min-height: 34px;
@@ -1114,10 +1093,6 @@ INDEX_HTML = """<!doctype html>
       .mobile-view-toggle {
         display: none;
       }
-      .sidebar-footer {
-        padding-top: 10px;
-        padding-bottom: 12px;
-      }
       .section-heading {
         margin-top: 6px;
       }
@@ -1155,13 +1130,6 @@ INDEX_HTML = """<!doctype html>
       <section class=\"list-shell\">
         <div id=\"node-sections\"></div>
       </section>
-      <section class=\"sidebar-footer\">
-        <span class=\"sidebar-footer-label\" id=\"sidebar-footer-label\"></span>
-        <div class=\"lang-toggle\" role=\"group\" aria-label=\"Language\">
-          <button type=\"button\" class=\"lang-button\" data-global-language=\"pl\">PL</button>
-          <button type=\"button\" class=\"lang-button\" data-global-language=\"en\">EN</button>
-        </div>
-      </section>
     </aside>
   </div>
   <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
@@ -1183,7 +1151,7 @@ INDEX_HTML = """<!doctype html>
         legendMedium: 'średnie',
         legendWeak: 'słabe',
         legendVeryWeak: 'bardzo słabe',
-        legendDashed: 'przerywana = stare dane',
+        legendDashed: 'stare dane',
         summaryKnown: 'znane',
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
@@ -1270,7 +1238,7 @@ INDEX_HTML = """<!doctype html>
         routeSwap: 'Zamien',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Wybierz A/B',
+        routePickHint: 'Wybierz z mapy',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeStatusYes: 'trasa jest',
@@ -1290,7 +1258,7 @@ INDEX_HTML = """<!doctype html>
         toolbarConnectivitySubtitle: 'Kierunek i relacje.',
         toolbarRouteTitle: 'Trasa',
         toolbarRouteSubtitle: 'Ustaw A i B.',
-        routeTapTarget: 'Mapa ustawia',
+        routeTapTarget: 'Wybierz z mapy A albo B.',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1311,7 +1279,7 @@ INDEX_HTML = """<!doctype html>
         legendMedium: 'medium',
         legendWeak: 'weak',
         legendVeryWeak: 'very weak',
-        legendDashed: 'dashed = stale data',
+        legendDashed: 'stale data',
         summaryKnown: 'known',
         summaryWithData: 'with data',
         summaryPending: 'pending',
@@ -1398,7 +1366,7 @@ INDEX_HTML = """<!doctype html>
         routeSwap: 'Swap',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Pick A/B',
+        routePickHint: 'Pick from map',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeStatusYes: 'route found',
@@ -1418,7 +1386,7 @@ INDEX_HTML = """<!doctype html>
         toolbarConnectivitySubtitle: 'Direction and relations.',
         toolbarRouteTitle: 'Route',
         toolbarRouteSubtitle: 'Set A and B.',
-        routeTapTarget: 'Map sets this',
+        routeTapTarget: 'Pick A or B from the map.',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -2168,20 +2136,16 @@ INDEX_HTML = """<!doctype html>
       if (!routeResult.path) {
         return `<div class="route-card"><strong>${title}</strong><div class="route-status-row"><span class="route-status-badge no">${tr('routeStatusNo')}</span></div><div class="route-empty"><strong>${tr('routeNoPath')}</strong><span>${tr('routePickHint')}</span></div></div>`;
       }
-      const compactPath = routeResult.path.length <= 4;
       const pathHtml = routeResult.path.map((identityHex, index) => {
         const node = data.nodeIndex.get(identityHex);
         const name = node?.name || identityHex.slice(0, 8);
-        if (compactPath) {
-          return `${index === 0 ? '' : '<span class="route-inline-arrow">-></span>'}<span class="route-step">${name}</span>`;
-        }
-        return `<div class="route-hop-row"><span class="route-hop-arrow">${index === 0 ? '•' : '->'}</span><span class="route-step">${name}</span></div>`;
+        return `<div class="route-hop-row"><span class="route-step">${name}</span></div>`;
       }).join('');
       return `
         <div class="route-card">
           <strong>${title}</strong>
           <div class="route-status-row"><span class="route-status-badge ok">${tr('routeStatusYes')}</span><span class="route-meta">${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span></div>
-          <div class="route-path${compactPath ? ' route-path-inline' : ''}">${pathHtml}</div>
+          <div class="route-path">${pathHtml}</div>
         </div>
       `;
     }
@@ -2204,17 +2168,15 @@ INDEX_HTML = """<!doctype html>
       return `
         <div class="panel-stack">
           <div class="panel-section">
+            <div class="route-picker-note">${tr('routeTapTarget')}</div>
             <div class="route-control-bar">
               <button type="button" class="route-endpoint${routeActiveEndpoint === 'source' ? ' active' : ''}" data-route-active="source">
                 <span class="route-endpoint-label">${tr('routeSelectedA')}</span>
                 <strong class="route-endpoint-name">${sourceName}</strong>
-                <span class="route-endpoint-hint">${tr('routeTapTarget')}</span>
               </button>
-              <button type="button" class="swap-button" data-route-swap="1">${tr('routeSwap')}</button>
               <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
                 <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
                 <strong class="route-endpoint-name">${targetName}</strong>
-                <span class="route-endpoint-hint">${tr('routeTapTarget')}</span>
               </button>
             </div>
             <div class="route-controls">
@@ -2306,7 +2268,7 @@ INDEX_HTML = """<!doctype html>
     function markerStyle(node, isolated, selected, neighbor) {
       const color = nodeColor(node);
       if (selected) {
-        return { radius: 10, color, weight: 2.8, fillColor: color, fillOpacity: 0.97, opacity: 1 };
+        return { radius: 11, color: '#15212a', weight: 3.2, fillColor: color, fillOpacity: 1, opacity: 1 };
       }
       if (neighbor) {
         return { radius: 7, color, weight: 1.8, fillColor: color, fillOpacity: 0.88, opacity: 0.92 };
@@ -2315,6 +2277,20 @@ INDEX_HTML = """<!doctype html>
         return { radius: 4, color, weight: 1, fillColor: color, fillOpacity: 0.16, opacity: 0.2 };
       }
       return { radius: 5, color, weight: 1.2, fillColor: color, fillOpacity: 0.82, opacity: 0.85 };
+    }
+
+    function addDirectionalArrow(sourceNode, targetNode, color, ratio = 0.58) {
+      if (!sourceNode || !targetNode) return;
+      const fromPoint = map.latLngToLayerPoint([sourceNode.latitude, sourceNode.longitude]);
+      const toPoint = map.latLngToLayerPoint([targetNode.latitude, targetNode.longitude]);
+      const angle = Math.atan2(toPoint.y - fromPoint.y, toPoint.x - fromPoint.x) * (180 / Math.PI);
+      const lat = sourceNode.latitude + ((targetNode.latitude - sourceNode.latitude) * ratio);
+      const lon = sourceNode.longitude + ((targetNode.longitude - sourceNode.longitude) * ratio);
+      L.marker([lat, lon], {
+        icon: L.divIcon({ className: 'line-arrow-icon', html: `<span class="line-arrow-chip" style="color:${color}; transform: rotate(${angle}deg)">➜</span>`, iconSize: null }),
+        interactive: false,
+        zIndexOffset: 1200,
+      }).addTo(linksLayer);
     }
 
     function estimateLabelRect(point, html) {
@@ -2585,6 +2561,14 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
+      const langHtml = `
+        <div class="toolbar-meta-group toolbar-meta-group-end">
+          <div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}">
+            <button type="button" class="lang-button" data-global-language="pl">PL</button>
+            <button type="button" class="lang-button" data-global-language="en">EN</button>
+          </div>
+        </div>
+      `;
       html += `
         <div class="list-toolbar">
           <div class="toolbar-head">
@@ -2594,6 +2578,7 @@ INDEX_HTML = """<!doctype html>
           ${renderPrimaryTabs()}
           <div class="toolbar-meta">
             ${metaHtml}
+            ${langHtml}
           </div>
         </div>
       `;
@@ -2659,15 +2644,6 @@ INDEX_HTML = """<!doctype html>
       for (const button of container.querySelectorAll('[data-route-active]')) {
         button.addEventListener('click', () => {
           routeActiveEndpoint = button.dataset.routeActive === 'target' ? 'target' : 'source';
-          render(latestState);
-        });
-      }
-      for (const button of container.querySelectorAll('[data-route-swap]')) {
-        button.addEventListener('click', () => {
-          const previousSource = routeSourceId;
-          routeSourceId = routeTargetId;
-          routeTargetId = previousSource;
-          if (latestState) focusRouteSelection(latestState);
           render(latestState);
         });
       }
@@ -2826,20 +2802,40 @@ INDEX_HTML = """<!doctype html>
         ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex))
         : data.nodes;
       const bounds = drawMapNodes(nodes, focusId, highlightedIds);
+      if (focusId) {
+        const focusNode = data.nodeIndex.get(focusId);
+        if (focusNode && isFiniteCoordinate(focusNode.latitude, focusNode.longitude)) {
+          L.circleMarker([focusNode.latitude, focusNode.longitude], {
+            radius: 17,
+            color: '#15212a',
+            weight: 2.4,
+            fillColor: '#15212a',
+            fillOpacity: 0.06,
+            opacity: 0.82,
+          }).addTo(halosLayer);
+        }
+      }
       for (const edge of edges) {
         const sourceNode = data.nodeIndex.get(edge.source_identity_hex);
         const targetNode = data.nodeIndex.get(edge.target_identity_hex);
         if (!sourceNode || !targetNode) continue;
         if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+        const color = edge.mutual ? '#2e8b57' : connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38';
         L.polyline([
           [sourceNode.latitude, sourceNode.longitude],
           [targetNode.latitude, targetNode.longitude],
         ], {
-          color: edge.mutual ? '#2e8b57' : connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38',
+          color,
           weight: edge.stale ? 1.5 : 2.6,
           opacity: edge.stale ? 0.4 : 0.84,
           dashArray: edge.stale ? '5 5' : null,
         }).addTo(linksLayer);
+        if (connectivityDirection === 'mutual') {
+          addDirectionalArrow(sourceNode, targetNode, color, 0.42);
+          addDirectionalArrow(targetNode, sourceNode, color, 0.42);
+        } else {
+          addDirectionalArrow(sourceNode, targetNode, color);
+        }
       }
       renderLabels(nodes.filter((node) => isFiniteCoordinate(node.latitude, node.longitude)), highlightedIds);
       if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
@@ -2918,8 +2914,6 @@ INDEX_HTML = """<!doctype html>
       renderLegend();
       renderSummary(state);
       renderNodeSections(state);
-      const footerLabel = document.getElementById('sidebar-footer-label');
-      if (footerLabel) footerLabel.textContent = tr('languageLabel');
       for (const button of document.querySelectorAll('[data-global-language]')) {
         button.classList.toggle('active', button.dataset.globalLanguage === currentLanguage);
         button.onclick = () => setLanguage(button.dataset.globalLanguage);
