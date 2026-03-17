@@ -628,14 +628,16 @@ INDEX_HTML = """<!doctype html>
     }
     .route-control-bar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
       gap: 8px;
       align-items: stretch;
     }
     .route-endpoint {
       display: grid;
+      grid-template-rows: auto minmax(2.6em, auto) auto;
       gap: 6px;
       padding: 12px;
+      min-height: 108px;
       border: 1px solid var(--line);
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.94);
@@ -660,8 +662,14 @@ INDEX_HTML = """<!doctype html>
       text-transform: uppercase;
     }
     .route-endpoint-name {
+      display: -webkit-box;
       font-size: 0.9rem;
       line-height: 1.15;
+      min-height: 2.3em;
+      overflow: hidden;
+      word-break: break-word;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
     .route-endpoint-hint {
       color: var(--muted);
@@ -689,7 +697,10 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.78rem;
     }
     .swap-button {
-      min-height: 46px;
+      min-height: 108px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       border: 1px solid var(--line);
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.94);
@@ -812,6 +823,9 @@ INDEX_HTML = """<!doctype html>
       height: 0;
       border-top-width: 2px;
       border-top-style: solid;
+    }
+    .legend-line.dashed {
+      border-top-style: dashed;
     }
     .leaflet-control-attribution {
       opacity: 0.7;
@@ -1007,6 +1021,9 @@ INDEX_HTML = """<!doctype html>
       .route-controls {
         grid-template-columns: 1fr;
       }
+      .swap-button {
+        min-height: 52px;
+      }
       .relation-item {
         flex-direction: column;
       }
@@ -1166,6 +1183,7 @@ INDEX_HTML = """<!doctype html>
         legendMedium: 'średnie',
         legendWeak: 'słabe',
         legendVeryWeak: 'bardzo słabe',
+        legendDashed: 'przerywana = stare dane',
         summaryKnown: 'znane',
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
@@ -1216,8 +1234,8 @@ INDEX_HTML = """<!doctype html>
         panelRoute: 'Trasa',
         panelAnalysis: 'Analiza',
         focusRepeater: 'Fokus',
-        relationModeOut: 'Widze',
-        relationModeIn: 'Widziany',
+        relationModeOut: 'Widzę',
+        relationModeIn: 'Mnie widzą',
         relationModeMutual: '2-way',
         relationFilterAll: 'Wszystkie',
         relationFilterTwoWay: '2-way',
@@ -1228,9 +1246,10 @@ INDEX_HTML = """<!doctype html>
         relationNodeSees: (name) => `${name} widzi`,
         relationNodeSeenBy: (name) => `${name} widziany przez`,
         relationNodeMutual: (name) => `${name} 2-way`,
-        connectivityHint: 'Wybierz repeater, aby zobaczyc kierunki lacznosci i relacje jedno- oraz dwukierunkowe.',
+        connectivityHint: 'Wybierz repeater.',
         connectivitySelect: 'Repeater',
         connectivityVisible: 'Widoczne relacje',
+        connectivityCountShort: 'rel.',
         connectivityNoRows: 'Brak relacji dla wybranego widoku.',
         connectivitySummaryOut: 'widze',
         connectivitySummaryIn: 'widza',
@@ -1242,8 +1261,8 @@ INDEX_HTML = """<!doctype html>
         connectivityTableIn: 'B->A',
         connectivityTableAge: 'Ostatnio',
         connectivityTableSignal: 'SNR',
-        relationTypeOut: 'out',
-        relationTypeIn: 'in',
+        relationTypeOut: 'ode mnie',
+        relationTypeIn: 'do mnie',
         relationTypeMutual: '2-way',
         staleShort: 'stare',
         routeSource: 'Start',
@@ -1268,10 +1287,10 @@ INDEX_HTML = """<!doctype html>
         toolbarMapTitle: 'Powtarzacze',
         toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
         toolbarConnectivityTitle: 'Łączność',
-        toolbarConnectivitySubtitle: 'Jedno spojrzenie na kierunek i liczbę relacji.',
+        toolbarConnectivitySubtitle: 'Kierunek i relacje.',
         toolbarRouteTitle: 'Trasa',
-        toolbarRouteSubtitle: 'Najpierw ustaw A i B, potem porownaj oba kierunki.',
-        routeTapTarget: 'Klik na mapie ustawia ten punkt',
+        toolbarRouteSubtitle: 'Ustaw A i B.',
+        routeTapTarget: 'Mapa ustawia',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1292,6 +1311,7 @@ INDEX_HTML = """<!doctype html>
         legendMedium: 'medium',
         legendWeak: 'weak',
         legendVeryWeak: 'very weak',
+        legendDashed: 'dashed = stale data',
         summaryKnown: 'known',
         summaryWithData: 'with data',
         summaryPending: 'pending',
@@ -1354,9 +1374,10 @@ INDEX_HTML = """<!doctype html>
         relationNodeSees: (name) => `${name} sees`,
         relationNodeSeenBy: (name) => `${name} seen by`,
         relationNodeMutual: (name) => `${name} 2-way`,
-        connectivityHint: 'Select a repeater to inspect incoming, outgoing, and mutual connectivity.',
+        connectivityHint: 'Select a repeater.',
         connectivitySelect: 'Repeater',
         connectivityVisible: 'Visible relations',
+        connectivityCountShort: 'rel.',
         connectivityNoRows: 'No relations match the current view.',
         connectivitySummaryOut: 'outgoing',
         connectivitySummaryIn: 'incoming',
@@ -1368,8 +1389,8 @@ INDEX_HTML = """<!doctype html>
         connectivityTableIn: 'B->A',
         connectivityTableAge: 'Last seen',
         connectivityTableSignal: 'SNR',
-        relationTypeOut: 'out',
-        relationTypeIn: 'in',
+        relationTypeOut: 'from me',
+        relationTypeIn: 'to me',
         relationTypeMutual: '2-way',
         staleShort: 'stale',
         routeSource: 'Source',
@@ -1394,10 +1415,10 @@ INDEX_HTML = """<!doctype html>
         toolbarMapTitle: 'Repeaters',
         toolbarMapSubtitle: 'Pick a node on the map or from the list.',
         toolbarConnectivityTitle: 'Connectivity',
-        toolbarConnectivitySubtitle: 'One glance at direction and relation count.',
+        toolbarConnectivitySubtitle: 'Direction and relations.',
         toolbarRouteTitle: 'Route',
-        toolbarRouteSubtitle: 'Set A and B first, then compare both directions.',
-        routeTapTarget: 'Map click sets this endpoint',
+        toolbarRouteSubtitle: 'Set A and B.',
+        routeTapTarget: 'Map sets this',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -1559,6 +1580,7 @@ INDEX_HTML = """<!doctype html>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#cfaa38"></span><span>${tr('legendMedium')}</span></div>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#db7d31"></span><span>${tr('legendWeak')}</span></div>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
+          <div class="legend-row"><span class="legend-line dashed" style="border-top-color:#6a7883"></span><span>${tr('legendDashed')}</span></div>
         </div>
       `;
     }
@@ -2054,10 +2076,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     function connectivityModeLabel(node) {
-      const name = node?.name || tr('selectedRepeater');
-      if (connectivityDirection === 'out') return trFormat('relationNodeSees', name);
-      if (connectivityDirection === 'in') return trFormat('relationNodeSeenBy', name);
-      return trFormat('relationNodeMutual', name);
+      if (connectivityDirection === 'out') return tr('relationModeOut');
+      if (connectivityDirection === 'in') return tr('relationModeIn');
+      return tr('relationModeMutual');
     }
 
     function renderRelationList(rows) {
@@ -2104,8 +2125,8 @@ INDEX_HTML = """<!doctype html>
       const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
       const directionButtons = `
         <div class="secondary-toggle" role="group" aria-label="${tr('panelConnectivity')}">
-          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${trFormat('relationNodeSees', node.name)}</button>
-          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${trFormat('relationNodeSeenBy', node.name)}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'out' ? ' active' : ''}" data-connectivity-direction="out">${tr('relationModeOut')}</button>
+          <button type="button" class="segmented-button${connectivityDirection === 'in' ? ' active' : ''}" data-connectivity-direction="in">${tr('relationModeIn')}</button>
           <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual">${tr('relationModeMutual')}</button>
         </div>
       `;
@@ -2127,7 +2148,7 @@ INDEX_HTML = """<!doctype html>
           <div class="panel-section">
             ${selector}
             ${directionButtons}
-            <div class="panel-card"><strong>${connectivityModeLabel(node)} ${heroCount}</strong><span>${tr('connectivityVisible')}</span></div>
+            <div class="panel-card"><strong>${node.name}</strong><span>${connectivityModeLabel(node)} • ${heroCount} ${tr('connectivityCountShort')}</span></div>
           </div>
           <div class="panel-section">
             <div class="relation-grid">
@@ -2884,7 +2905,7 @@ INDEX_HTML = """<!doctype html>
         }
       };
       drawRoute(forward, '#2c71d1');
-      drawRoute(backward, '#cfaa38', '8 6');
+      drawRoute(backward, '#cfaa38');
       const labelNodes = routeSourceId && routeTargetId
         ? allMapNodes.filter((node) => highlightedIds.has(node.identity_hex))
         : allMapNodes;
