@@ -529,22 +529,22 @@ INDEX_HTML = """<!doctype html>
     }
     .panel-stack {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
     .panel-section {
       display: grid;
-      gap: 10px;
-      padding: 12px;
+      gap: 8px;
+      padding: 10px;
       border: 1px solid rgba(21, 33, 42, 0.08);
-      border-radius: 18px;
-      background: var(--section);
+      border-radius: 16px;
+      background: rgba(21, 33, 42, 0.03);
     }
     .panel-card {
-      padding: 12px;
+      padding: 10px 11px;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 14px;
       background: rgba(255, 255, 255, 0.94);
-      box-shadow: var(--shadow-soft);
+      box-shadow: none;
     }
     .panel-card strong {
       display: block;
@@ -577,56 +577,93 @@ INDEX_HTML = """<!doctype html>
       line-height: 1.2;
       text-align: right;
     }
-    .hero-card {
+    .answer-strip {
       display: grid;
-      gap: 10px;
-      padding: 14px;
+      gap: 8px;
+      padding: 12px;
       border: 1px solid rgba(21, 33, 42, 0.08);
-      border-radius: 18px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 246, 0.94));
-      box-shadow: var(--shadow-soft);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.96);
     }
-    .hero-card strong {
+    .answer-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .answer-title {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .answer-title strong {
       display: block;
-      font-size: 0.95rem;
+      font-size: 0.94rem;
       line-height: 1.1;
     }
-    .hero-card span {
+    .answer-title span {
       display: block;
-      margin-top: 3px;
       color: var(--muted);
       font-size: 0.72rem;
-      line-height: 1.28;
+      line-height: 1.24;
     }
-    .hero-meta {
+    .answer-kicker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.05);
+      color: var(--muted);
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .answer-kicker.alert {
+      background: rgba(198, 74, 61, 0.1);
+      color: var(--red);
+    }
+    .answer-metrics {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
-    .hero-pill {
+    .answer-stat {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      min-height: 28px;
-      padding: 5px 10px;
+      gap: 6px;
+      min-height: 26px;
+      padding: 4px 10px;
       border-radius: 999px;
       border: 1px solid rgba(21, 33, 42, 0.08);
       background: rgba(21, 33, 42, 0.04);
       font-size: 0.69rem;
-      font-weight: 700;
+      font-weight: 600;
       letter-spacing: 0.03em;
       white-space: nowrap;
     }
-    .hero-pill.hero-pill-accent {
-      background: rgba(44, 113, 209, 0.12);
+    .answer-stat strong {
+      font-size: 0.76rem;
+      line-height: 1;
+    }
+    .answer-state {
       color: var(--ink);
+      font-size: 0.79rem;
+      line-height: 1.28;
+    }
+    .answer-state.muted {
+      color: var(--muted);
     }
     .relation-grid,
     .route-result-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 6px;
+      gap: 8px;
     }
     .route-result-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -634,22 +671,22 @@ INDEX_HTML = """<!doctype html>
     }
     .relation-card,
     .route-card {
-      padding: 12px;
+      padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, 0.94);
-      box-shadow: var(--shadow-soft);
+      box-shadow: none;
     }
     .route-card {
       display: grid;
       align-content: start;
-      gap: 10px;
+      gap: 8px;
       min-height: 0;
     }
     .relation-card strong,
     .route-card strong {
       display: block;
-      font-size: 0.9rem;
+      font-size: 0.86rem;
       line-height: 1.1;
     }
     .relation-card span,
@@ -661,32 +698,32 @@ INDEX_HTML = """<!doctype html>
     }
     .relation-list {
       display: grid;
-      gap: 8px;
+      gap: 5px;
     }
     .relation-item {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 8px;
+      padding: 8px 10px;
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, 0.94);
-      box-shadow: var(--shadow-soft);
+      box-shadow: none;
     }
     .relation-main {
       min-width: 0;
       display: grid;
-      gap: 4px;
+      gap: 2px;
     }
     .relation-main strong {
-      font-size: 0.79rem;
+      font-size: 0.78rem;
       line-height: 1.2;
     }
     .relation-main span {
       color: var(--muted);
-      font-size: 0.69rem;
-      line-height: 1.22;
+      font-size: 0.68rem;
+      line-height: 1.18;
     }
     .relation-badges {
       display: inline-flex;
@@ -730,25 +767,25 @@ INDEX_HTML = """<!doctype html>
     }
     .route-picker-note {
       color: var(--muted);
-      font-size: 0.74rem;
-      line-height: 1.25;
-      text-align: center;
+      font-size: 0.72rem;
+      line-height: 1.22;
+      text-align: left;
     }
     .route-picker-note strong {
       color: var(--ink);
-      font-size: 0.76rem;
+      font-size: 0.74rem;
     }
     .route-endpoint {
       display: grid;
       grid-template-columns: 34px minmax(0, 1fr);
       align-items: center;
       gap: 6px;
-      padding: 12px 14px;
+      padding: 10px 12px;
       min-height: 0;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, 0.94);
-      box-shadow: var(--shadow-soft);
+      box-shadow: none;
       text-align: left;
       cursor: pointer;
       font: inherit;
@@ -902,17 +939,33 @@ INDEX_HTML = """<!doctype html>
     }
     .route-empty {
       display: grid;
-      gap: 6px;
+      gap: 4px;
       align-content: center;
-      min-height: 128px;
+      min-height: 92px;
       text-align: left;
     }
     .route-empty strong {
-      font-size: 0.86rem;
+      font-size: 0.8rem;
     }
     .route-empty span {
       margin-top: 0;
-      font-size: 0.74rem;
+      font-size: 0.71rem;
+    }
+    .compact-note {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.28;
+    }
+    .compact-note strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--ink);
+      font-size: 0.78rem;
+      line-height: 1.2;
     }
     .legend-group + .legend-group {
       margin-top: 9px;
@@ -1341,6 +1394,16 @@ INDEX_HTML = """<!doctype html>
         summaryInactive: 'nieaktywne',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
+        answerSelectedRepeater: 'Wybrany repeater',
+        connectivityStateOut: (count) => `${count} bezpośrednich relacji wychodzących.`,
+        connectivityStateIn: (count) => `${count} repeaterów widzi ten punkt.`,
+        connectivityStateMutual: (count) => `${count} relacji wzajemnych.`,
+        connectivityStateNoOwnData: 'Brak własnych danych sąsiedztwa. Dostępne tylko relacje inbound.',
+        connectivityStateNoVisible: 'Brak relacji dla bieżącego widoku.',
+        routeStateIdle: 'Wybierz A i B, aby porównać obie strony niezależnie.',
+        routeStateReady: 'Wyniki A->B i B->A są liczone oddzielnie.',
+        routeStateSameNode: 'A i B muszą wskazywać różne punkty.',
+        routeResultsTitle: 'Wynik trasy',
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1479,6 +1542,16 @@ INDEX_HTML = """<!doctype html>
         summaryInactive: 'inactive',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
+        answerSelectedRepeater: 'Selected repeater',
+        connectivityStateOut: (count) => `${count} direct outgoing relations.`,
+        connectivityStateIn: (count) => `${count} repeaters can see this node.`,
+        connectivityStateMutual: (count) => `${count} mutual relations.`,
+        connectivityStateNoOwnData: 'No own neighbor snapshot. Only inbound relations are available.',
+        connectivityStateNoVisible: 'No relations match the current view.',
+        routeStateIdle: 'Select A and B to compare both directions independently.',
+        routeStateReady: 'A->B and B->A are calculated separately.',
+        routeStateSameNode: 'A and B must point to different nodes.',
+        routeResultsTitle: 'Route result',
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -2289,6 +2362,29 @@ INDEX_HTML = """<!doctype html>
       return tr('relationModeMutual');
     }
 
+    function connectivityStateText(node, visibleCount, canInspectOwnData) {
+      if (!canInspectOwnData) return tr('connectivityStateNoOwnData');
+      if (visibleCount === 0) return tr('connectivityStateNoVisible');
+      if (connectivityDirection === 'out') return trFormat('connectivityStateOut', visibleCount);
+      if (connectivityDirection === 'in') return trFormat('connectivityStateIn', visibleCount);
+      return trFormat('connectivityStateMutual', visibleCount);
+    }
+
+    function renderAnswerStrip(title, kicker, stateText, metrics = [], alert = false) {
+      return `
+        <div class="answer-strip">
+          <div class="answer-head">
+            <div class="answer-title">
+              <strong>${title}</strong>
+              <span class="answer-state${alert ? '' : ' muted'}">${stateText}</span>
+            </div>
+            ${kicker ? `<span class="answer-kicker${alert ? ' alert' : ''}">${kicker}</span>` : ''}
+          </div>
+          ${metrics.length ? `<div class="answer-metrics">${metrics.map((metric) => `<span class="answer-stat"><strong>${metric.value}</strong><span>${metric.label}</span></span>`).join('')}</div>` : ''}
+        </div>
+      `;
+    }
+
     function activeRouteHint() {
       if (routeActiveEndpoint === 'source') return tr('routeTapTargetSource');
       if (routeActiveEndpoint === 'target') return tr('routeTapTargetTarget');
@@ -2320,7 +2416,7 @@ INDEX_HTML = """<!doctype html>
 
     function renderRelationList(rows) {
       if (!rows.length) {
-        return `<div class="empty-note">${tr('connectivityNoRows')}</div>`;
+        return `<div class="compact-note"><strong>${tr('connectivityVisibleTitle')}</strong>${tr('connectivityNoRows')}</div>`;
       }
       return `
         <div class="relation-list">
@@ -2356,7 +2452,7 @@ INDEX_HTML = """<!doctype html>
         </div>
       `;
       if (!node) {
-        return `<div class="panel-stack"><div class="panel-section"><div class="panel-card"><strong>${tr('panelConnectivity')}</strong><span>${tr('connectivityHint')}</span></div>${selector}</div></div>`;
+        return `<div class="panel-stack"><div class="panel-section">${selector}${renderAnswerStrip(tr('panelConnectivity'), '', tr('connectivityHint'))}</div></div>`;
       }
       const mutualRows = relationRows(state, node.identity_hex, '2way');
       const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] };
@@ -2373,31 +2469,20 @@ INDEX_HTML = """<!doctype html>
       `;
       const visibleRows = connectivityVisibleRows(state, node.identity_hex);
       const heroCount = visibleRows.length;
+      const summaryMetrics = [
+        { value: relations.outgoing.length, label: tr('connectivitySummaryOut') },
+        { value: relations.incoming.length, label: tr('connectivitySummaryIn') },
+        { value: mutualRows.length, label: tr('connectivitySummaryMutual') },
+      ];
       return `
         <div class="panel-stack">
           <div class="panel-section">
             ${selector}
             ${directionButtons}
-            <div class="hero-card">
-              <div>
-                <strong>${node.name}</strong>
-                <span>${tr('toolbarConnectivitySubtitle')}</span>
-              </div>
-              <div class="hero-meta">
-                <span class="hero-pill">${heroCount} ${tr('connectivityCountShort')}</span>
-              </div>
-            </div>
+            ${renderAnswerStrip(node.name, connectivityModeLabel(node), connectivityStateText(node, heroCount, canInspectOwnData), summaryMetrics, !canInspectOwnData)}
           </div>
           <div class="panel-section">
-            <div class="panel-section-head"><span class="panel-section-title">${tr('connectivitySummaryTitle')}</span><span class="panel-section-note">${node.name}</span></div>
-            <div class="relation-grid">
-              <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
-              <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
-              <div class="relation-card"><strong>${mutualRows.length}</strong><span>${tr('connectivitySummaryMutual')}</span></div>
-            </div>
-          </div>
-          <div class="panel-section">
-            <div class="panel-section-head"><span class="panel-section-title">${tr('connectivityVisibleTitle')}</span><span class="panel-section-note">${heroCount}</span></div>
+            <div class="panel-section-head"><span class="panel-section-title">${tr('connectivityVisibleTitle')}</span><span class="panel-section-note">${heroCount} ${tr('connectivityCountShort')}</span></div>
             ${renderRelationList(visibleRows)}
           </div>
         </div>
@@ -2426,14 +2511,14 @@ INDEX_HTML = """<!doctype html>
     function renderRoutePanel(state) {
       const data = connectivityData(state);
       const options = data.nodes.map((node) => `<option value="${node.identity_hex}">${node.name}</option>`).join('');
-      let body = `<div class="panel-section"><div class="panel-card"><strong>${tr('panelRoute')}</strong><span>${tr('routeNoSelection')}</span></div></div>`;
+      let body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
       if (routeSourceId && routeTargetId) {
         if (routeSourceId === routeTargetId) {
-          body = `<div class="panel-section"><div class="empty-note">${tr('routeSameNode')}</div></div>`;
+          body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateSameNode'), [], true)}</div>`;
         } else {
           const forward = buildRouteResult(state, routeSourceId, routeTargetId);
           const backward = buildRouteResult(state, routeTargetId, routeSourceId);
-          body = `<div class="panel-section"><div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
+          body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
         }
       }
       const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
