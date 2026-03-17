@@ -522,6 +522,70 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.72rem;
       line-height: 1.3;
     }
+    .panel-section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: -2px;
+    }
+    .panel-section-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .panel-section-note {
+      color: var(--muted);
+      font-size: 0.69rem;
+      line-height: 1.2;
+      text-align: right;
+    }
+    .hero-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border: 1px solid rgba(21, 33, 42, 0.08);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 246, 0.94));
+      box-shadow: var(--shadow-soft);
+    }
+    .hero-card strong {
+      display: block;
+      font-size: 0.95rem;
+      line-height: 1.1;
+    }
+    .hero-card span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.28;
+    }
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(21, 33, 42, 0.08);
+      background: rgba(21, 33, 42, 0.04);
+      font-size: 0.69rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .hero-pill.hero-pill-accent {
+      background: rgba(44, 113, 209, 0.12);
+      color: var(--ink);
+    }
     .relation-grid,
     .route-result-grid {
       display: grid;
@@ -568,7 +632,7 @@ INDEX_HTML = """<!doctype html>
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
-      padding: 10px;
+      padding: 9px 10px;
       border: 1px solid var(--line);
       border-radius: 14px;
       background: rgba(255, 255, 255, 0.94);
@@ -580,13 +644,13 @@ INDEX_HTML = """<!doctype html>
       gap: 4px;
     }
     .relation-main strong {
-      font-size: 0.8rem;
+      font-size: 0.79rem;
       line-height: 1.2;
     }
     .relation-main span {
       color: var(--muted);
-      font-size: 0.71rem;
-      line-height: 1.25;
+      font-size: 0.69rem;
+      line-height: 1.22;
     }
     .relation-badges {
       display: inline-flex;
@@ -601,7 +665,7 @@ INDEX_HTML = """<!doctype html>
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 52px;
+      min-width: 58px;
       padding: 3px 8px;
       border-radius: 999px;
       font-size: 0.67rem;
@@ -633,6 +697,10 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.74rem;
       line-height: 1.25;
       text-align: center;
+    }
+    .route-picker-note strong {
+      color: var(--ink);
+      font-size: 0.76rem;
     }
     .route-endpoint {
       display: grid;
@@ -735,6 +803,35 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.72rem;
       line-height: 1.2;
     }
+    .route-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .route-direction-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 54px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: rgba(21, 33, 42, 0.06);
+      color: var(--ink);
+    }
+    .route-direction-chip.forward {
+      background: rgba(44, 113, 209, 0.12);
+      color: var(--blue);
+    }
+    .route-direction-chip.backward {
+      background: rgba(207, 170, 56, 0.16);
+      color: #9c7b13;
+    }
     .route-path {
       display: grid;
       gap: 6px;
@@ -747,6 +844,17 @@ INDEX_HTML = """<!doctype html>
       width: 100%;
       display: flex;
       justify-content: center;
+      position: relative;
+    }
+    .route-hop-row + .route-hop-row::before {
+      content: '';
+      position: absolute;
+      top: -7px;
+      left: 50%;
+      width: 1px;
+      height: 8px;
+      background: rgba(21, 33, 42, 0.16);
+      transform: translateX(-50%);
     }
     .route-step {
       padding: 5px 9px;
@@ -801,6 +909,19 @@ INDEX_HTML = """<!doctype html>
       border-top-width: 2px;
       border-top-style: solid;
     }
+    .legend-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(21, 33, 42, 0.08);
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--ink);
+      font-size: 0.8rem;
+      line-height: 1;
+    }
     .legend-line.dashed {
       border-top-style: dashed;
     }
@@ -818,12 +939,16 @@ INDEX_HTML = """<!doctype html>
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 18px;
-      height: 18px;
+      width: 19px;
+      height: 19px;
+      border-radius: 999px;
+      border: 1px solid rgba(21, 33, 42, 0.1);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 6px 14px rgba(21, 33, 42, 0.12);
       color: var(--ink);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
-      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
+      text-shadow: none;
     }
     .node-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.1);
@@ -860,6 +985,14 @@ INDEX_HTML = """<!doctype html>
       text-align: center;
       white-space: nowrap;
       pointer-events: none;
+    }
+    .node-label-chip.focused {
+      border-color: rgba(21, 33, 42, 0.18);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 10px 24px rgba(21, 33, 42, 0.14);
+    }
+    .node-label-chip.active-peer {
+      background: rgba(255, 255, 255, 0.86);
     }
     .signal-label-chip strong,
     .signal-label-chip span {
@@ -1162,6 +1295,7 @@ INDEX_HTML = """<!doctype html>
         legendWeak: 'słabe',
         legendVeryWeak: 'bardzo słabe',
         legendDashed: 'stare dane',
+        legendArrow: 'kierunek',
         summaryKnown: 'znane',
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
@@ -1229,6 +1363,9 @@ INDEX_HTML = """<!doctype html>
         connectivityVisible: 'Widoczne relacje',
         connectivityCountShort: 'rel.',
         connectivityNoRows: 'Brak relacji dla wybranego widoku.',
+        connectivitySummaryTitle: 'Podsumowanie',
+        connectivityVisibleTitle: 'Widoczne relacje',
+        connectivityFilterHint: 'W warstwie porównania pokazuj tylko jeden typ.',
         connectivitySummaryOut: 'widze',
         connectivitySummaryIn: 'widza',
         connectivitySummaryMutual: 'wzajemne',
@@ -1251,6 +1388,7 @@ INDEX_HTML = """<!doctype html>
         routePickHint: 'Wybierz z mapy',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
+        routeUnset: 'nie ustawiono',
         routeStatusYes: 'trasa jest',
         routeStatusNo: 'brak trasy',
         routeNoSelection: 'Ustaw A i B.',
@@ -1265,10 +1403,13 @@ INDEX_HTML = """<!doctype html>
         toolbarMapTitle: 'Powtarzacze',
         toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
         toolbarConnectivityTitle: 'Łączność',
-        toolbarConnectivitySubtitle: 'Kierunek i relacje.',
+        toolbarConnectivitySubtitle: 'Kto widzi kogo.',
         toolbarRouteTitle: 'Trasa',
         toolbarRouteSubtitle: 'Ustaw A i B.',
         routeTapTarget: 'Wybierz z mapy A albo B.',
+        routeTapTargetSource: 'Kliknij mapę, aby ustawić A.',
+        routeTapTargetTarget: 'Kliknij mapę, aby ustawić B.',
+        routeTapTargetReady: 'Kliknij mapę, aby zmienić A albo B.',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1290,6 +1431,7 @@ INDEX_HTML = """<!doctype html>
         legendWeak: 'weak',
         legendVeryWeak: 'very weak',
         legendDashed: 'stale data',
+        legendArrow: 'direction',
         summaryKnown: 'known',
         summaryWithData: 'with data',
         summaryPending: 'pending',
@@ -1357,6 +1499,9 @@ INDEX_HTML = """<!doctype html>
         connectivityVisible: 'Visible relations',
         connectivityCountShort: 'rel.',
         connectivityNoRows: 'No relations match the current view.',
+        connectivitySummaryTitle: 'Summary',
+        connectivityVisibleTitle: 'Visible relations',
+        connectivityFilterHint: 'Show one relation type at a time in compare mode.',
         connectivitySummaryOut: 'outgoing',
         connectivitySummaryIn: 'incoming',
         connectivitySummaryMutual: 'mutual',
@@ -1379,6 +1524,7 @@ INDEX_HTML = """<!doctype html>
         routePickHint: 'Pick from map',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
+        routeUnset: 'not set',
         routeStatusYes: 'route found',
         routeStatusNo: 'no route',
         routeNoSelection: 'Set A and B.',
@@ -1393,10 +1539,13 @@ INDEX_HTML = """<!doctype html>
         toolbarMapTitle: 'Repeaters',
         toolbarMapSubtitle: 'Pick a node on the map or from the list.',
         toolbarConnectivityTitle: 'Connectivity',
-        toolbarConnectivitySubtitle: 'Direction and relations.',
+        toolbarConnectivitySubtitle: 'Who sees whom.',
         toolbarRouteTitle: 'Route',
         toolbarRouteSubtitle: 'Set A and B.',
         routeTapTarget: 'Pick A or B from the map.',
+        routeTapTargetSource: 'Click the map to set A.',
+        routeTapTargetTarget: 'Click the map to set B.',
+        routeTapTargetReady: 'Click the map to change A or B.',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -1533,6 +1682,9 @@ INDEX_HTML = """<!doctype html>
     function setConnectivityDirection(direction) {
       if (!['out', 'in', 'mutual'].includes(direction)) return;
       connectivityDirection = direction;
+      if (direction !== 'mutual') {
+        connectivityFilter = '2way';
+      }
       localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
       if (latestState) render(latestState);
     }
@@ -1558,6 +1710,7 @@ INDEX_HTML = """<!doctype html>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#cfaa38"></span><span>${tr('legendMedium')}</span></div>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#db7d31"></span><span>${tr('legendWeak')}</span></div>
           <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
+          <div class="legend-row"><span class="legend-arrow">➜</span><span>${tr('legendArrow')}</span></div>
           <div class="legend-row"><span class="legend-line dashed" style="border-top-color:#6a7883"></span><span>${tr('legendDashed')}</span></div>
         </div>
       `;
@@ -2059,6 +2212,37 @@ INDEX_HTML = """<!doctype html>
       return tr('relationModeMutual');
     }
 
+    function activeRouteHint() {
+      if (routeActiveEndpoint === 'source') return tr('routeTapTargetSource');
+      if (routeActiveEndpoint === 'target') return tr('routeTapTargetTarget');
+      return tr('routeTapTargetReady');
+    }
+
+    function connectivityVisibleRows(state, nodeId) {
+      if (!nodeId) return [];
+      if (connectivityDirection === 'out') {
+        return directRelationRows(state, nodeId, 'out');
+      }
+      if (connectivityDirection === 'in') {
+        return directRelationRows(state, nodeId, 'in');
+      }
+      const filtered = relationRows(state, nodeId, connectivityFilter).map((row) => ({
+        peerName: row.peerName,
+        relationType: row.relationType,
+        stale: row.stale,
+        metricText: row.relationType === '2way'
+          ? `${tr('connectivityTableOut')}: ${row.outEdge ? lineSignalMetric(row.outEdge).short : '-'}`
+          : row.outEdge
+            ? `${tr('connectivityTableOut')}: ${lineSignalMetric(row.outEdge).short}`
+            : `${tr('connectivityTableIn')}: ${lineSignalMetric(row.inEdge).short}`,
+        ageText: row.freshestAge === null ? '-' : humanizeSeconds(row.freshestAge),
+        secondaryText: row.relationType === '2way'
+          ? `${tr('connectivityTableIn')}: ${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}`
+          : null,
+      }));
+      return filtered;
+    }
+
     function renderRelationList(rows) {
       if (!rows.length) {
         return `<div class="empty-note">${tr('connectivityNoRows')}</div>`;
@@ -2108,27 +2292,39 @@ INDEX_HTML = """<!doctype html>
           <button type="button" class="segmented-button${connectivityDirection === 'mutual' ? ' active' : ''}" data-connectivity-direction="mutual">${tr('relationModeMutual')}</button>
         </div>
       `;
-      const visibleRows = connectivityDirection === 'out'
-        ? directRelationRows(state, node.identity_hex, 'out')
-        : connectivityDirection === 'in'
-          ? directRelationRows(state, node.identity_hex, 'in')
-          : mutualRows.map((row) => ({
-              peerName: row.peerName,
-              relationType: row.relationType,
-              stale: row.stale,
-              metricText: `${tr('connectivityTableOut')}: ${row.outEdge ? lineSignalMetric(row.outEdge).short : '-'}`,
-              ageText: row.freshestAge === null ? '-' : humanizeSeconds(row.freshestAge),
-              secondaryText: `${tr('connectivityTableIn')}: ${row.inEdge ? lineSignalMetric(row.inEdge).short : '-'}`,
-            }));
+      const filterButtons = connectivityDirection === 'mutual'
+        ? `
+            <div>
+              <div class="panel-section-head"><span class="panel-section-title">${tr('connectivityVisibleTitle')}</span><span class="panel-section-note">${tr('connectivityFilterHint')}</span></div>
+              <div class="filter-toggle" role="group" aria-label="${tr('connectivityVisibleTitle')}">
+                <button type="button" class="segmented-button${connectivityFilter === '2way' ? ' active' : ''}" data-connectivity-filter="2way">${tr('relationFilterTwoWay')}</button>
+                <button type="button" class="segmented-button${connectivityFilter === 'out' ? ' active' : ''}" data-connectivity-filter="out">${tr('relationFilterOut')}</button>
+                <button type="button" class="segmented-button${connectivityFilter === 'in' ? ' active' : ''}" data-connectivity-filter="in">${tr('relationFilterIn')}</button>
+              </div>
+            </div>
+          `
+        : '';
+      const visibleRows = connectivityVisibleRows(state, node.identity_hex);
       const heroCount = visibleRows.length;
       return `
         <div class="panel-stack">
           <div class="panel-section">
             ${selector}
             ${directionButtons}
-            <div class="panel-card"><strong>${node.name}</strong><span>${connectivityModeLabel(node)} • ${heroCount} ${tr('connectivityCountShort')}</span></div>
+            ${filterButtons}
+            <div class="hero-card">
+              <div>
+                <strong>${node.name}</strong>
+                <span>${tr('toolbarConnectivitySubtitle')}</span>
+              </div>
+              <div class="hero-meta">
+                <span class="hero-pill hero-pill-accent">${connectivityModeLabel(node)}</span>
+                <span class="hero-pill">${heroCount} ${tr('connectivityCountShort')}</span>
+              </div>
+            </div>
           </div>
           <div class="panel-section">
+            <div class="panel-section-head"><span class="panel-section-title">${tr('connectivitySummaryTitle')}</span><span class="panel-section-note">${node.name}</span></div>
             <div class="relation-grid">
               <div class="relation-card"><strong>${relations.outgoing.length}</strong><span>${tr('connectivitySummaryOut')}</span></div>
               <div class="relation-card"><strong>${relations.incoming.length}</strong><span>${tr('connectivitySummaryIn')}</span></div>
@@ -2136,6 +2332,7 @@ INDEX_HTML = """<!doctype html>
             </div>
           </div>
           <div class="panel-section">
+            <div class="panel-section-head"><span class="panel-section-title">${tr('connectivityVisibleTitle')}</span><span class="panel-section-note">${heroCount}</span></div>
             ${renderRelationList(visibleRows)}
           </div>
         </div>
@@ -2143,8 +2340,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     function routeSummaryCard(title, routeResult, data) {
+      const directionClass = title === tr('routeForward') ? 'forward' : 'backward';
       if (!routeResult.path) {
-        return `<div class="route-card"><strong>${title}</strong><div class="route-status-row"><span class="route-status-badge no">${tr('routeStatusNo')}</span></div><div class="route-empty"><strong>${tr('routeNoPath')}</strong><span>${tr('routePickHint')}</span></div></div>`;
+        return `<div class="route-card"><div class="route-card-head"><strong>${title}</strong><span class="route-direction-chip ${directionClass}">${title}</span></div><div class="route-status-row"><span class="route-status-badge no">${tr('routeStatusNo')}</span></div><div class="route-empty"><strong>${tr('routeNoPath')}</strong><span>${tr('routePickHint')}</span></div></div>`;
       }
       const pathHtml = routeResult.path.map((identityHex, index) => {
         const node = data.nodeIndex.get(identityHex);
@@ -2153,7 +2351,7 @@ INDEX_HTML = """<!doctype html>
       }).join('');
       return `
         <div class="route-card">
-          <strong>${title}</strong>
+          <div class="route-card-head"><strong>${title}</strong><span class="route-direction-chip ${directionClass}">${title}</span></div>
           <div class="route-status-row"><span class="route-status-badge ok">${tr('routeStatusYes')}</span><span class="route-meta">${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span></div>
           <div class="route-path">${pathHtml}</div>
         </div>
@@ -2178,15 +2376,15 @@ INDEX_HTML = """<!doctype html>
       return `
         <div class="panel-stack">
           <div class="panel-section">
-            <div class="route-picker-note">${tr('routeTapTarget')}</div>
+            <div class="route-picker-note"><strong>${activeRouteHint()}</strong></div>
             <div class="route-control-bar">
               <button type="button" class="route-endpoint${routeActiveEndpoint === 'source' ? ' active' : ''}" data-route-active="source">
                 <span class="route-endpoint-label">${tr('routeSelectedA')}</span>
-                <strong class="route-endpoint-name">${sourceName}</strong>
+                <strong class="route-endpoint-name">${routeSourceId ? sourceName : tr('routeUnset')}</strong>
               </button>
               <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
                 <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
-                <strong class="route-endpoint-name">${targetName}</strong>
+                <strong class="route-endpoint-name">${routeTargetId ? targetName : tr('routeUnset')}</strong>
               </button>
             </div>
             <div class="route-controls">
@@ -2278,15 +2476,35 @@ INDEX_HTML = """<!doctype html>
     function markerStyle(node, isolated, selected, neighbor) {
       const color = nodeColor(node);
       if (selected) {
-        return { radius: 11, color: '#15212a', weight: 3.2, fillColor: color, fillOpacity: 1, opacity: 1 };
+        return { radius: 12, color: '#15212a', weight: 3.6, fillColor: color, fillOpacity: 1, opacity: 1 };
       }
       if (neighbor) {
-        return { radius: 7, color, weight: 1.8, fillColor: color, fillOpacity: 0.88, opacity: 0.92 };
+        return { radius: 7.5, color, weight: 2, fillColor: color, fillOpacity: 0.9, opacity: 0.94 };
       }
       if (isolated) {
         return { radius: 4, color, weight: 1, fillColor: color, fillOpacity: 0.16, opacity: 0.2 };
       }
       return { radius: 5, color, weight: 1.2, fillColor: color, fillOpacity: 0.82, opacity: 0.85 };
+    }
+
+    function drawFocusHalo(node, strokeColor, fillColor, outerRadius = 18, innerRadius = 13) {
+      if (!node || !isFiniteCoordinate(node.latitude, node.longitude)) return;
+      L.circleMarker([node.latitude, node.longitude], {
+        radius: outerRadius,
+        color: strokeColor,
+        weight: 1.4,
+        fillColor,
+        fillOpacity: 0.06,
+        opacity: 0.34,
+      }).addTo(halosLayer);
+      L.circleMarker([node.latitude, node.longitude], {
+        radius: innerRadius,
+        color: strokeColor,
+        weight: 1.8,
+        fillColor,
+        fillOpacity: 0.1,
+        opacity: 0.52,
+      }).addTo(halosLayer);
     }
 
     function addDirectionalArrow(sourceNode, targetNode, color, ratio = 0.58) {
@@ -2322,19 +2540,25 @@ INDEX_HTML = """<!doctype html>
 
     function labelHtml(node, zoom, forced, neighborIds) {
       const shortName = node.name || node.hash_prefix_hex;
+      const isFocusedNode = node.identity_hex === selectedSourceId || node.identity_hex === routeSourceId || node.identity_hex === routeTargetId;
+      const isActivePeer = neighborIds.has(node.identity_hex);
+      const chipClass = `node-label-chip${isFocusedNode ? ' focused' : ''}${isActivePeer ? ' active-peer' : ''}`;
       if (selectedNeighborId) {
         if (node.identity_hex !== selectedSourceId && node.identity_hex !== selectedNeighborId) return null;
-        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+        return `<div class="${chipClass}"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       const inspectionNeighbor = Boolean(selectedSourceId) && node.identity_hex !== selectedSourceId && neighborIds.has(node.identity_hex);
-      if (inspectionNeighbor) {
-        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+      if (inspectionNeighbor && zoom >= HIGH_ZOOM_LABEL_THRESHOLD) {
+        return `<div class="${chipClass}"><strong>${shortName}</strong></div>`;
+      }
+      if (forced && isFocusedNode) {
+        return `<div class="${chipClass}"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
       if (forced || zoom >= HIGH_ZOOM_LABEL_THRESHOLD) {
-        return `<div class="node-label-chip"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
+        return `<div class="${chipClass}"><strong>${shortName}</strong></div>`;
       }
-      if (zoom >= LOW_ZOOM_LABEL_THRESHOLD) {
-        return `<div class=\"node-label-chip\"><strong>${shortName}</strong></div>`;
+      if (zoom >= LOW_ZOOM_LABEL_THRESHOLD && (isFocusedNode || node.identity_hex === hoveredNodeId)) {
+        return `<div class="${chipClass}"><strong>${shortName}</strong></div>`;
       }
       return null;
     }
@@ -2349,10 +2573,13 @@ INDEX_HTML = """<!doctype html>
     function renderLabels(nodes, neighborIds) {
       labelsLayer.clearLayers();
       const zoom = map.getZoom();
-      const showAllNeighborLabels = Boolean(selectedSourceId) && !selectedNeighborId;
       const candidates = [];
       for (const node of nodes) {
-        const forced = node.identity_hex === selectedSourceId || node.identity_hex === hoveredNodeId || (showAllNeighborLabels && neighborIds.has(node.identity_hex));
+        const forced = node.identity_hex === selectedSourceId
+          || node.identity_hex === routeSourceId
+          || node.identity_hex === routeTargetId
+          || node.identity_hex === hoveredNodeId
+          || (selectedNeighborId && node.identity_hex === selectedNeighborId);
         const html = labelHtml(node, zoom, forced, neighborIds);
         if (!html) continue;
         candidates.push({
@@ -2370,7 +2597,7 @@ INDEX_HTML = """<!doctype html>
         const rect = estimateLabelRect(candidate.point, candidate.html);
         const overlaps = occupied.some((item) => rectsOverlap(item, rect));
         if (overlaps && !candidate.forced) continue;
-        if (!candidate.forced && !showAllNeighborLabels && count >= MAX_COLLISION_LABELS) continue;
+        if (!candidate.forced && count >= MAX_COLLISION_LABELS) continue;
         occupied.push(rect);
         count += 1;
         L.marker([candidate.node.latitude, candidate.node.longitude], {
@@ -2690,14 +2917,7 @@ INDEX_HTML = """<!doctype html>
         const neighbor = neighborIds.has(node.identity_hex);
         const isolated = Boolean(selectedNeighborId) && node.identity_hex !== selectedSourceId && node.identity_hex !== selectedNeighborId;
         if (selected) {
-          L.circleMarker([node.latitude, node.longitude], {
-            radius: 15,
-            color: nodeColor(node),
-            weight: 1,
-            fillColor: nodeColor(node),
-            fillOpacity: 0.08,
-            opacity: 0.36,
-          }).addTo(halosLayer);
+          drawFocusHalo(node, nodeColor(node), nodeColor(node), 17, 12);
         }
         const marker = L.circleMarker([node.latitude, node.longitude], markerStyle(node, isolated, selected, neighbor)).addTo(markersLayer);
         marker.on('click', (event) => {
@@ -2795,7 +3015,13 @@ INDEX_HTML = """<!doctype html>
         } else if (connectivityDirection === 'in') {
           edges = data.edges.filter((edge) => edge.target_identity_hex === focusId);
         } else {
-          edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
+          if (connectivityFilter === '2way') {
+            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && edge.mutual);
+          } else if (connectivityFilter === 'out') {
+            edges = data.edges.filter((edge) => edge.source_identity_hex === focusId && !edge.mutual);
+          } else {
+            edges = data.edges.filter((edge) => edge.target_identity_hex === focusId && !edge.mutual);
+          }
         }
       }
       const highlightedIds = new Set();
@@ -2809,23 +3035,18 @@ INDEX_HTML = """<!doctype html>
       const bounds = drawMapNodes(nodes, focusId, highlightedIds);
       if (focusId) {
         const focusNode = data.nodeIndex.get(focusId);
-        if (focusNode && isFiniteCoordinate(focusNode.latitude, focusNode.longitude)) {
-          L.circleMarker([focusNode.latitude, focusNode.longitude], {
-            radius: 17,
-            color: '#15212a',
-            weight: 2.4,
-            fillColor: '#15212a',
-            fillOpacity: 0.06,
-            opacity: 0.82,
-          }).addTo(halosLayer);
-        }
+        drawFocusHalo(focusNode, '#15212a', '#15212a', 19, 14);
       }
       for (const edge of edges) {
         const sourceNode = data.nodeIndex.get(edge.source_identity_hex);
         const targetNode = data.nodeIndex.get(edge.target_identity_hex);
         if (!sourceNode || !targetNode) continue;
         if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
-        const color = edge.mutual ? '#2e8b57' : connectivityDirection === 'in' ? '#2c71d1' : '#cfaa38';
+        const color = edge.mutual
+          ? '#2e8b57'
+          : connectivityDirection === 'in' || connectivityFilter === 'in'
+            ? '#2c71d1'
+            : '#cfaa38';
         L.polyline([
           [sourceNode.latitude, sourceNode.longitude],
           [targetNode.latitude, targetNode.longitude],
@@ -2863,29 +3084,11 @@ INDEX_HTML = """<!doctype html>
       const bounds = drawMapNodes(allMapNodes, routeSourceId, highlightedIds);
       if (routeSourceId) {
         const sourceNode = data.nodeIndex.get(routeSourceId);
-        if (sourceNode && isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude)) {
-          L.circleMarker([sourceNode.latitude, sourceNode.longitude], {
-            radius: 14,
-            color: '#2c71d1',
-            weight: 2,
-            fillColor: '#2c71d1',
-            fillOpacity: 0.12,
-            opacity: 0.9,
-          }).addTo(halosLayer);
-        }
+        drawFocusHalo(sourceNode, '#2c71d1', '#2c71d1', 16, 12);
       }
       if (routeTargetId) {
         const targetNode = data.nodeIndex.get(routeTargetId);
-        if (targetNode && isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) {
-          L.circleMarker([targetNode.latitude, targetNode.longitude], {
-            radius: 14,
-            color: '#cfaa38',
-            weight: 2,
-            fillColor: '#cfaa38',
-            fillOpacity: 0.12,
-            opacity: 0.9,
-          }).addTo(halosLayer);
-        }
+        drawFocusHalo(targetNode, '#cfaa38', '#cfaa38', 16, 12);
       }
       const drawRoute = (routeResult, color, dashArray = null) => {
         if (!routeResult?.path) return;
@@ -2903,6 +3106,7 @@ INDEX_HTML = """<!doctype html>
             opacity: 0.9,
             dashArray,
           }).addTo(linksLayer);
+          addDirectionalArrow(sourceNode, targetNode, color, 0.54);
         }
       };
       drawRoute(forward, '#2c71d1');
