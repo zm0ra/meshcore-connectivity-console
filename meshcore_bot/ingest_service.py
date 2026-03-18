@@ -149,6 +149,7 @@ class AdvertIngestService:
             success_cooldown_secs=self.config.probe.advert_reprobe_success_cooldown_secs,
             failure_cooldown_secs=self.config.probe.advert_reprobe_failure_cooldown_secs,
             scheduled_at=self._planned_advert_probe_time(endpoint.name, packet.observed_at, repeater_id, summary.path_len, summary.path_bytes.hex().upper()),
+            max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
         ) if self._should_enqueue_advert_probe(
             repeater_id=repeater_id,
             endpoint_name=endpoint.name,

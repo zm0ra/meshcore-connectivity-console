@@ -35,10 +35,19 @@ class ProbeTimeoutError(TimeoutError):
     pass
 
 
-def select_login_candidates(*, config, remote_pubkey: bytes, repeater_name: str | None) -> list[tuple[str, str]]:
+def select_login_candidates(
+    *,
+    config,
+    remote_pubkey: bytes,
+    repeater_name: str | None,
+    preferred_login: tuple[str, str] | None = None,
+) -> list[tuple[str, str]]:
     candidates: list[tuple[str, str]] = []
     pubkey_hex = remote_pubkey.hex().upper()
     normalized_name = (repeater_name or "").strip().upper()
+
+    if preferred_login is not None:
+        candidates.append(preferred_login)
 
     if config.admin_password and (
         any(pubkey_hex.startswith(prefix) for prefix in config.admin_password_pubkey_prefixes)
@@ -110,6 +119,7 @@ def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_z
 class GuestProbeWorker:
     SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
+    LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
 
     def __init__(
         self,
@@ -168,6 +178,7 @@ class GuestProbeWorker:
                 success_cooldown_secs=interval_secs,
                 failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
                 now=now_utc,
+                max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
             )
             if enqueued:
                 self.logger.info("scheduled stale reprobe jobs=%s stale_after_secs=%s", enqueued, interval_secs)
@@ -193,6 +204,7 @@ class GuestProbeWorker:
             success_cooldown_secs=night_interval_secs,
             failure_cooldown_secs=night_interval_secs,
             now=now_utc,
+            max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
         )
         if enqueued_failed:
             self.logger.info(
@@ -257,10 +269,19 @@ class GuestProbeWorker:
         guest_permissions: int | None = None
         firmware_capability_level: int | None = None
         login_server_time: int | None = None
+        successful_login: tuple[str, str] | None = None
+        preferred_login = self.database.preferred_repeater_login(repeater_id=repeater_id)
+        preferred_login_candidate = None
+        if preferred_login is not None:
+            preferred_login_candidate = (
+                str(preferred_login["learned_login_role"]),
+                str(preferred_login["learned_login_password"]),
+            )
         login_candidates = select_login_candidates(
             config=self.config.probe,
             remote_pubkey=remote_pubkey,
             repeater_name=repeater_name,
+            preferred_login=preferred_login_candidate,
         )
         latest_zero_hop_advert = self.database.latest_repeater_zero_hop_advert(
             repeater_id=repeater_id,
@@ -399,6 +420,7 @@ class GuestProbeWorker:
                         elif not learned_path_len and route_path_len:
                             learned_path_len = route_path_len
                             learned_path_bytes = route_path_bytes
+                        successful_login = (login_role, login_password)
                         break
                     except ProbeTimeoutError as exc:
                         login_error = exc
@@ -415,6 +437,15 @@ class GuestProbeWorker:
                     continue
                 break
             else:
+                if self.database.reset_repeater_login_if_stable(
+                    repeater_id=repeater_id,
+                    min_success_count=self.LEARNED_LOGIN_STABLE_SUCCESS_COUNT,
+                ):
+                    self.logger.warning(
+                        "reset learned login after stable login failures endpoint=%s repeater=%s",
+                        endpoint.name,
+                        remote_pubkey.hex().upper()[:12],
+                    )
                 assert login_error is not None
                 raise login_error
 
@@ -424,6 +455,12 @@ class GuestProbeWorker:
             guest_permissions = login.permissions
             firmware_capability_level = login.firmware_capability_level
             login_server_time = login.server_time
+            assert successful_login is not None
+            self.database.remember_repeater_login(
+                repeater_id=repeater_id,
+                login_role=successful_login[0],
+                login_password=successful_login[1],
+            )
             if learned_path_len:
                 self.database.save_repeater_path(
                     repeater_id=repeater_id,

@@ -31,7 +31,7 @@ def is_recent_iso_timestamp(value: str | None, max_age_secs: float, *, now: date
 
 
 class BotDatabase:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
     CONNECT_TIMEOUT_SECS = 30.0
     BUSY_TIMEOUT_MS = 30_000
     WRITE_RETRY_ATTEMPTS = 5
@@ -78,6 +78,10 @@ class BotDatabase:
                     last_guest_permissions INTEGER,
                     last_firmware_capability_level INTEGER,
                     last_login_server_time INTEGER,
+                    learned_login_role TEXT,
+                    learned_login_password TEXT,
+                    learned_login_success_count INTEGER NOT NULL DEFAULT 0,
+                    learned_login_updated_at TEXT,
                     last_probe_status TEXT,
                     last_probe_at TEXT
                 );
@@ -217,6 +221,10 @@ class BotDatabase:
             self._ensure_column(connection, "repeater_adverts", "endpoint_name", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "repeater_probe_runs", "endpoint_name", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "raw_mesh_packets", "endpoint_name", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "repeaters", "learned_login_role", "TEXT")
+            self._ensure_column(connection, "repeaters", "learned_login_password", "TEXT")
+            self._ensure_column(connection, "repeaters", "learned_login_success_count", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "repeaters", "learned_login_updated_at", "TEXT")
             connection.execute(
                 """
                 INSERT INTO schema_info (key, value, updated_at)
@@ -381,6 +389,8 @@ class BotDatabase:
         success_cooldown_secs: float = 0.0,
         failure_cooldown_secs: float = 0.0,
         scheduled_at: str | None = None,
+        max_recent_jobs: int | None = None,
+        recent_window_secs: float = 86400.0,
     ) -> int | None:
         scheduled_time = scheduled_at or utc_now_iso()
         def operation(connection: sqlite3.Connection) -> int | None:
@@ -394,6 +404,25 @@ class BotDatabase:
             ).fetchone()
             if existing is not None:
                 return None
+            if max_recent_jobs is not None and max_recent_jobs > 0 and recent_window_secs > 0:
+                scheduled_dt = datetime.fromisoformat(scheduled_time)
+                if scheduled_dt.tzinfo is None:
+                    scheduled_dt = scheduled_dt.replace(tzinfo=UTC)
+                recent_cutoff = (scheduled_dt - timedelta(seconds=recent_window_secs)).isoformat()
+                recent_job_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM probe_jobs
+                        WHERE repeater_id = ?
+                          AND endpoint_name = ?
+                          AND scheduled_at >= ?
+                        """,
+                        (repeater_id, endpoint_name, recent_cutoff),
+                    ).fetchone()[0]
+                )
+                if recent_job_count >= max_recent_jobs:
+                    return None
             if success_cooldown_secs > 0 or failure_cooldown_secs > 0:
                 latest = connection.execute(
                     """
@@ -428,6 +457,88 @@ class BotDatabase:
 
         return self._run_with_retry(operation)
 
+    def preferred_repeater_login(self, *, repeater_id: int) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT learned_login_role, learned_login_password, learned_login_success_count, learned_login_updated_at
+                FROM repeaters
+                WHERE id = ?
+                  AND learned_login_role IS NOT NULL
+                  AND learned_login_password IS NOT NULL
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
+
+    def remember_repeater_login(self, *, repeater_id: int, login_role: str, login_password: str) -> None:
+        remembered_at = utc_now_iso()
+
+        def operation(connection: sqlite3.Connection) -> None:
+            existing = connection.execute(
+                """
+                SELECT learned_login_role, learned_login_password, learned_login_success_count
+                FROM repeaters
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            success_count = 1
+            if existing is not None:
+                same_login = (
+                    str(existing["learned_login_role"] or "") == login_role
+                    and str(existing["learned_login_password"] or "") == login_password
+                )
+                if same_login:
+                    success_count = max(1, int(existing["learned_login_success_count"] or 0) + 1)
+            connection.execute(
+                """
+                UPDATE repeaters
+                SET learned_login_role = ?,
+                    learned_login_password = ?,
+                    learned_login_success_count = ?,
+                    learned_login_updated_at = ?
+                WHERE id = ?
+                """,
+                (login_role, login_password, success_count, remembered_at, repeater_id),
+            )
+
+        self._run_with_retry(operation)
+
+    def reset_repeater_login_if_stable(self, *, repeater_id: int, min_success_count: int) -> bool:
+        def operation(connection: sqlite3.Connection) -> bool:
+            row = connection.execute(
+                """
+                SELECT learned_login_success_count, learned_login_role, learned_login_password
+                FROM repeaters
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            success_count = int(row["learned_login_success_count"] or 0)
+            has_login = bool(row["learned_login_role"]) and row["learned_login_password"] is not None
+            if not has_login or success_count < min_success_count:
+                return False
+            connection.execute(
+                """
+                UPDATE repeaters
+                SET learned_login_role = NULL,
+                    learned_login_password = NULL,
+                    learned_login_success_count = 0,
+                    learned_login_updated_at = ?
+                WHERE id = ?
+                """,
+                (utc_now_iso(), repeater_id),
+            )
+            return True
+
+        return self._run_with_retry(operation)
+
     def schedule_stale_repeater_probe_jobs(
         self,
         *,
@@ -437,6 +548,7 @@ class BotDatabase:
         reason: str,
         success_cooldown_secs: float,
         failure_cooldown_secs: float,
+        max_recent_jobs: int | None = None,
         now: datetime | None = None,
     ) -> int:
         if stale_after_secs <= 0 or seen_within_secs <= 0 or not endpoint_names:
@@ -486,6 +598,7 @@ class BotDatabase:
                 reason=reason,
                 success_cooldown_secs=success_cooldown_secs,
                 failure_cooldown_secs=failure_cooldown_secs,
+                max_recent_jobs=max_recent_jobs,
             )
             if job_id is not None:
                 enqueued += 1
@@ -499,6 +612,7 @@ class BotDatabase:
         reason: str,
         success_cooldown_secs: float,
         failure_cooldown_secs: float,
+        max_recent_jobs: int | None = None,
         now: datetime | None = None,
     ) -> int:
         if seen_within_secs <= 0 or not endpoint_names:
@@ -542,6 +656,7 @@ class BotDatabase:
                 reason=reason,
                 success_cooldown_secs=success_cooldown_secs,
                 failure_cooldown_secs=failure_cooldown_secs,
+                max_recent_jobs=max_recent_jobs,
             )
             if job_id is not None:
                 enqueued += 1

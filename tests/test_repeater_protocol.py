@@ -97,7 +97,8 @@ def build_test_app_config(tmp_path) -> AppConfig:
             advert_reprobe_failure_cooldown_secs=300.0,
             advert_probe_min_interval_secs=10.0,
             advert_path_change_cooldown_secs=300.0,
-            scheduled_reprobe_interval_secs=7200.0,
+            automatic_probe_max_per_day=3,
+            scheduled_reprobe_interval_secs=28800.0,
             night_failed_retry_start_hour=1,
             night_failed_retry_end_hour=7,
             night_failed_retry_interval_secs=3600.0,
@@ -221,7 +222,8 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         advert_reprobe_failure_cooldown_secs=300.0,
         advert_probe_min_interval_secs=10.0,
         advert_path_change_cooldown_secs=300.0,
-        scheduled_reprobe_interval_secs=7200.0,
+        automatic_probe_max_per_day=3,
+        scheduled_reprobe_interval_secs=28800.0,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
@@ -255,7 +257,8 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         advert_reprobe_failure_cooldown_secs=300.0,
         advert_probe_min_interval_secs=10.0,
         advert_path_change_cooldown_secs=300.0,
-        scheduled_reprobe_interval_secs=7200.0,
+        automatic_probe_max_per_day=3,
+        scheduled_reprobe_interval_secs=28800.0,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
@@ -271,6 +274,42 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         repeater_name="Police Dir. 348°",
     )
     assert selected == [("guest", "")]
+
+
+def test_select_login_candidates_puts_learned_login_first() -> None:
+    config = ProbeConfig(
+        key_file_path=None,
+        admin_password="qweqwe",
+        admin_password_name_prefixes=("SZN_",),
+        admin_password_pubkey_prefixes=(),
+        guest_password="hello",
+        default_guest_password="",
+        guest_password_name_prefixes=("RPT_",),
+        guest_password_pubkey_prefixes=(),
+        pre_login_advert_name="441CFEA26666",
+        pre_login_advert_delay_secs=1.0,
+        advert_reprobe_success_cooldown_secs=60.0,
+        advert_reprobe_failure_cooldown_secs=300.0,
+        advert_probe_min_interval_secs=10.0,
+        advert_path_change_cooldown_secs=300.0,
+        automatic_probe_max_per_day=3,
+        scheduled_reprobe_interval_secs=28800.0,
+        night_failed_retry_start_hour=1,
+        night_failed_retry_end_hour=7,
+        night_failed_retry_interval_secs=3600.0,
+        poll_interval_secs=2.0,
+        request_timeout_secs=8.0,
+        route_freshness_secs=1800.0,
+        neighbours_page_size=15,
+        neighbours_prefix_len=4,
+    )
+    selected = select_login_candidates(
+        config=config,
+        remote_pubkey=bytes.fromhex("21D3857C81C3A41BC5030ADF2F7A878CFF6C91910F6BCD499AD74B4A2186850F"),
+        repeater_name="RPT_Test",
+        preferred_login=("guest", "hello"),
+    )
+    assert selected == [("guest", "hello"), ("guest", "")]
 
 
 def test_build_advert_packet_roundtrip() -> None:
@@ -1470,6 +1509,78 @@ def test_enqueue_probe_job_uses_longer_failure_cooldown_for_recent_failed_advert
     assert skipped_job_id is None
 
 
+def test_database_remembers_and_resets_learned_login_only_after_stable_successes(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="login-memory-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    database.remember_repeater_login(repeater_id=repeater_id, login_role="guest", login_password="hello")
+    learned = database.preferred_repeater_login(repeater_id=repeater_id)
+    assert learned is not None
+    assert learned["learned_login_password"] == "hello"
+    assert learned["learned_login_success_count"] == 1
+    assert database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=3) is False
+
+    database.remember_repeater_login(repeater_id=repeater_id, login_role="guest", login_password="hello")
+    database.remember_repeater_login(repeater_id=repeater_id, login_role="guest", login_password="hello")
+    learned = database.preferred_repeater_login(repeater_id=repeater_id)
+    assert learned is not None
+    assert learned["learned_login_success_count"] == 3
+    assert database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=3) is True
+    assert database.preferred_repeater_login(repeater_id=repeater_id) is None
+
+
+def test_enqueue_probe_job_respects_daily_cap_for_automatic_collection(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 18, 8, 0, tzinfo=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="daily-cap-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    for hour in (0, 8, 16):
+        job_id = database.enqueue_probe_job(
+            repeater_id=repeater_id,
+            endpoint_name="test-endpoint",
+            reason="scheduled stale refresh",
+            scheduled_at=datetime(2026, 3, 18, hour, 0, tzinfo=UTC).isoformat(),
+            max_recent_jobs=3,
+        )
+        assert job_id is not None
+        database.finish_probe_job(job_id, status="completed")
+
+    blocked_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        scheduled_at=datetime(2026, 3, 18, 20, 0, tzinfo=UTC).isoformat(),
+        max_recent_jobs=3,
+    )
+
+    assert blocked_job_id is None
+
+
 def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
@@ -1662,6 +1773,75 @@ def test_schedule_stale_repeater_probe_jobs_only_enqueues_recent_repeaters_with_
         (unseen_repeater_id, "scheduled stale refresh", "pending"),
     ]
     assert old_repeater_id not in {row[0] for row in rows}
+
+
+def test_schedule_stale_repeater_probe_jobs_respects_daily_cap(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    now = datetime(2026, 3, 18, 20, 0, tzinfo=UTC)
+
+    identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=(now - timedelta(minutes=30)).isoformat(),
+        public_key=identity.public_key,
+        advert_name="daily-capped-stale-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    stale_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=stale_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[{"neighbour_pubkey_prefix_hex": "A1B2C3D4", "heard_seconds_ago": 90, "snr": 4.0}],
+    )
+    database.complete_probe_run(
+        stale_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message=None,
+    )
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE repeater_neighbour_snapshots SET observed_at = ? WHERE probe_run_id = ?",
+            ((now - timedelta(hours=10)).isoformat(), stale_run_id),
+        )
+
+    for hour in (0, 8, 16):
+        job_id = database.enqueue_probe_job(
+            repeater_id=repeater_id,
+            endpoint_name="test-endpoint",
+            reason="scheduled stale refresh",
+            scheduled_at=datetime(2026, 3, 18, hour, 0, tzinfo=UTC).isoformat(),
+            max_recent_jobs=3,
+        )
+        assert job_id is not None
+        database.finish_probe_job(job_id, status="completed")
+
+    enqueued = database.schedule_stale_repeater_probe_jobs(
+        endpoint_names=["test-endpoint"],
+        stale_after_secs=8 * 3600.0,
+        seen_within_secs=24 * 3600.0,
+        reason="scheduled stale refresh",
+        success_cooldown_secs=8 * 3600.0,
+        failure_cooldown_secs=4 * 3600.0,
+        max_recent_jobs=3,
+        now=now,
+    )
+
+    assert enqueued == 0
 
 
 def test_schedule_recent_failed_repeater_probe_jobs_only_enqueues_recent_failed_repeaters_with_adverts(tmp_path) -> None:

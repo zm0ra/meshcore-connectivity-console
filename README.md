@@ -155,6 +155,10 @@ Advert-driven probing is intentionally selective.
 - advert-triggered probing is mainly for first-seen repeaters, recent failures, and meaningful path changes
 - `[probe].advert_probe_min_interval_secs` spaces advert-triggered jobs per endpoint to avoid bursts
 - `[probe].advert_path_change_cooldown_secs` suppresses route-flap induced reprobe storms
+- successful repeater logins are remembered per node and retried first on later probe runs
+- after a repeater had stable successful logins and then stops accepting that method, the learned login is cleared and the worker relearns from the configured candidates
+- `[probe].automatic_probe_max_per_day` hard-limits automatic collection to three jobs per node in a rolling 24h window
+- `[probe].scheduled_reprobe_interval_secs` now defaults to 8h, which keeps normal scheduled refreshes within that 2-3/day envelope
 
 ## Local run
 
