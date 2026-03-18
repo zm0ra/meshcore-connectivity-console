@@ -142,10 +142,11 @@ class GuestProbeWorker:
     async def run(self) -> None:
         self.database.initialize()
         recovered = self.database.recover_interrupted_probe_work()
-        if recovered["jobs_requeued"] or recovered["runs_interrupted"]:
+        self._next_scheduled_reprobe_scan_monotonic = time.monotonic() + self.SCHEDULED_REPROBE_SCAN_INTERVAL_SECS
+        if recovered["jobs_interrupted"] or recovered["runs_interrupted"]:
             self.logger.warning(
-                "recovered interrupted probe work jobs=%s runs=%s",
-                recovered["jobs_requeued"],
+                "marked interrupted probe work jobs=%s runs=%s",
+                recovered["jobs_interrupted"],
                 recovered["runs_interrupted"],
             )
         while not self._stop_event.is_set():

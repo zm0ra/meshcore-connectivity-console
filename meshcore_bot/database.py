@@ -722,9 +722,11 @@ class BotDatabase:
             connection.execute(
                 """
                 UPDATE probe_jobs
-                SET status = 'pending', started_at = NULL, last_error = COALESCE(last_error, 'recovered after worker restart')
+                SET status = 'interrupted', finished_at = ?, last_error = COALESCE(last_error, 'worker restart recovery')
                 WHERE status = 'running'
                 """
+                ,
+                (recovered_at,),
             )
             connection.execute(
                 """
@@ -742,7 +744,7 @@ class BotDatabase:
                 """,
                 (recovered_at,),
             )
-            return {"jobs_requeued": running_jobs, "runs_interrupted": running_runs}
+            return {"jobs_interrupted": running_jobs, "runs_interrupted": running_runs}
 
         return self._run_with_retry(operation)
 

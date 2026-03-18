@@ -667,6 +667,36 @@ def test_bot_service_retries_only_after_missing_echo(tmp_path) -> None:
     assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
 
 
+def test_bot_service_does_not_retry_when_transport_confirms_local_send(tmp_path) -> None:
+    class LocalAckFakeTCPClient(FakeTCPClient):
+        confirms_local_send = True
+
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, timestamp=123456)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    fake_client = LocalAckFakeTCPClient([])
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 1.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[0], fake_client, received)
+        await asyncio.sleep(0.05)
+
+    asyncio.run(exercise())
+
+    assert len(fake_client.sent_packets) == 1
+
+
 def test_bot_service_retry_delay_uses_backoff_multiplier(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
@@ -1643,6 +1673,54 @@ def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
     with database.connect() as connection:
         rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
     assert [tuple(row) for row in rows] == [(fresh_failed_job_id, "failed")]
+
+
+def test_recover_interrupted_probe_work_marks_running_jobs_interrupted_without_requeue(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="restart-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    running_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="scheduled stale refresh",
+    )
+    assert running_job_id is not None
+    claimed = database.claim_probe_job()
+    assert claimed is not None
+    run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+
+    recovered = database.recover_interrupted_probe_work()
+
+    assert recovered == {"jobs_interrupted": 1, "runs_interrupted": 1}
+    with database.connect() as connection:
+        job_row = connection.execute(
+            "SELECT status, started_at, finished_at, last_error FROM probe_jobs WHERE id = ?",
+            (running_job_id,),
+        ).fetchone()
+        run_row = connection.execute(
+            "SELECT result, finished_at, error_message FROM repeater_probe_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+    assert job_row["status"] == "interrupted"
+    assert job_row["started_at"] is not None
+    assert job_row["finished_at"] is not None
+    assert job_row["last_error"] == "worker restart recovery"
+    assert run_row["result"] == "interrupted"
+    assert run_row["finished_at"] is not None
+    assert run_row["error_message"] == "worker restart recovery"
+    assert database.claim_probe_job() is None
 
 
 def test_schedule_stale_repeater_probe_jobs_only_enqueues_recent_repeaters_with_stale_data(tmp_path) -> None:

@@ -335,6 +335,15 @@ class ChannelCommandBotService:
                     self.RESPONSE_ATTEMPTS,
                     attempt_reply,
                 )
+                if self._send_confirmation_satisfies_echo(client):
+                    self.logger.info(
+                        "[BOT-MONITOR] endpoint=%s channel=%s ts=%s status=local-send-confirmed attempt=%s",
+                        endpoint.name,
+                        channel_name,
+                        wire_timestamp,
+                        attempt + 1,
+                    )
+                    return
                 if echo_event.is_set():
                     self.logger.info(
                         "[BOT-MONITOR] endpoint=%s channel=%s ts=%s status=echo-seen attempt=%s",
@@ -382,6 +391,9 @@ class ChannelCommandBotService:
             raise
         finally:
             self._pending_replies.pop(reply_key, None)
+
+    def _send_confirmation_satisfies_echo(self, client: PacketTransportClient) -> bool:
+        return bool(getattr(client, "confirms_local_send", False))
 
     async def _send_envelope(
         self,
