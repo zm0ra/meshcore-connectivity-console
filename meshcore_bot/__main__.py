@@ -44,9 +44,12 @@ class DirectProbeConsoleReporter:
         endpoint_name: str,
         login: dict[str, object] | None,
         forced_login: tuple[str, str] | None = None,
+        force_path_discovery: bool = False,
     ) -> None:
         print(f"Starting probe for RPT {repeater_id}: {name or '-'}")
         print(f"Endpoint: {endpoint_name}")
+        if force_path_discovery:
+            print("Route mode: force fresh discovery")
         if forced_login is not None:
             password = "empty" if forced_login[1] == "" else "provided"
             print(f"Preferred login: {forced_login[0]}/{password}")
@@ -56,6 +59,9 @@ class DirectProbeConsoleReporter:
             print(f"Preferred login: {role}/{password}")
 
     def __call__(self, event: str, payload: dict[str, object]) -> None:
+        if event == "path_discovery_forced":
+            print("- Ignoring remembered routes and adverts")
+            return
         if event == "path_discovery_started":
             print("- Discovering route")
             return
@@ -264,6 +270,7 @@ def main() -> None:
     rpt_probe_now.add_argument("--role", choices=["guest", "admin"], default=None, help="remember this login role before probe")
     rpt_probe_now.add_argument("--password", default=None, help="remember this login password before probe")
     rpt_probe_now.add_argument("--clear-learned-login", action="store_true", help="clear learned login before probe")
+    rpt_probe_now.add_argument("--force-path-discovery", action="store_true", help="ignore remembered routes and discover a fresh path")
     rpt_probe_now.add_argument("--verbose", action="store_true", help="show raw packet and debug logs")
 
     rpt_login_set = subparsers.add_parser("rpt-login-set", help="store learned login override for repeater")
@@ -493,6 +500,7 @@ def main() -> None:
                 endpoint_name=endpoint.name,
                 login=database.preferred_repeater_login(repeater_id=repeater_id),
                 forced_login=forced_login,
+                force_path_discovery=bool(args.force_path_discovery),
             )
         try:
             asyncio.run(
@@ -504,6 +512,7 @@ def main() -> None:
                     repeater_name=str(repeater.get("name") or "") or None,
                     forced_login=forced_login,
                     allow_default_guest_fallback=forced_login is None,
+                    force_path_discovery=bool(args.force_path_discovery),
                 )
             )
         except Exception as exc:

@@ -276,6 +276,7 @@ class GuestProbeWorker:
         repeater_name: str | None,
         forced_login: tuple[str, str] | None = None,
         allow_default_guest_fallback: bool = True,
+        force_path_discovery: bool = False,
     ) -> None:
         shared_secret = self.identity.calc_shared_secret(remote_pubkey)
         client = self._transport_factory(endpoint)
@@ -306,26 +307,30 @@ class GuestProbeWorker:
         )
         local_zero_hop_visible = self._is_local_zero_hop_visible(latest_zero_hop_advert)
         known_direct_paths: list[tuple[int, bytes]] = []
-        latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
-        if latest_path is not None and not self._is_usable_stored_path(latest_path):
-            latest_path = None
-        if latest_path is not None:
-            learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
-            learned_path_bytes = bytes.fromhex(str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex")))))
-            known_direct_paths.append((learned_path_len, learned_path_bytes))
-        for advert_path in self.database.recent_repeater_advert_paths(
-            repeater_id=repeater_id,
-            endpoint_name=endpoint.name,
-        ):
-            if not self._is_usable_stored_path(advert_path):
-                continue
-            path_len = int(cast(int, advert_path.get("path_len", advert_path.get("out_path_len"))))
-            path_bytes = bytes.fromhex(str(cast(str, advert_path.get("path_hex", advert_path.get("out_path_hex")))))
-            candidate = (path_len, path_bytes)
-            if candidate not in known_direct_paths:
-                known_direct_paths.append(candidate)
-        if known_direct_paths:
-            learned_path_len, learned_path_bytes = known_direct_paths[0]
+        if force_path_discovery:
+            local_zero_hop_visible = False
+            self._progress("path_discovery_forced", endpoint_name=endpoint.name)
+        else:
+            latest_path = self.database.latest_repeater_path(repeater_id=repeater_id)
+            if latest_path is not None and not self._is_usable_stored_path(latest_path):
+                latest_path = None
+            if latest_path is not None:
+                learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
+                learned_path_bytes = bytes.fromhex(str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex")))))
+                known_direct_paths.append((learned_path_len, learned_path_bytes))
+            for advert_path in self.database.recent_repeater_advert_paths(
+                repeater_id=repeater_id,
+                endpoint_name=endpoint.name,
+            ):
+                if not self._is_usable_stored_path(advert_path):
+                    continue
+                path_len = int(cast(int, advert_path.get("path_len", advert_path.get("out_path_len"))))
+                path_bytes = bytes.fromhex(str(cast(str, advert_path.get("path_hex", advert_path.get("out_path_hex")))))
+                candidate = (path_len, path_bytes)
+                if candidate not in known_direct_paths:
+                    known_direct_paths.append(candidate)
+            if known_direct_paths:
+                learned_path_len, learned_path_bytes = known_direct_paths[0]
 
         await client.connect()
         try:
