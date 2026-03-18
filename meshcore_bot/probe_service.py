@@ -41,10 +41,15 @@ def select_login_candidates(
     remote_pubkey: bytes,
     repeater_name: str | None,
     preferred_login: tuple[str, str] | None = None,
+    forced_login: tuple[str, str] | None = None,
+    allow_default_guest_fallback: bool = True,
 ) -> list[tuple[str, str]]:
     candidates: list[tuple[str, str]] = []
     pubkey_hex = remote_pubkey.hex().upper()
     normalized_name = (repeater_name or "").strip().upper()
+
+    if forced_login is not None:
+        return [forced_login]
 
     if preferred_login is not None:
         candidates.append(preferred_login)
@@ -61,7 +66,7 @@ def select_login_candidates(
     ):
         candidates.append(("guest", config.guest_password))
 
-    if config.default_guest_password == "" or config.default_guest_password or not candidates:
+    if allow_default_guest_fallback and (config.default_guest_password == "" or config.default_guest_password or not candidates):
         candidates.append(("guest", config.default_guest_password))
 
     deduped: list[tuple[str, str]] = []
@@ -262,6 +267,8 @@ class GuestProbeWorker:
         endpoint: EndpointConfig,
         remote_pubkey: bytes,
         repeater_name: str | None,
+        forced_login: tuple[str, str] | None = None,
+        allow_default_guest_fallback: bool = True,
     ) -> None:
         shared_secret = self.identity.calc_shared_secret(remote_pubkey)
         client = self._transport_factory(endpoint)
@@ -283,6 +290,8 @@ class GuestProbeWorker:
             remote_pubkey=remote_pubkey,
             repeater_name=repeater_name,
             preferred_login=preferred_login_candidate,
+            forced_login=forced_login,
+            allow_default_guest_fallback=allow_default_guest_fallback,
         )
         latest_zero_hop_advert = self.database.latest_repeater_zero_hop_advert(
             repeater_id=repeater_id,

@@ -383,11 +383,13 @@ def main() -> None:
         repeater = resolve_repeater(database, args.selector)
         repeater_id = int(repeater["id"])
         endpoint = resolve_endpoint(config, args.endpoint)
+        forced_login = None
         if args.clear_learned_login:
             database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=0)
         if args.role is not None or args.password is not None:
             if not args.role or args.password is None:
                 raise SystemExit("--role and --password must be provided together")
+            forced_login = (str(args.role), str(args.password))
             database.remember_repeater_login(
                 repeater_id=repeater_id,
                 login_role=str(args.role),
@@ -416,6 +418,8 @@ def main() -> None:
                     endpoint=endpoint,
                     remote_pubkey=bytes.fromhex(str(repeater["pubkey_hex"])),
                     repeater_name=str(repeater.get("name") or "") or None,
+                    forced_login=forced_login,
+                    allow_default_guest_fallback=forced_login is None,
                 )
             )
         except Exception as exc:

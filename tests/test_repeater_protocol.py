@@ -2391,7 +2391,7 @@ enabled = true
     add_payload = json.loads(capsys.readouterr().out)
     repeater_id = int(add_payload["repeater_id"])
 
-    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, endpoint, remote_pubkey: bytes, repeater_name: str | None) -> None:
+    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, **kwargs) -> None:
         self.database.complete_probe_run(
             probe_run_id,
             repeater_id=repeater_id,
@@ -2427,3 +2427,42 @@ enabled = true
     assert start_payload["action"] == "starting probe"
     assert end_payload["action"] == "probe completed"
     assert end_payload["repeater"]["last_probe_status"] == "success"
+
+
+def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:
+    config = ProbeConfig(
+        key_file_path=None,
+        admin_password="admin-secret",
+        admin_password_name_prefixes=("RAKU",),
+        admin_password_pubkey_prefixes=(),
+        guest_password="hello",
+        default_guest_password="",
+        guest_password_name_prefixes=("RAKU",),
+        guest_password_pubkey_prefixes=(),
+        pre_login_advert_name="",
+        pre_login_advert_delay_secs=0.0,
+        advert_reprobe_success_cooldown_secs=60.0,
+        advert_reprobe_failure_cooldown_secs=60.0,
+        advert_probe_min_interval_secs=10.0,
+        advert_path_change_cooldown_secs=300.0,
+        automatic_probe_max_per_day=3,
+        scheduled_reprobe_interval_secs=28800.0,
+        night_failed_retry_start_hour=1,
+        night_failed_retry_end_hour=7,
+        night_failed_retry_interval_secs=3600.0,
+        poll_interval_secs=2.0,
+        request_timeout_secs=8.0,
+        route_freshness_secs=1800.0,
+        neighbours_page_size=15,
+        neighbours_prefix_len=4,
+    )
+
+    candidates = select_login_candidates(
+        config=config,
+        remote_pubkey=bytes.fromhex("C11A7386A9A47C7BF08F0E20B5F90A75D10E918BEE2FB49060198EE6E0D7DB07"),
+        repeater_name="Drzetowo Dw. SZN RAKU",
+        forced_login=("guest", "hello"),
+        allow_default_guest_fallback=False,
+    )
+
+    assert candidates == [("guest", "hello")]
