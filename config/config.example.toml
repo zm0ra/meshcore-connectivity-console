@@ -70,8 +70,15 @@ close_timeout_secs = 2.0
 console_probe_timeout_secs = 1.0
 
 [[endpoints]]
-name = "rpt-primary"
+name = "RPT_Okolna"
 raw_host = "192.0.2.10"
+raw_port = 5002
+console_mirror_port = 5003
+enabled = true
+
+[[endpoints]]
+name = "RPT_Przesocin"
+raw_host = "192.0.2.11"
 raw_port = 5002
 console_mirror_port = 5003
 enabled = true

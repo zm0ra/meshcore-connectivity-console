@@ -5,11 +5,12 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from .bot_service import ChannelCommandBotService
 from .bridge_gateway import BridgeGatewayService
-from .config import load_config
+from .config import load_config, load_raw_config, save_raw_config
 from .database import BotDatabase
 from .identity import LocalIdentity
 from .ingest_service import AdvertIngestService
@@ -241,6 +242,45 @@ def build_endpoint_payload(config, database: BotDatabase, endpoint_name: str, *,
     }
 
 
+def _configured_endpoints(raw_config: dict[str, object]) -> list[dict[str, object]]:
+    endpoints = raw_config.setdefault("endpoints", [])
+    if not isinstance(endpoints, list) or not all(isinstance(item, dict) for item in endpoints):
+        raise SystemExit("config endpoints must be an array of tables")
+    return endpoints
+
+
+def _normalize_endpoint_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized:
+        raise SystemExit("endpoint name cannot be empty")
+    return normalized
+
+
+def _find_config_endpoint(endpoints: list[dict[str, object]], name: str) -> dict[str, object] | None:
+    lowered = name.strip().lower()
+    for endpoint in endpoints:
+        if str(endpoint.get("name") or "").strip().lower() == lowered:
+            return endpoint
+    return None
+
+
+def _endpoint_public_payload(endpoint: dict[str, object]) -> dict[str, object]:
+    return {
+        "name": str(endpoint.get("name") or ""),
+        "raw_host": str(endpoint.get("raw_host") or ""),
+        "raw_port": int(endpoint.get("raw_port", 5002)),
+        "enabled": bool(endpoint.get("enabled", True)),
+        "console_mirror_host": endpoint.get("console_mirror_host"),
+        "console_mirror_port": endpoint.get("console_mirror_port"),
+    }
+
+
+def _load_endpoint_config_entries(config_path: str | Path) -> tuple[Path, dict[str, object], list[dict[str, object]]]:
+    path, raw_config = load_raw_config(config_path)
+    endpoints = _configured_endpoints(raw_config)
+    return path, raw_config, endpoints
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="MeshCore TCP bot foundation")
     subparsers = parser.add_subparsers(dest="command")
@@ -305,6 +345,36 @@ def main() -> None:
         default=24.0,
         help="only include repeaters seen on this endpoint within this many hours; set 0 to disable time filter",
     )
+
+    endpoint_list = subparsers.add_parser("endpoint-list", help="list configured transport endpoints")
+    endpoint_list.add_argument("--config", default="config/config.toml", help="path to TOML config")
+
+    endpoint_add = subparsers.add_parser("endpoint-add", help="add endpoint to TOML config")
+    endpoint_add.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    endpoint_add.add_argument("--name", required=True, help="endpoint name")
+    endpoint_add.add_argument("--raw-host", required=True, help="RS232@TCP host")
+    endpoint_add.add_argument("--raw-port", type=int, default=5002, help="RS232@TCP port")
+    endpoint_add.add_argument("--console-mirror-host", default=None, help="optional console mirror host")
+    endpoint_add.add_argument("--console-mirror-port", type=int, default=None, help="optional console mirror port")
+    endpoint_add.add_argument("--disabled", action="store_true", help="create endpoint as disabled")
+
+    endpoint_update = subparsers.add_parser("endpoint-update", help="update endpoint in TOML config")
+    endpoint_update.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    endpoint_update.add_argument("endpoint", help="current endpoint name")
+    endpoint_update.add_argument("--name", default=None, help="new endpoint name")
+    endpoint_update.add_argument("--raw-host", default=None, help="new RS232@TCP host")
+    endpoint_update.add_argument("--raw-port", type=int, default=None, help="new RS232@TCP port")
+    endpoint_update.add_argument("--console-mirror-host", default=None, help="set console mirror host")
+    endpoint_update.add_argument("--console-mirror-port", type=int, default=None, help="set console mirror port")
+    endpoint_update.add_argument("--clear-console-mirror-host", action="store_true", help="remove console mirror host")
+    endpoint_update.add_argument("--clear-console-mirror-port", action="store_true", help="remove console mirror port")
+    endpoint_update.add_argument("--enabled", action="store_true", help="mark endpoint enabled")
+    endpoint_update.add_argument("--disabled", action="store_true", help="mark endpoint disabled")
+
+    endpoint_delete = subparsers.add_parser("endpoint-delete", help="delete endpoint from TOML config")
+    endpoint_delete.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    endpoint_delete.add_argument("endpoint", help="endpoint name")
+    endpoint_delete.add_argument("--yes", action="store_true", help="confirm endpoint deletion")
 
     rpt_probe = subparsers.add_parser("rpt-probe", help="enqueue manual probe for repeater")
     rpt_probe.add_argument("--config", default="config/config.toml", help="path to TOML config")
@@ -442,6 +512,83 @@ def main() -> None:
             ],
         }
         print_json(payload)
+        return
+
+    if command == "endpoint-list":
+        config_path, raw_config, endpoints = _load_endpoint_config_entries(args.config)
+        print_json(
+            {
+                "config_path": str(config_path),
+                "count": len(endpoints),
+                "endpoints": [_endpoint_public_payload(endpoint) for endpoint in endpoints],
+            }
+        )
+        return
+
+    if command == "endpoint-add":
+        config_path, raw_config, endpoints = _load_endpoint_config_entries(args.config)
+        name = _normalize_endpoint_name(str(args.name))
+        if _find_config_endpoint(endpoints, name) is not None:
+            raise SystemExit(f"endpoint already exists: {name}")
+        endpoint = {
+            "name": name,
+            "raw_host": str(args.raw_host),
+            "raw_port": int(args.raw_port),
+            "enabled": not bool(args.disabled),
+        }
+        if args.console_mirror_host is not None:
+            endpoint["console_mirror_host"] = str(args.console_mirror_host)
+        if args.console_mirror_port is not None:
+            endpoint["console_mirror_port"] = int(args.console_mirror_port)
+        endpoints.append(endpoint)
+        save_raw_config(config_path, raw_config)
+        print_json({"config_path": str(config_path), "endpoint": _endpoint_public_payload(endpoint)})
+        return
+
+    if command == "endpoint-update":
+        config_path, raw_config, endpoints = _load_endpoint_config_entries(args.config)
+        endpoint = _find_config_endpoint(endpoints, str(args.endpoint))
+        if endpoint is None:
+            raise SystemExit(f"endpoint not found: {args.endpoint}")
+        if args.name is not None:
+            new_name = _normalize_endpoint_name(str(args.name))
+            existing = _find_config_endpoint(endpoints, new_name)
+            if existing is not None and existing is not endpoint:
+                raise SystemExit(f"endpoint already exists: {new_name}")
+            endpoint["name"] = new_name
+        if args.raw_host is not None:
+            endpoint["raw_host"] = str(args.raw_host)
+        if args.raw_port is not None:
+            endpoint["raw_port"] = int(args.raw_port)
+        if args.enabled and args.disabled:
+            raise SystemExit("--enabled and --disabled are mutually exclusive")
+        if args.enabled:
+            endpoint["enabled"] = True
+        elif args.disabled:
+            endpoint["enabled"] = False
+        if args.clear_console_mirror_host:
+            endpoint.pop("console_mirror_host", None)
+        elif args.console_mirror_host is not None:
+            endpoint["console_mirror_host"] = str(args.console_mirror_host)
+        if args.clear_console_mirror_port:
+            endpoint.pop("console_mirror_port", None)
+        elif args.console_mirror_port is not None:
+            endpoint["console_mirror_port"] = int(args.console_mirror_port)
+        save_raw_config(config_path, raw_config)
+        print_json({"config_path": str(config_path), "endpoint": _endpoint_public_payload(endpoint)})
+        return
+
+    if command == "endpoint-delete":
+        if not args.yes:
+            raise SystemExit("endpoint-delete requires --yes")
+        config_path, raw_config, endpoints = _load_endpoint_config_entries(args.config)
+        endpoint = _find_config_endpoint(endpoints, str(args.endpoint))
+        if endpoint is None:
+            raise SystemExit(f"endpoint not found: {args.endpoint}")
+        deleted_payload = _endpoint_public_payload(endpoint)
+        endpoints.remove(endpoint)
+        save_raw_config(config_path, raw_config)
+        print_json({"config_path": str(config_path), "deleted": deleted_payload})
         return
 
     if command == "ensure-identity":

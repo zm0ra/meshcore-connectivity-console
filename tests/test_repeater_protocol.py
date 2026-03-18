@@ -862,7 +862,8 @@ def test_load_config_accepts_repo_relative_path_outside_repo_root(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     config = load_config("config/config.toml")
     assert config.gateway.control_socket_path.name == "control.sock"
-    assert config.endpoints[0].name == "rpt-primary"
+    assert config.endpoints
+    assert config.endpoints[0].name
 
 
 def test_discover_repeater_path_uses_flood_and_saves_learned_route(tmp_path) -> None:
@@ -2402,6 +2403,101 @@ console_mirror_port = 5003
     assert payload["count"] == 1
     assert payload["repeaters"][0]["name"] == "Fresh backup RPT"
     assert payload["repeaters"][0]["advert_path_hex"] == "3548"
+
+
+def test_cli_endpoint_config_commands_manage_named_endpoints(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "RPT_Okolna"
+raw_host = "172.30.105.24"
+raw_port = 5002
+console_mirror_port = 5003
+enabled = true
+""".strip()
+    )
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "endpoint-list", "--config", str(config_path)])
+    cli_main.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["endpoints"][0]["name"] == "RPT_Okolna"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "meshcore-bot",
+            "endpoint-add",
+            "--config",
+            str(config_path),
+            "--name",
+            "RPT_Przesocin",
+            "--raw-host",
+            "172.30.252.58",
+            "--raw-port",
+            "5002",
+            "--console-mirror-port",
+            "5003",
+        ],
+    )
+    cli_main.main()
+    added_payload = json.loads(capsys.readouterr().out)
+    assert added_payload["endpoint"]["name"] == "RPT_Przesocin"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "meshcore-bot",
+            "endpoint-update",
+            "--config",
+            str(config_path),
+            "RPT_Okolna",
+            "--raw-host",
+            "172.30.105.99",
+            "--disabled",
+        ],
+    )
+    cli_main.main()
+    updated_payload = json.loads(capsys.readouterr().out)
+    assert updated_payload["endpoint"]["name"] == "RPT_Okolna"
+    assert updated_payload["endpoint"]["raw_host"] == "172.30.105.99"
+    assert updated_payload["endpoint"]["enabled"] is False
+
+    reloaded = load_config(config_path)
+    assert [endpoint.name for endpoint in reloaded.endpoints] == ["RPT_Okolna", "RPT_Przesocin"]
+    assert reloaded.endpoints[0].raw_host == "172.30.105.99"
+    assert reloaded.endpoints[0].enabled is False
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["meshcore-bot", "endpoint-delete", "--config", str(config_path), "RPT_Przesocin", "--yes"],
+    )
+    cli_main.main()
+    deleted_payload = json.loads(capsys.readouterr().out)
+    assert deleted_payload["deleted"]["name"] == "RPT_Przesocin"
+
+    final_config = load_config(config_path)
+    assert [endpoint.name for endpoint in final_config.endpoints] == ["RPT_Okolna"]
 
 
 def test_cli_without_subcommand_prints_help(tmp_path, monkeypatch, capsys) -> None:

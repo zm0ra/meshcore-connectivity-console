@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import tomllib
 
@@ -102,6 +103,20 @@ class AppConfig:
     web: WebConfig
     gateway: GatewayConfig
     endpoints: tuple[EndpointConfig, ...]
+
+
+def load_raw_config(config_path: str | Path) -> tuple[Path, dict[str, object]]:
+    path = _resolve_config_path(config_path)
+    with path.open("rb") as handle:
+        raw = tomllib.load(handle)
+    return path, raw
+
+
+def save_raw_config(config_path: str | Path, raw: dict[str, object]) -> Path:
+    path = _resolve_config_path(config_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_render_toml_document(raw), encoding="utf-8")
+    return path
 
 
 def load_config(config_path: str | Path) -> AppConfig:
@@ -232,3 +247,68 @@ def _resolve_config_path(config_path: str | Path) -> Path:
 
     repo_candidate = (Path(__file__).resolve().parent.parent / path).resolve()
     return repo_candidate
+
+
+def _render_toml_document(raw: dict[str, object]) -> str:
+    lines: list[str] = []
+    for key, value in raw.items():
+        if isinstance(value, dict):
+            lines.extend(_render_table([key], value))
+        elif _is_list_of_tables(value):
+            lines.extend(_render_array_of_tables(key, value))
+        else:
+            lines.append(f"{key} = {_toml_value(value)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_table(path: list[str], value: dict[str, object]) -> list[str]:
+    lines = [f"[{'.'.join(path)}]"]
+    nested_tables: list[tuple[str, dict[str, object]]] = []
+    array_tables: list[tuple[str, list[dict[str, object]]]] = []
+    for key, item in value.items():
+        if isinstance(item, dict):
+            nested_tables.append((key, item))
+            continue
+        if _is_list_of_tables(item):
+            array_tables.append((key, item))
+            continue
+        lines.append(f"{key} = {_toml_value(item)}")
+    for key, item in nested_tables:
+        lines.append("")
+        lines.extend(_render_table([*path, key], item))
+    for key, items in array_tables:
+        lines.append("")
+        lines.extend(_render_array_of_tables(".".join([*path, key]), items))
+    return lines
+
+
+def _render_array_of_tables(name: str, values: list[dict[str, object]]) -> list[str]:
+    lines: list[str] = []
+    for index, item in enumerate(values):
+        if index:
+            lines.append("")
+        lines.append(f"[[{name}]]")
+        for key, value in item.items():
+            if isinstance(value, dict) or _is_list_of_tables(value):
+                raise ValueError(f"unsupported nested endpoint config for key: {key}")
+            lines.append(f"{key} = {_toml_value(value)}")
+    return lines
+
+
+def _is_list_of_tables(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=True)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise TypeError(f"unsupported TOML value type: {type(value)!r}")
