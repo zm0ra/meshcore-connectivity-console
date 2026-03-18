@@ -36,12 +36,23 @@ class DirectProbeConsoleReporter:
     def __init__(self, *, verbose: bool) -> None:
         self.verbose = verbose
 
-    def print_start(self, *, repeater_id: int, name: object, endpoint_name: str, login: dict[str, object] | None) -> None:
+    def print_start(
+        self,
+        *,
+        repeater_id: int,
+        name: object,
+        endpoint_name: str,
+        login: dict[str, object] | None,
+        forced_login: tuple[str, str] | None = None,
+    ) -> None:
         print(f"Starting probe for RPT {repeater_id}: {name or '-'}")
         print(f"Endpoint: {endpoint_name}")
-        if login is not None:
+        if forced_login is not None:
+            password = "empty" if forced_login[1] == "" else "provided"
+            print(f"Preferred login: {forced_login[0]}/{password}")
+        elif login is not None:
             role = login.get("learned_login_role") or "-"
-            password = "configured" if login.get("learned_login_password") not in (None, "") else "empty"
+            password = "learned" if login.get("learned_login_password") not in (None, "") else "empty"
             print(f"Preferred login: {role}/{password}")
 
     def __call__(self, event: str, payload: dict[str, object]) -> None:
@@ -445,8 +456,8 @@ def main() -> None:
         endpoint = resolve_endpoint(config, args.endpoint)
         reporter = DirectProbeConsoleReporter(verbose=bool(args.verbose))
         if not args.verbose:
-            logging.getLogger("meshcore-bot.tcp_client").setLevel(logging.WARNING)
-            logging.getLogger(f"{config.service.name}.probe").setLevel(logging.WARNING)
+            logging.getLogger("meshcore-bot.tcp_client").setLevel(logging.ERROR)
+            logging.getLogger(f"{config.service.name}.probe").setLevel(logging.ERROR)
         forced_login = None
         if args.clear_learned_login:
             database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=0)
@@ -481,6 +492,7 @@ def main() -> None:
                 name=repeater.get("name"),
                 endpoint_name=endpoint.name,
                 login=database.preferred_repeater_login(repeater_id=repeater_id),
+                forced_login=forced_login,
             )
         try:
             asyncio.run(

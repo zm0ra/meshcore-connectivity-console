@@ -387,7 +387,14 @@ class GuestProbeWorker:
                 raise RuntimeError(f"path discovery produced no usable route on endpoint {endpoint.name}")
             for login_role, login_password in login_candidates:
                 for route_path_len, route_path_bytes in route_attempts:
-                    password_label = "empty" if login_password == "" else "configured"
+                    if login_password == "":
+                        password_label = "empty"
+                    elif forced_login is not None and (login_role, login_password) == forced_login:
+                        password_label = "provided"
+                    elif preferred_login_candidate is not None and (login_role, login_password) == preferred_login_candidate:
+                        password_label = "learned"
+                    else:
+                        password_label = "configured"
                     route_label = "direct" if route_path_len else "flood"
                     self._progress(
                         "login_attempt_started",
