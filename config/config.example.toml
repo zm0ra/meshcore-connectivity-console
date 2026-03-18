@@ -29,6 +29,8 @@ pre_login_advert_delay_secs = 1.0
 
 advert_reprobe_success_cooldown_secs = 60.0
 advert_reprobe_failure_cooldown_secs = 300.0
+advert_probe_min_interval_secs = 10.0
+advert_path_change_cooldown_secs = 300.0
 scheduled_reprobe_interval_secs = 7200.0
 night_failed_retry_start_hour = 1
 night_failed_retry_end_hour = 7

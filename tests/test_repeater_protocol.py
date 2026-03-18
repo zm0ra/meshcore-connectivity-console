@@ -95,6 +95,8 @@ def build_test_app_config(tmp_path) -> AppConfig:
             pre_login_advert_delay_secs=0.0,
             advert_reprobe_success_cooldown_secs=60.0,
             advert_reprobe_failure_cooldown_secs=300.0,
+            advert_probe_min_interval_secs=10.0,
+            advert_path_change_cooldown_secs=300.0,
             scheduled_reprobe_interval_secs=7200.0,
             night_failed_retry_start_hour=1,
             night_failed_retry_end_hour=7,
@@ -217,6 +219,8 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         pre_login_advert_delay_secs=1.0,
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
+        advert_probe_min_interval_secs=10.0,
+        advert_path_change_cooldown_secs=300.0,
         scheduled_reprobe_interval_secs=7200.0,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
@@ -249,6 +253,8 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         pre_login_advert_delay_secs=1.0,
         advert_reprobe_success_cooldown_secs=60.0,
         advert_reprobe_failure_cooldown_secs=300.0,
+        advert_probe_min_interval_secs=10.0,
+        advert_path_change_cooldown_secs=300.0,
         scheduled_reprobe_interval_secs=7200.0,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
@@ -1192,6 +1198,166 @@ def test_ingest_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None
     assert service._handle_packet.await_count == 1
 
 
+def test_ingest_skips_probe_for_stable_advert_after_recent_completed_probe(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+    endpoint = config.endpoints[0]
+    repeater_identity = LocalIdentity.generate()
+    observed_at = datetime.now(tz=UTC).isoformat()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name=endpoint.name,
+        observed_at=observed_at,
+        public_key=repeater_identity.public_key,
+        advert_name="stable-rpt",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name=endpoint.name)
+    database.save_repeater_path(repeater_id=repeater_id, encoded_path_len=1, path_hex="35", source="test")
+    database.complete_probe_run(
+        probe_run_id,
+        repeater_id=repeater_id,
+        result="completed",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=1,
+        login_server_time=1,
+        error_message=None,
+    )
+
+    advert_packet = build_advert_packet(
+        identity=repeater_identity,
+        name="stable-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    advert_packet.summary.path_len = 1
+    advert_packet.summary.path_bytes = bytes.fromhex("35")
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=advert_packet.packet.hex().upper(),
+        packet_hex=advert_packet.packet.hex().upper(),
+        summary=advert_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(endpoint, received))
+
+    assert database.claim_probe_job() is None
+    assert service.stats.advert_jobs_skipped_stable == 1
+
+
+def test_ingest_enqueues_probe_for_meaningful_path_change_after_cooldown(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+    endpoint = config.endpoints[0]
+    repeater_identity = LocalIdentity.generate()
+    observed_at = datetime.now(tz=UTC).isoformat()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name=endpoint.name,
+        observed_at=observed_at,
+        public_key=repeater_identity.public_key,
+        advert_name="path-rpt",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name=endpoint.name)
+    database.save_repeater_path(repeater_id=repeater_id, encoded_path_len=1, path_hex="35", source="test")
+    database.complete_probe_run(
+        probe_run_id,
+        repeater_id=repeater_id,
+        result="completed",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=1,
+        login_server_time=1,
+        error_message=None,
+    )
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE repeaters SET last_probe_at = ? WHERE id = ?",
+            ((datetime.now(tz=UTC) - timedelta(seconds=301)).isoformat(), repeater_id),
+        )
+
+    advert_packet = build_advert_packet(
+        identity=repeater_identity,
+        name="path-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    advert_packet.summary.path_len = 1
+    advert_packet.summary.path_bytes = bytes.fromhex("99")
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=advert_packet.packet.hex().upper(),
+        packet_hex=advert_packet.packet.hex().upper(),
+        summary=advert_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(endpoint, received))
+
+    claimed = database.claim_probe_job()
+    assert claimed is not None
+    assert claimed["repeater_id"] == repeater_id
+    assert claimed["reason"] == "repeater advert observed"
+
+
+def test_ingest_spaces_advert_probe_jobs_per_endpoint(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(base_config, probe=replace(base_config.probe, advert_probe_min_interval_secs=30.0))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+    endpoint = config.endpoints[0]
+
+    first_identity = LocalIdentity.generate()
+    second_identity = LocalIdentity.generate()
+    first_packet = build_advert_packet(
+        identity=first_identity,
+        name="first-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    second_packet = build_advert_packet(
+        identity=second_identity,
+        name="second-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    first_received = ReceivedPacket(
+        observed_at=datetime(2026, 3, 18, 8, 0, tzinfo=UTC).isoformat(),
+        frame_hex=first_packet.packet.hex().upper(),
+        packet_hex=first_packet.packet.hex().upper(),
+        summary=first_packet.summary,
+    )
+    second_received = ReceivedPacket(
+        observed_at=datetime(2026, 3, 18, 8, 0, 1, tzinfo=UTC).isoformat(),
+        frame_hex=second_packet.packet.hex().upper(),
+        packet_hex=second_packet.packet.hex().upper(),
+        summary=second_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(endpoint, first_received))
+    asyncio.run(service._handle_packet(endpoint, second_received))
+
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT scheduled_at FROM probe_jobs ORDER BY scheduled_at ASC, id ASC"
+        ).fetchall()
+    assert len(rows) == 2
+    first_scheduled = datetime.fromisoformat(str(rows[0]["scheduled_at"]))
+    second_scheduled = datetime.fromisoformat(str(rows[1]["scheduled_at"]))
+    assert (second_scheduled - first_scheduled).total_seconds() >= 30.0
+    assert service.stats.advert_jobs_deferred == 1
+
+
 def test_enqueue_probe_job_skips_recent_completed_advert_reprobe_but_allows_manual_reason(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
@@ -1237,6 +1403,32 @@ def test_enqueue_probe_job_skips_recent_completed_advert_reprobe_but_allows_manu
 
     assert skipped_job_id is None
     assert manual_job_id is not None
+
+
+def test_claim_probe_job_skips_future_scheduled_rows(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="future-job-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    future_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="repeater advert observed",
+        scheduled_at=(datetime.now(tz=UTC) + timedelta(minutes=10)).isoformat(),
+    )
+    assert future_job_id is not None
+    assert database.claim_probe_job() is None
 
 
 def test_enqueue_probe_job_uses_longer_failure_cooldown_for_recent_failed_advert(tmp_path) -> None:

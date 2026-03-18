@@ -35,6 +35,8 @@ class ProbeConfig:
     pre_login_advert_delay_secs: float
     advert_reprobe_success_cooldown_secs: float
     advert_reprobe_failure_cooldown_secs: float
+    advert_probe_min_interval_secs: float
+    advert_path_change_cooldown_secs: float
     scheduled_reprobe_interval_secs: float
     night_failed_retry_start_hour: int
     night_failed_retry_end_hour: int
@@ -157,6 +159,8 @@ def load_config(config_path: str | Path) -> AppConfig:
             advert_reprobe_failure_cooldown_secs=float(
                 probe.get("advert_reprobe_failure_cooldown_secs", legacy_advert_reprobe_cooldown_secs)
             ),
+            advert_probe_min_interval_secs=max(0.0, float(probe.get("advert_probe_min_interval_secs", 10.0))),
+            advert_path_change_cooldown_secs=max(0.0, float(probe.get("advert_path_change_cooldown_secs", 300.0))),
             scheduled_reprobe_interval_secs=float(probe.get("scheduled_reprobe_interval_secs", 7200.0)),
             night_failed_retry_start_hour=int(probe.get("night_failed_retry_start_hour", 1)),
             night_failed_retry_end_hour=int(probe.get("night_failed_retry_end_hour", 7)),

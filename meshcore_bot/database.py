@@ -380,8 +380,9 @@ class BotDatabase:
         reason: str,
         success_cooldown_secs: float = 0.0,
         failure_cooldown_secs: float = 0.0,
+        scheduled_at: str | None = None,
     ) -> int | None:
-        scheduled_at = utc_now_iso()
+        scheduled_time = scheduled_at or utc_now_iso()
         def operation(connection: sqlite3.Connection) -> int | None:
             existing = connection.execute(
                 """
@@ -419,7 +420,7 @@ class BotDatabase:
                     repeater_id, endpoint_name, reason, status, scheduled_at
                 ) VALUES (?, ?, ?, 'pending', ?)
                 """,
-                (repeater_id, endpoint_name, reason, scheduled_at),
+                (repeater_id, endpoint_name, reason, scheduled_time),
             )
             lastrowid = cursor.lastrowid
             assert lastrowid is not None
@@ -546,6 +547,19 @@ class BotDatabase:
                 enqueued += 1
         return enqueued
 
+    def repeater_probe_state(self, *, repeater_id: int) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, last_seen_at, last_name_from_advert, last_probe_status, last_probe_at
+                FROM repeaters
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
+
     def claim_probe_job(self) -> dict[str, object] | None:
         started_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> dict[str, object] | None:
@@ -557,9 +571,11 @@ class BotDatabase:
                 FROM probe_jobs pj
                 JOIN repeaters r ON r.id = pj.repeater_id
                 WHERE pj.status = 'pending'
+                    AND pj.scheduled_at <= ?
                 ORDER BY pj.scheduled_at ASC, pj.id ASC
                 LIMIT 1
-                """
+                  """,
+                  (started_at,),
             ).fetchone()
             if row is None:
                 connection.commit()
@@ -872,6 +888,38 @@ class BotDatabase:
                     FROM repeater_adverts
                     WHERE repeater_id = ? AND endpoint_name = ?
                       AND path_len IS NOT NULL AND path_len > 0 AND path_hex IS NOT NULL AND path_hex != ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (repeater_id, endpoint_name, limit),
+                ).fetchall()
+            return [dict(row) for row in rows]
+
+    def recent_repeater_adverts(
+        self,
+        *,
+        repeater_id: int,
+        endpoint_name: str | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            if endpoint_name is None:
+                rows = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (repeater_id, limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT endpoint_name, observed_at, path_len, path_hex, advert_name
+                    FROM repeater_adverts
+                    WHERE repeater_id = ? AND endpoint_name = ?
                     ORDER BY id DESC
                     LIMIT ?
                     """,

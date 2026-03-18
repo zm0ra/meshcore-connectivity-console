@@ -97,6 +97,8 @@ def main() -> None:
                 "pre_login_advert_delay_secs": config.probe.pre_login_advert_delay_secs,
                 "advert_reprobe_success_cooldown_secs": config.probe.advert_reprobe_success_cooldown_secs,
                 "advert_reprobe_failure_cooldown_secs": config.probe.advert_reprobe_failure_cooldown_secs,
+                "advert_probe_min_interval_secs": config.probe.advert_probe_min_interval_secs,
+                "advert_path_change_cooldown_secs": config.probe.advert_path_change_cooldown_secs,
                 "scheduled_reprobe_interval_secs": config.probe.scheduled_reprobe_interval_secs,
                 "night_failed_retry_start_hour": config.probe.night_failed_retry_start_hour,
                 "night_failed_retry_end_hour": config.probe.night_failed_retry_end_hour,

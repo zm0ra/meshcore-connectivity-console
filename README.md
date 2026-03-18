@@ -149,6 +149,13 @@ Most important configuration sections:
 
 Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
 
+Advert-driven probing is intentionally selective.
+
+- stable adverts do not automatically trigger fresh probes anymore
+- advert-triggered probing is mainly for first-seen repeaters, recent failures, and meaningful path changes
+- `[probe].advert_probe_min_interval_secs` spaces advert-triggered jobs per endpoint to avoid bursts
+- `[probe].advert_path_change_cooldown_secs` suppresses route-flap induced reprobe storms
+
 ## Local run
 
 ```bash

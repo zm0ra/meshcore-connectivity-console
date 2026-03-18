@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Callable
 
 from .config import AppConfig, EndpointConfig
@@ -10,6 +11,7 @@ from .database import BotDatabase
 from .mesh_packets import AdvertType, describe_packet_summary, parse_advert
 from .tcp_client import MeshcoreTCPClient, ReceivedPacket
 from .transport import PacketTransportClient
+from .probe_service import is_recent_observation
 
 
 @dataclass(slots=True)
@@ -18,6 +20,9 @@ class IngestStats:
     adverts_seen: int = 0
     repeater_adverts_seen: int = 0
     jobs_enqueued: int = 0
+    advert_jobs_skipped_stable: int = 0
+    advert_jobs_skipped_recent_path_change: int = 0
+    advert_jobs_deferred: int = 0
 
 
 class AdvertIngestService:
@@ -37,6 +42,7 @@ class AdvertIngestService:
         self._stop_event = asyncio.Event()
         self._tasks: list[asyncio.Task[None]] = []
         self._transport_factory = transport_factory or self._build_direct_transport
+        self._next_advert_probe_slot_at: dict[str, datetime] = {}
 
     async def run(self) -> None:
         self.database.initialize()
@@ -142,7 +148,14 @@ class AdvertIngestService:
             reason="repeater advert observed",
             success_cooldown_secs=self.config.probe.advert_reprobe_success_cooldown_secs,
             failure_cooldown_secs=self.config.probe.advert_reprobe_failure_cooldown_secs,
-        )
+            scheduled_at=self._planned_advert_probe_time(endpoint.name, packet.observed_at, repeater_id, summary.path_len, summary.path_bytes.hex().upper()),
+        ) if self._should_enqueue_advert_probe(
+            repeater_id=repeater_id,
+            endpoint_name=endpoint.name,
+            observed_at=packet.observed_at,
+            current_path_len=summary.path_len,
+            current_path_hex=summary.path_bytes.hex().upper(),
+        ) else None
         if job_id is not None:
             self.stats.jobs_enqueued += 1
             self.logger.info(
@@ -151,3 +164,84 @@ class AdvertIngestService:
                 advert.public_key.hex().upper()[:12],
                 endpoint.name,
             )
+
+    def _should_enqueue_advert_probe(
+        self,
+        *,
+        repeater_id: int,
+        endpoint_name: str,
+        observed_at: str,
+        current_path_len: int,
+        current_path_hex: str,
+    ) -> bool:
+        state = self.database.repeater_probe_state(repeater_id=repeater_id)
+        if state is None:
+            return True
+        last_probe_at = str(state.get("last_probe_at") or "") or None
+        last_probe_status = str(state.get("last_probe_status") or "") or None
+        if last_probe_at is None:
+            return True
+        if last_probe_status in {"failed", "interrupted", "running"}:
+            return True
+
+        current_path = self._normalized_path(current_path_len, current_path_hex)
+        latest_path_row = self.database.latest_repeater_path(repeater_id=repeater_id)
+        latest_probe_path = self._normalized_path_from_row(latest_path_row, len_key="out_path_len", hex_key="out_path_hex")
+        if latest_probe_path is not None and current_path != latest_probe_path:
+            if is_recent_observation(last_probe_at, self.config.probe.advert_path_change_cooldown_secs):
+                self.stats.advert_jobs_skipped_recent_path_change += 1
+                return False
+            return True
+
+        recent_adverts = self.database.recent_repeater_adverts(repeater_id=repeater_id, endpoint_name=endpoint_name, limit=2)
+        if len(recent_adverts) >= 2:
+            previous_path = self._normalized_path_from_row(recent_adverts[1], len_key="path_len", hex_key="path_hex")
+            if previous_path is not None and current_path != previous_path:
+                if is_recent_observation(last_probe_at, self.config.probe.advert_path_change_cooldown_secs):
+                    self.stats.advert_jobs_skipped_recent_path_change += 1
+                    return False
+                return True
+
+        self.stats.advert_jobs_skipped_stable += 1
+        return False
+
+    def _planned_advert_probe_time(
+        self,
+        endpoint_name: str,
+        observed_at: str,
+        repeater_id: int,
+        current_path_len: int,
+        current_path_hex: str,
+    ) -> str:
+        observed = self._parse_iso_timestamp(observed_at)
+        min_interval = self.config.probe.advert_probe_min_interval_secs
+        if min_interval <= 0:
+            return observed.isoformat()
+        next_slot = self._next_advert_probe_slot_at.get(endpoint_name)
+        scheduled = observed if next_slot is None or observed >= next_slot else next_slot
+        if scheduled > observed:
+            self.stats.advert_jobs_deferred += 1
+            self.logger.info(
+                "[PROBE-DEFER] endpoint=%s repeater_id=%s delay=%.1fs path=%s/%s",
+                endpoint_name,
+                repeater_id,
+                (scheduled - observed).total_seconds(),
+                current_path_len,
+                current_path_hex or "-",
+            )
+        self._next_advert_probe_slot_at[endpoint_name] = scheduled + timedelta(seconds=min_interval)
+        return scheduled.isoformat()
+
+    def _normalized_path_from_row(self, row: dict[str, object] | None, *, len_key: str, hex_key: str) -> tuple[int, str] | None:
+        if row is None:
+            return None
+        return self._normalized_path(int(row.get(len_key) or 0), str(row.get(hex_key) or ""))
+
+    def _normalized_path(self, path_len: int, path_hex: str) -> tuple[int, str]:
+        return max(0, int(path_len)), str(path_hex or "").strip().upper()
+
+    def _parse_iso_timestamp(self, value: str) -> datetime:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
