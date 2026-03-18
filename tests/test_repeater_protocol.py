@@ -389,7 +389,7 @@ def test_bot_service_replies_to_ping(tmp_path) -> None:
     asyncio.run(exercise())
 
     assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
-    assert fake_client.quiet_windows == [service.QUIET_WINDOW_SECS]
+    assert fake_client.quiet_windows == [service.QUIET_WINDOW_SECS] * service.RESPONSE_ATTEMPTS
     decoded_packets = [parse_group_text(parse_packet(packet), channel_secret=secret) for packet in fake_client.sent_packets]
     assert all(decoded is not None for decoded in decoded_packets)
     attempts = [cast(Any, decoded).attempt for decoded in decoded_packets]
@@ -665,36 +665,7 @@ def test_bot_service_retries_only_after_missing_echo(tmp_path) -> None:
     asyncio.run(exercise())
 
     assert len(fake_client.sent_packets) == service.RESPONSE_ATTEMPTS
-
-
-def test_bot_service_does_not_retry_when_transport_confirms_local_send(tmp_path) -> None:
-    class LocalAckFakeTCPClient(FakeTCPClient):
-        confirms_local_send = True
-
-    config = build_test_app_config(tmp_path)
-    database = BotDatabase(config.storage.database_path)
-    database.initialize()
-    secret = derive_hashtag_secret("#bot-test")
-    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret, timestamp=123456)
-    received = ReceivedPacket(
-        observed_at=datetime.now(tz=UTC).isoformat(),
-        frame_hex=incoming.packet.hex().upper(),
-        packet_hex=incoming.packet.hex().upper(),
-        summary=incoming.summary,
-    )
-    fake_client = LocalAckFakeTCPClient([])
-    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: fake_client)
-    service.MIN_RESPONSE_DELAY_SECS = 0.0
-    service.ECHO_ACK_TIMEOUT_SECS = 1.0
-    service.RESPONSE_RETRY_DELAY_SECS = 0.0
-
-    async def exercise() -> None:
-        await service._handle_packet(config.endpoints[0], fake_client, received)
-        await asyncio.sleep(0.05)
-
-    asyncio.run(exercise())
-
-    assert len(fake_client.sent_packets) == 1
+    assert fake_client.quiet_windows == [service.QUIET_WINDOW_SECS, service.QUIET_WINDOW_SECS]
 
 
 def test_bot_service_retry_delay_uses_backoff_multiplier(tmp_path) -> None:

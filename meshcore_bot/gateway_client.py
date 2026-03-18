@@ -9,8 +9,6 @@ from .tcp_client import ReceivedPacket
 
 
 class GatewayTransportClient:
-    confirms_local_send = True
-
     def __init__(
         self,
         *,
