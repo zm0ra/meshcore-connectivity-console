@@ -57,6 +57,7 @@ class BotConfig:
     enabled_commands: tuple[str, ...]
     min_response_delay_secs: float
     response_attempts: int
+    response_attempts_max: int
     echo_ack_timeout_secs: float
     response_retry_delay_secs: float
     response_retry_backoff_multiplier: float
@@ -183,6 +184,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             ),
             min_response_delay_secs=float(bot.get("min_response_delay_secs", 1.0)),
             response_attempts=max(1, int(bot.get("response_attempts", 5))),
+            response_attempts_max=max(1, int(bot.get("response_attempts_max", 30))),
             echo_ack_timeout_secs=max(0.0, float(bot.get("echo_ack_timeout_secs", 2.0))),
             response_retry_delay_secs=float(bot.get("response_retry_delay_secs", 2.0)),
             response_retry_backoff_multiplier=max(1.0, float(bot.get("response_retry_backoff_multiplier", 2.0))),

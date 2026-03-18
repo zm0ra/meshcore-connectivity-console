@@ -133,6 +133,7 @@ The bot is intentionally small and operationally narrow.
 - current supported commands are `!ping`, `!test`, and `!help`
 - it does not send self adverts
 - it does not handle private messages
+- replies are retried until their own echo is seen or the adaptive retry budget reaches `[bot].response_attempts_max`
 
 ## Configuration
 
@@ -146,6 +147,13 @@ Most important configuration sections:
 - `[probe]`: repeater probe behavior, credentials, retry windows
 - `[bot]`: enabled channels, commands, response behavior
 - `[web]`: dashboard bind address
+
+Bot retries are adaptive.
+
+- `[bot].response_attempts` is the starting retry budget for a fresh channel state
+- failed replies increase the future budget gradually, up to `[bot].response_attempts_max`
+- successful echoes let the budget fall back down over time toward the base value
+- the bot still treats echo as the only success signal; local send completion is not enough
 
 Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
 

@@ -115,6 +115,7 @@ def build_test_app_config(tmp_path) -> AppConfig:
             enabled_commands=("!ping", "!test", "!help"),
             min_response_delay_secs=1.0,
             response_attempts=2,
+            response_attempts_max=30,
             echo_ack_timeout_secs=0.0,
             response_retry_delay_secs=1.75,
             response_retry_backoff_multiplier=1.0,
@@ -695,6 +696,75 @@ def test_bot_service_retry_delay_respects_max_cap(tmp_path) -> None:
     assert round(service._retry_delay_for_attempt(2), 2) == 4.00
     assert round(service._retry_delay_for_attempt(3), 2) == 8.00
     assert round(service._retry_delay_for_attempt(4), 2) == 10.00
+
+
+def test_bot_service_increases_future_attempt_budget_after_unconfirmed_reply(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    service.RESPONSE_ATTEMPTS = 2
+    service.RESPONSE_ATTEMPTS_MAX = 4
+
+    service._record_reply_outcome(
+        endpoint_name="test-endpoint",
+        channel_name="#bot-test",
+        success=False,
+        attempts_used=2,
+        planned_attempts=2,
+    )
+
+    assert service._planned_response_attempts("test-endpoint", "#bot-test") == 3
+
+    service._record_reply_outcome(
+        endpoint_name="test-endpoint",
+        channel_name="#bot-test",
+        success=False,
+        attempts_used=3,
+        planned_attempts=3,
+    )
+
+    assert service._planned_response_attempts("test-endpoint", "#bot-test") == 4
+
+    service._record_reply_outcome(
+        endpoint_name="test-endpoint",
+        channel_name="#bot-test",
+        success=False,
+        attempts_used=4,
+        planned_attempts=4,
+    )
+
+    assert service._planned_response_attempts("test-endpoint", "#bot-test") == 4
+
+
+def test_bot_service_reduces_future_attempt_budget_after_echo_success(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = ChannelCommandBotService(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    service.RESPONSE_ATTEMPTS = 2
+    service.RESPONSE_ATTEMPTS_MAX = 30
+    service._adaptive_response_attempts[("test-endpoint", "#bot-test")] = 6
+
+    service._record_reply_outcome(
+        endpoint_name="test-endpoint",
+        channel_name="#bot-test",
+        success=True,
+        attempts_used=1,
+        planned_attempts=6,
+    )
+
+    assert service._planned_response_attempts("test-endpoint", "#bot-test") == 5
+
+    service._record_reply_outcome(
+        endpoint_name="test-endpoint",
+        channel_name="#bot-test",
+        success=True,
+        attempts_used=2,
+        planned_attempts=5,
+    )
+
+    assert service._planned_response_attempts("test-endpoint", "#bot-test") == 3
 
 
 def test_private_text_packet_roundtrip() -> None:

@@ -33,6 +33,7 @@ class PendingReply:
     task: asyncio.Task[None]
     echo_event: asyncio.Event
     expected_texts: frozenset[str]
+    planned_attempts: int
     sent_attempts: int = 0
 
 
@@ -62,6 +63,7 @@ class ChannelCommandBotService:
         self.COMMAND_DEDUP_TTL_SECS = config.bot.command_dedup_ttl_secs
         self.QUIET_WINDOW_SECS = config.bot.quiet_window_secs
         self.RESPONSE_ATTEMPTS = max(1, config.bot.response_attempts)
+        self.RESPONSE_ATTEMPTS_MAX = max(self.RESPONSE_ATTEMPTS, config.bot.response_attempts_max)
         self.ECHO_ACK_TIMEOUT_SECS = max(0.0, config.bot.echo_ack_timeout_secs)
         self.RESPONSE_RETRY_DELAY_SECS = config.bot.response_retry_delay_secs
         self.RESPONSE_RETRY_BACKOFF_MULTIPLIER = max(1.0, config.bot.response_retry_backoff_multiplier)
@@ -73,6 +75,7 @@ class ChannelCommandBotService:
         self._send_locks: dict[str, asyncio.Lock] = {}
         self._recent_commands: dict[tuple[str, str, int, str], datetime] = {}
         self._pending_replies: dict[tuple[str, str, int, str], PendingReply] = {}
+        self._adaptive_response_attempts: dict[tuple[str, str], int] = {}
 
     async def run(self) -> None:
         self.database.initialize()
@@ -237,15 +240,21 @@ class ChannelCommandBotService:
         full_text = f"{self.sender_name}: {reply}"
         reply_key = (endpoint.name, channel_name, wire_timestamp, full_text)
         echo_event = asyncio.Event()
+        planned_attempts = self._planned_response_attempts(endpoint.name, channel_name)
         expected_texts = frozenset(
-            f"{self.sender_name}: {self._format_reply_attempt(reply, attempt + 1)}"
-            for attempt in range(self.RESPONSE_ATTEMPTS)
+            f"{self.sender_name}: {self._format_reply_attempt(reply, attempt + 1, planned_attempts)}"
+            for attempt in range(planned_attempts)
         )
         task = asyncio.create_task(
-            self._send_channel_reply(endpoint, client, channel_name, reply, wire_timestamp, reply_key, echo_event),
+            self._send_channel_reply(endpoint, client, channel_name, reply, wire_timestamp, reply_key, echo_event, planned_attempts),
             name=f"bot-reply:{endpoint.name}:{wire_timestamp}",
         )
-        self._pending_replies[reply_key] = PendingReply(task=task, echo_event=echo_event, expected_texts=expected_texts)
+        self._pending_replies[reply_key] = PendingReply(
+            task=task,
+            echo_event=echo_event,
+            expected_texts=expected_texts,
+            planned_attempts=planned_attempts,
+        )
 
     def _acknowledge_pending_reply(self, endpoint_name: str, channel_name: str, wire_timestamp: int, decoded_text: str) -> None:
         reply_key, pending = self._find_pending_reply(endpoint_name, channel_name, wire_timestamp, decoded_text)
@@ -276,8 +285,31 @@ class ChannelCommandBotService:
                 return reply_key, pending
         return None, None
 
-    def _format_reply_attempt(self, reply: str, attempt_number: int) -> str:
-        return f"{reply} tx {attempt_number}/{self.RESPONSE_ATTEMPTS}"
+    def _format_reply_attempt(self, reply: str, attempt_number: int, total_attempts: int) -> str:
+        return f"{reply} tx {attempt_number}/{total_attempts}"
+
+    def _planned_response_attempts(self, endpoint_name: str, channel_name: str) -> int:
+        return self._adaptive_response_attempts.get((endpoint_name, channel_name), self.RESPONSE_ATTEMPTS)
+
+    def _record_reply_outcome(
+        self,
+        *,
+        endpoint_name: str,
+        channel_name: str,
+        success: bool,
+        attempts_used: int,
+        planned_attempts: int,
+    ) -> None:
+        key = (endpoint_name, channel_name)
+        current = self._adaptive_response_attempts.get(key, self.RESPONSE_ATTEMPTS)
+        if success:
+            if attempts_used <= 1:
+                next_attempts = max(self.RESPONSE_ATTEMPTS, current - 1)
+            else:
+                next_attempts = max(self.RESPONSE_ATTEMPTS, min(self.RESPONSE_ATTEMPTS_MAX, attempts_used + 1))
+        else:
+            next_attempts = min(self.RESPONSE_ATTEMPTS_MAX, max(current, planned_attempts) + 1)
+        self._adaptive_response_attempts[key] = next_attempts
 
     def _retry_delay_for_attempt(self, attempt_number: int) -> float:
         if self.RESPONSE_RETRY_DELAY_SECS <= 0:
@@ -305,12 +337,13 @@ class ChannelCommandBotService:
         wire_timestamp: int,
         reply_key: tuple[str, str, int, str],
         echo_event: asyncio.Event,
+        planned_attempts: int,
     ) -> None:
         try:
-            for attempt in range(self.RESPONSE_ATTEMPTS):
+            for attempt in range(planned_attempts):
                 if attempt > 0:
                     await self._activate_quiet_window(client, channel_name)
-                attempt_reply = self._format_reply_attempt(reply, attempt + 1)
+                attempt_reply = self._format_reply_attempt(reply, attempt + 1, planned_attempts)
                 envelope = build_group_text_packet(
                     sender_name=self.sender_name,
                     message=attempt_reply,
@@ -334,10 +367,17 @@ class ChannelCommandBotService:
                     endpoint.name,
                     channel_name,
                     attempt + 1,
-                    self.RESPONSE_ATTEMPTS,
+                    planned_attempts,
                     attempt_reply,
                 )
                 if echo_event.is_set():
+                    self._record_reply_outcome(
+                        endpoint_name=endpoint.name,
+                        channel_name=channel_name,
+                        success=True,
+                        attempts_used=attempt + 1,
+                        planned_attempts=planned_attempts,
+                    )
                     self.logger.info(
                         "[BOT-MONITOR] endpoint=%s channel=%s ts=%s status=echo-seen attempt=%s",
                         endpoint.name,
@@ -346,7 +386,7 @@ class ChannelCommandBotService:
                         attempt + 1,
                     )
                     return
-                if attempt + 1 < self.RESPONSE_ATTEMPTS:
+                if attempt + 1 < planned_attempts:
                     try:
                         await asyncio.wait_for(echo_event.wait(), timeout=self.ECHO_ACK_TIMEOUT_SECS)
                     except asyncio.TimeoutError:
@@ -357,13 +397,20 @@ class ChannelCommandBotService:
                             channel_name,
                             wire_timestamp,
                             attempt + 1,
-                            self.RESPONSE_ATTEMPTS,
+                            planned_attempts,
                             self.ECHO_ACK_TIMEOUT_SECS,
                             next_delay,
                         )
                         if next_delay > 0:
                             await asyncio.sleep(next_delay)
                     else:
+                        self._record_reply_outcome(
+                            endpoint_name=endpoint.name,
+                            channel_name=channel_name,
+                            success=True,
+                            attempts_used=attempt + 1,
+                            planned_attempts=planned_attempts,
+                        )
                         self.logger.info(
                             "[BOT-MONITOR] endpoint=%s channel=%s ts=%s status=echo-seen attempt=%s",
                             endpoint.name,
@@ -372,12 +419,19 @@ class ChannelCommandBotService:
                             attempt + 1,
                         )
                         return
+            self._record_reply_outcome(
+                endpoint_name=endpoint.name,
+                channel_name=channel_name,
+                success=False,
+                attempts_used=planned_attempts,
+                planned_attempts=planned_attempts,
+            )
             self.logger.warning(
                 "[BOT-UNCONFIRMED] endpoint=%s channel=%s ts=%s attempts=%s",
                 endpoint.name,
                 channel_name,
                 wire_timestamp,
-                self.RESPONSE_ATTEMPTS,
+                planned_attempts,
             )
         except asyncio.CancelledError:
             self.logger.info("[BOT-TX-CANCEL] endpoint=%s channel=%s ts=%s", endpoint.name, channel_name, wire_timestamp)

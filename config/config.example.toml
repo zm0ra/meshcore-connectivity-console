@@ -49,6 +49,7 @@ channels = ["#bot"]
 enabled_commands = ["!ping", "!test", "!help"]
 min_response_delay_secs = 1.0
 response_attempts = 5
+response_attempts_max = 30
 echo_ack_timeout_secs = 2.0
 response_retry_delay_secs = 2.0
 response_retry_backoff_multiplier = 2.0

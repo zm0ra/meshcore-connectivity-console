@@ -116,6 +116,7 @@ def main() -> None:
                 "enabled_commands": list(config.bot.enabled_commands),
                 "min_response_delay_secs": config.bot.min_response_delay_secs,
                 "response_attempts": config.bot.response_attempts,
+                "response_attempts_max": config.bot.response_attempts_max,
                 "echo_ack_timeout_secs": config.bot.echo_ack_timeout_secs,
                 "response_retry_delay_secs": config.bot.response_retry_delay_secs,
                 "response_retry_backoff_multiplier": config.bot.response_retry_backoff_multiplier,
