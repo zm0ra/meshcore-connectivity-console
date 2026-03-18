@@ -2495,6 +2495,151 @@ enabled = true
     assert observed_kwargs["force_path_discovery"] is True
 
 
+def test_cli_repeater_probe_now_prefers_endpoint_from_advert_path(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "alpha"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+
+[[endpoints]]
+name = "beta"
+raw_host = "127.0.0.1"
+raw_port = 5003
+enabled = true
+""".strip()
+    )
+
+    pubkey = LocalIdentity.generate().public_key
+    pubkey_hex = pubkey.hex().upper()
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-add", "--config", str(config_path), "--pubkey", pubkey_hex, "--name", "CLI RPT"])
+    cli_main.main()
+    add_payload = json.loads(capsys.readouterr().out)
+    repeater_id = int(add_payload["repeater_id"])
+
+    config = load_config(config_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    database.upsert_repeater_from_advert(
+        endpoint_name="beta",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=pubkey,
+        advert_name="CLI RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    observed_kwargs: dict[str, object] = {}
+
+    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, **kwargs) -> None:
+        observed_kwargs.update(kwargs)
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=1,
+            firmware_capability_level=2,
+            login_server_time=123,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", fake_probe_repeater_as_guest)
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe-now", "--config", str(config_path), str(repeater_id)])
+    cli_main.main()
+    output = capsys.readouterr().out
+
+    assert "Endpoint: beta" in output
+    assert observed_kwargs["endpoint"].name == "beta"
+
+
+def test_cli_repeater_probe_prefers_endpoint_from_advert_path(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "alpha"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+
+[[endpoints]]
+name = "beta"
+raw_host = "127.0.0.1"
+raw_port = 5003
+enabled = true
+""".strip()
+    )
+
+    pubkey = LocalIdentity.generate().public_key
+    pubkey_hex = pubkey.hex().upper()
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-add", "--config", str(config_path), "--pubkey", pubkey_hex, "--name", "CLI RPT"])
+    cli_main.main()
+    add_payload = json.loads(capsys.readouterr().out)
+    repeater_id = int(add_payload["repeater_id"])
+
+    config = load_config(config_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    database.upsert_repeater_from_advert(
+        endpoint_name="beta",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=pubkey,
+        advert_name="CLI RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe", "--config", str(config_path), str(repeater_id)])
+    cli_main.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["endpoint_name"] == "beta"
+
+
 def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:
     config = ProbeConfig(
         key_file_path=None,

@@ -128,6 +128,26 @@ def default_endpoint_name(config) -> str:
     raise SystemExit("no endpoints configured")
 
 
+def resolve_probe_endpoint(config, database: BotDatabase, repeater_id: int, endpoint_name: str | None):
+    if endpoint_name is not None:
+        return resolve_endpoint(config, endpoint_name)
+
+    for advert_row in (
+        database.latest_repeater_advert_path(repeater_id=repeater_id),
+        database.latest_repeater_advert(repeater_id=repeater_id),
+    ):
+        if advert_row is None:
+            continue
+        candidate_name = str(advert_row.get("endpoint_name") or "").strip()
+        if not candidate_name:
+            continue
+        for endpoint in config.endpoints:
+            if endpoint.name == candidate_name and endpoint.enabled:
+                return endpoint
+
+    return resolve_endpoint(config, None)
+
+
 def resolve_repeater(database: BotDatabase, selector: str) -> dict[str, object]:
     normalized = selector.strip()
     if not normalized:
@@ -460,7 +480,7 @@ def main() -> None:
         database.initialize()
         repeater = resolve_repeater(database, args.selector)
         repeater_id = int(repeater["id"])
-        endpoint = resolve_endpoint(config, args.endpoint)
+        endpoint = resolve_probe_endpoint(config, database, repeater_id, args.endpoint)
         reporter = DirectProbeConsoleReporter(verbose=bool(args.verbose))
         if not args.verbose:
             logging.getLogger("meshcore-bot.tcp_client").setLevel(logging.ERROR)
@@ -651,7 +671,7 @@ def main() -> None:
         scheduled_at = None
         if float(args.schedule_after_secs) > 0:
             scheduled_at = (datetime.now(tz=UTC) + timedelta(seconds=float(args.schedule_after_secs))).isoformat()
-        endpoint_name = args.endpoint or default_endpoint_name(config)
+        endpoint_name = resolve_probe_endpoint(config, database, repeater_id, args.endpoint).name
         job_id = database.enqueue_probe_job(
             repeater_id=repeater_id,
             endpoint_name=endpoint_name,
