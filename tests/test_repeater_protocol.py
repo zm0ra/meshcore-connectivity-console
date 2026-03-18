@@ -927,6 +927,65 @@ def test_bridge_gateway_ignores_idle_receive_timeout_without_reconnect(tmp_path)
     assert service._broadcast_packet.await_count == 1
 
 
+def test_bridge_gateway_reconnects_after_watchdog_idle_period(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    config = replace(config, gateway=replace(config.gateway, traffic_watchdog_secs=0.02))
+    received_packet = build_received_packet()
+
+    class FakeGatewayTCPClient:
+        instances: list[FakeGatewayTCPClient] = []
+
+        def __init__(self, host: str, port: int) -> None:
+            self.host = host
+            self.port = port
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.receive_calls = 0
+            self.connected_at = 0.0
+            FakeGatewayTCPClient.instances.append(self)
+
+        async def connect(self) -> None:
+            self.connect_calls += 1
+            self.connected_at = asyncio.get_running_loop().time()
+
+        async def close(self) -> None:
+            self.close_calls += 1
+
+        def seconds_since_last_activity(self) -> float:
+            return asyncio.get_running_loop().time() - self.connected_at
+
+        def seconds_since_last_rx(self) -> float:
+            return asyncio.get_running_loop().time() - self.connected_at
+
+        async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
+            self.receive_calls += 1
+            if len(FakeGatewayTCPClient.instances) == 1:
+                await asyncio.sleep(0.03)
+                raise asyncio.TimeoutError()
+            return received_packet
+
+    service = BridgeGatewayService(config)
+    runtime = service._endpoint_runtimes["test-endpoint"]
+
+    async def stop_after_broadcast(endpoint_name: str, packet: ReceivedPacket) -> None:
+        assert endpoint_name == "test-endpoint"
+        assert packet is received_packet
+        service._stop_event.set()
+
+    with patch("meshcore_bot.bridge_gateway.MeshcoreTCPClient", FakeGatewayTCPClient):
+        service._broadcast_packet = AsyncMock(side_effect=stop_after_broadcast)
+        service._probe_console_mirror = AsyncMock(return_value="not-configured")
+        asyncio.run(service._run_endpoint(runtime))
+
+    assert len(FakeGatewayTCPClient.instances) == 2
+    assert FakeGatewayTCPClient.instances[0].connect_calls == 1
+    assert FakeGatewayTCPClient.instances[0].close_calls == 1
+    assert FakeGatewayTCPClient.instances[1].connect_calls == 1
+    assert FakeGatewayTCPClient.instances[1].close_calls == 1
+    assert service._probe_console_mirror.await_count == 1
+    assert service._broadcast_packet.await_count == 1
+
+
 def test_bridge_gateway_reconnects_after_connection_error(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     received_packet = build_received_packet()
@@ -1002,6 +1061,36 @@ def test_meshcore_tcp_client_surfaces_remote_disconnect_without_hanging() -> Non
             await client.close()
             server.close()
             await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_meshcore_tcp_client_aborts_stuck_close() -> None:
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.abort_calls = 0
+
+        def abort(self) -> None:
+            self.abort_calls += 1
+
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.close_calls = 0
+            self.transport = FakeTransport()
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+        async def wait_closed(self) -> None:
+            await asyncio.sleep(60)
+
+    async def scenario() -> None:
+        client = MeshcoreTCPClient("127.0.0.1", 5002)
+        writer = FakeWriter()
+        client._writer = cast(Any, writer)
+        await client.close(timeout=0.01)
+        assert writer.close_calls == 1
+        assert writer.transport.abort_calls == 1
 
     asyncio.run(scenario())
 

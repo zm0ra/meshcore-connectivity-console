@@ -73,6 +73,9 @@ class WebConfig:
 class GatewayConfig:
     control_socket_path: Path
     event_socket_path: Path
+    traffic_watchdog_secs: float = 900.0
+    close_timeout_secs: float = 2.0
+    console_probe_timeout_secs: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,8 @@ class EndpointConfig:
     raw_host: str
     raw_port: int
     enabled: bool
+    console_mirror_host: str | None = None
+    console_mirror_port: int | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +121,10 @@ def load_config(config_path: str | Path) -> AppConfig:
             raw_host=str(item["raw_host"]),
             raw_port=int(item.get("raw_port", 5002)),
             enabled=bool(item.get("enabled", True)),
+            console_mirror_host=str(item["console_mirror_host"]).strip() or None
+            if item.get("console_mirror_host") is not None
+            else None,
+            console_mirror_port=int(item["console_mirror_port"]) if item.get("console_mirror_port") is not None else None,
         )
         for item in raw.get("endpoints", [])
     )
@@ -183,6 +192,9 @@ def load_config(config_path: str | Path) -> AppConfig:
         gateway=GatewayConfig(
             control_socket_path=_resolve_path(base_dir, str(gateway.get("control_socket_path", "./data/gateway/control.sock"))),
             event_socket_path=_resolve_path(base_dir, str(gateway.get("event_socket_path", "./data/gateway/events.sock"))),
+            traffic_watchdog_secs=max(0.0, float(gateway.get("traffic_watchdog_secs", 900.0))),
+            close_timeout_secs=max(0.0, float(gateway.get("close_timeout_secs", 2.0))),
+            console_probe_timeout_secs=max(0.0, float(gateway.get("console_probe_timeout_secs", 1.0))),
         ),
         endpoints=endpoints,
     )

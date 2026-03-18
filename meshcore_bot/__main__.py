@@ -128,6 +128,9 @@ def main() -> None:
             "gateway": {
                 "control_socket_path": str(config.gateway.control_socket_path),
                 "event_socket_path": str(config.gateway.event_socket_path),
+                "traffic_watchdog_secs": config.gateway.traffic_watchdog_secs,
+                "close_timeout_secs": config.gateway.close_timeout_secs,
+                "console_probe_timeout_secs": config.gateway.console_probe_timeout_secs,
             },
             "endpoints": [
                 {
@@ -135,6 +138,8 @@ def main() -> None:
                     "raw_host": endpoint.raw_host,
                     "raw_port": endpoint.raw_port,
                     "enabled": endpoint.enabled,
+                    "console_mirror_host": endpoint.console_mirror_host,
+                    "console_mirror_port": endpoint.console_mirror_port,
                 }
                 for endpoint in config.endpoints
             ],

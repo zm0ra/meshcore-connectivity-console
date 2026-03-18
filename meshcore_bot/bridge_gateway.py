@@ -96,6 +96,9 @@ class BridgeGatewayService:
                     try:
                         packet = await client.receive_packet(timeout=self.RECEIVE_IDLE_TIMEOUT_SECS)
                     except asyncio.TimeoutError:
+                        watchdog_reason = await self._watchdog_reason(endpoint, client)
+                        if watchdog_reason is not None:
+                            raise ConnectionError(watchdog_reason)
                         continue
                     await self._broadcast_packet(endpoint.name, packet)
             except asyncio.CancelledError:
@@ -106,7 +109,7 @@ class BridgeGatewayService:
             finally:
                 runtime.connected_event.clear()
                 runtime.client = None
-                await client.close()
+                await self._close_tcp_client(client)
 
     async def _handle_control_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -220,3 +223,82 @@ class BridgeGatewayService:
         socket_path.parent.mkdir(parents=True, exist_ok=True)
         if socket_path.exists():
             socket_path.unlink()
+
+    async def _watchdog_reason(self, endpoint: EndpointConfig, client: MeshcoreTCPClient) -> str | None:
+        watchdog_secs = self.config.gateway.traffic_watchdog_secs
+        if watchdog_secs <= 0:
+            return None
+        seconds_since_rx = self._seconds_since(client, "seconds_since_last_rx")
+        seconds_since_activity = self._seconds_since(client, "seconds_since_last_activity")
+        if seconds_since_rx is None and seconds_since_activity is None:
+            return None
+        if (
+            (seconds_since_rx is not None and seconds_since_rx >= watchdog_secs)
+            or (seconds_since_activity is not None and seconds_since_activity >= watchdog_secs)
+        ):
+            console_status = await self._probe_console_mirror(endpoint)
+            return (
+                "traffic watchdog fired "
+                f"after activity_idle={self._format_idle_seconds(seconds_since_activity)} "
+                f"rx_idle={self._format_idle_seconds(seconds_since_rx)} "
+                f"mirror={console_status}"
+            )
+        return None
+
+    async def _probe_console_mirror(self, endpoint: EndpointConfig) -> str:
+        port = endpoint.console_mirror_port
+        if port is None:
+            return "not-configured"
+        host = endpoint.console_mirror_host or endpoint.raw_host
+        timeout = self.config.gateway.console_probe_timeout_secs
+        try:
+            if timeout > 0:
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+            else:
+                reader, writer = await asyncio.open_connection(host, port)
+        except Exception as exc:
+            return f"connect-failed:{exc}"
+        try:
+            if timeout <= 0:
+                return "connected"
+            try:
+                data = await asyncio.wait_for(reader.read(1), timeout=timeout)
+            except asyncio.TimeoutError:
+                return "connected-idle"
+            return "connected-data" if data else "connected-eof"
+        finally:
+            await self._close_stream_writer(writer)
+
+    async def _close_tcp_client(self, client: MeshcoreTCPClient) -> None:
+        close = getattr(client, "close")
+        try:
+            await close(timeout=self.config.gateway.close_timeout_secs)
+        except TypeError:
+            await close()
+
+    async def _close_stream_writer(self, writer: asyncio.StreamWriter) -> None:
+        writer.close()
+        try:
+            timeout = self.config.gateway.close_timeout_secs
+            if timeout > 0:
+                await asyncio.wait_for(writer.wait_closed(), timeout=timeout)
+            else:
+                await writer.wait_closed()
+        except Exception:
+            transport = getattr(writer, "transport", None)
+            if transport is not None:
+                transport.abort()
+
+    def _seconds_since(self, client: object, attr_name: str) -> float | None:
+        method = getattr(client, attr_name, None)
+        if method is None:
+            return None
+        value = method()
+        if value is None:
+            return None
+        return float(value)
+
+    def _format_idle_seconds(self, value: float | None) -> str:
+        if value is None:
+            return "n/a"
+        return f"{value:.1f}s"

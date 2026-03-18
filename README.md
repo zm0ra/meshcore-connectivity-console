@@ -180,3 +180,13 @@ Relevant implementation areas:
 - `meshcore_bot/database.py`: SQLite persistence and web-facing graph queries
 - `meshcore_bot/web_service.py`: FastAPI app and the desktop/mobile dashboard
 
+## TCP watchdog
+
+The raw `5002` bridge remains the authoritative transport, but `bridge-gateway` now also reconnects it when the stream stays idle for too long.
+
+- `[gateway].traffic_watchdog_secs` reconnects the raw TCP session after a prolonged lack of traffic
+- `[gateway].close_timeout_secs` prevents teardown from hanging forever on a broken socket
+- `[[endpoints]].console_mirror_port` optionally probes `5003` before reconnecting and logs whether the verifier channel is still reachable
+
+The `5003` console mirror is only a verifier. It is not treated as the primary mesh packet source.
+
