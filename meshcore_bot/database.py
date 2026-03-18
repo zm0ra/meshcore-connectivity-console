@@ -31,7 +31,7 @@ def is_recent_iso_timestamp(value: str | None, max_age_secs: float, *, now: date
 
 
 class BotDatabase:
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
     CONNECT_TIMEOUT_SECS = 30.0
     BUSY_TIMEOUT_MS = 30_000
     WRITE_RETRY_ATTEMPTS = 5
@@ -82,6 +82,8 @@ class BotDatabase:
                     learned_login_password TEXT,
                     learned_login_success_count INTEGER NOT NULL DEFAULT 0,
                     learned_login_updated_at TEXT,
+                    preferred_endpoint_name TEXT,
+                    preferred_endpoint_updated_at TEXT,
                     last_probe_status TEXT,
                     last_probe_at TEXT
                 );
@@ -225,6 +227,8 @@ class BotDatabase:
             self._ensure_column(connection, "repeaters", "learned_login_password", "TEXT")
             self._ensure_column(connection, "repeaters", "learned_login_success_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(connection, "repeaters", "learned_login_updated_at", "TEXT")
+            self._ensure_column(connection, "repeaters", "preferred_endpoint_name", "TEXT")
+            self._ensure_column(connection, "repeaters", "preferred_endpoint_updated_at", "TEXT")
             connection.execute(
                 """
                 INSERT INTO schema_info (key, value, updated_at)
@@ -507,6 +511,37 @@ class BotDatabase:
 
         self._run_with_retry(operation)
 
+    def preferred_repeater_endpoint(self, *, repeater_id: int) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT preferred_endpoint_name, preferred_endpoint_updated_at
+                FROM repeaters
+                WHERE id = ?
+                  AND preferred_endpoint_name IS NOT NULL
+                  AND preferred_endpoint_name != ''
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
+
+    def set_repeater_preferred_endpoint(self, *, repeater_id: int, endpoint_name: str) -> None:
+        preferred_at = utc_now_iso()
+
+        def operation(connection: sqlite3.Connection) -> None:
+            connection.execute(
+                """
+                UPDATE repeaters
+                SET preferred_endpoint_name = ?,
+                    preferred_endpoint_updated_at = ?
+                WHERE id = ?
+                """,
+                (endpoint_name, preferred_at, repeater_id),
+            )
+
+        self._run_with_retry(operation)
+
     def reset_repeater_login_if_stable(self, *, repeater_id: int, min_success_count: int) -> bool:
         def operation(connection: sqlite3.Connection) -> bool:
             row = connection.execute(
@@ -570,6 +605,7 @@ class BotDatabase:
                     ) latest ON latest.max_id = ra.id
                 )
                 SELECT r.id,
+                      r.preferred_endpoint_name,
                        la.endpoint_name,
                        r.last_seen_at,
                        (
@@ -592,9 +628,12 @@ class BotDatabase:
             last_data_at = row["last_data_at"]
             if last_data_at and is_recent_iso_timestamp(str(last_data_at), stale_after_secs, now=now):
                 continue
+            endpoint_name = str(row["preferred_endpoint_name"] or row["endpoint_name"] or "").strip()
+            if not endpoint_name or endpoint_name not in endpoint_names:
+                continue
             job_id = self.enqueue_probe_job(
                 repeater_id=int(row["id"]),
-                endpoint_name=str(row["endpoint_name"]),
+                endpoint_name=endpoint_name,
                 reason=reason,
                 success_cooldown_secs=success_cooldown_secs,
                 failure_cooldown_secs=failure_cooldown_secs,
@@ -634,7 +673,8 @@ class BotDatabase:
                     ) latest ON latest.max_id = ra.id
                 )
                 SELECT r.id,
-                       la.endpoint_name,
+                      r.preferred_endpoint_name,
+                      la.endpoint_name,
                        r.last_seen_at,
                        r.last_probe_status,
                        r.last_probe_at
@@ -650,16 +690,27 @@ class BotDatabase:
 
         enqueued = 0
         for row in rows:
-            job_id = self.enqueue_probe_job(
-                repeater_id=int(row["id"]),
-                endpoint_name=str(row["endpoint_name"]),
-                reason=reason,
-                success_cooldown_secs=success_cooldown_secs,
-                failure_cooldown_secs=failure_cooldown_secs,
-                max_recent_jobs=max_recent_jobs,
-            )
-            if job_id is not None:
-                enqueued += 1
+            preferred_endpoint = str(row["preferred_endpoint_name"] or "").strip()
+            latest_endpoint = str(row["endpoint_name"] or "").strip()
+            candidate_names = [preferred_endpoint] if preferred_endpoint else []
+            candidate_names.extend(name for name in endpoint_names if name != preferred_endpoint)
+            if latest_endpoint and latest_endpoint not in candidate_names:
+                candidate_names.append(latest_endpoint)
+            seen: set[str] = set()
+            for endpoint_name in candidate_names:
+                if not endpoint_name or endpoint_name in seen or endpoint_name not in endpoint_names:
+                    continue
+                seen.add(endpoint_name)
+                job_id = self.enqueue_probe_job(
+                    repeater_id=int(row["id"]),
+                    endpoint_name=endpoint_name,
+                    reason=reason,
+                    success_cooldown_secs=success_cooldown_secs,
+                    failure_cooldown_secs=failure_cooldown_secs,
+                    max_recent_jobs=max_recent_jobs,
+                )
+                if job_id is not None:
+                    enqueued += 1
         return enqueued
 
     def repeater_probe_state(self, *, repeater_id: int) -> dict[str, object] | None:
@@ -1436,6 +1487,8 @@ class BotDatabase:
                        r.learned_login_password,
                        r.learned_login_success_count,
                        r.learned_login_updated_at,
+                       r.preferred_endpoint_name,
+                       r.preferred_endpoint_updated_at,
                        (
                            SELECT MAX(ns.observed_at)
                            FROM repeater_probe_runs pr

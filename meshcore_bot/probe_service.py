@@ -125,6 +125,7 @@ class GuestProbeWorker:
     SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
+    ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
 
     def __init__(
         self,
@@ -231,6 +232,7 @@ class GuestProbeWorker:
     async def _run_job(self, job: dict[str, object]) -> None:
         job_id = int(cast(int, job["id"]))
         endpoint_name = str(cast(str, job["endpoint_name"]))
+        job_reason = str(cast(str, job["reason"]))
         endpoint = self._endpoint_map.get(endpoint_name)
         if endpoint is None:
             self.database.finish_probe_job(job_id, status="failed", last_error=f"unknown endpoint {endpoint_name}")
@@ -262,9 +264,31 @@ class GuestProbeWorker:
                 error_message=str(exc),
             )
             self.database.finish_probe_job(job_id, status="failed", last_error=str(exc))
+            self._enqueue_endpoint_fallback_jobs(
+                repeater_id=repeater_id,
+                failed_endpoint_name=endpoint.name,
+                trigger_reason=job_reason,
+            )
             return
 
+        self.database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name=endpoint.name)
         self.database.finish_probe_job(job_id, status="completed")
+
+    def _enqueue_endpoint_fallback_jobs(self, *, repeater_id: int, failed_endpoint_name: str, trigger_reason: str) -> None:
+        if trigger_reason == self.ENDPOINT_FALLBACK_REASON:
+            return
+        fallback_endpoints = [name for name in sorted(self._endpoint_map) if name != failed_endpoint_name]
+        if not fallback_endpoints:
+            return
+        cooldown_secs = max(self.config.probe.advert_reprobe_failure_cooldown_secs, self.config.probe.request_timeout_secs)
+        for endpoint_name in fallback_endpoints:
+            self.database.enqueue_probe_job(
+                repeater_id=repeater_id,
+                endpoint_name=endpoint_name,
+                reason=self.ENDPOINT_FALLBACK_REASON,
+                success_cooldown_secs=cooldown_secs,
+                failure_cooldown_secs=cooldown_secs,
+            )
 
     async def probe_repeater_as_guest(
         self,
@@ -681,6 +705,7 @@ class GuestProbeWorker:
                 login_server_time=login_server_time,
                 error_message=None,
             )
+            self.database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name=endpoint.name)
             self._progress("probe_completed", endpoint_name=endpoint.name, result="success")
         finally:
             await client.close()

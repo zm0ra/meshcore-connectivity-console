@@ -133,6 +133,14 @@ def resolve_probe_endpoint(config, database: BotDatabase, repeater_id: int, endp
     if endpoint_name is not None:
         return resolve_endpoint(config, endpoint_name)
 
+    preferred_endpoint = database.preferred_repeater_endpoint(repeater_id=repeater_id)
+    if preferred_endpoint is not None:
+        preferred_name = str(preferred_endpoint.get("preferred_endpoint_name") or "").strip()
+        if preferred_name:
+            for endpoint in config.endpoints:
+                if endpoint.name == preferred_name and endpoint.enabled:
+                    return endpoint
+
     for advert_row in (
         database.latest_repeater_advert_path(repeater_id=repeater_id),
         database.latest_repeater_advert(repeater_id=repeater_id),

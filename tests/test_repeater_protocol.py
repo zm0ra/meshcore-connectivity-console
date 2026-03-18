@@ -32,7 +32,7 @@ from meshcore_bot.mesh_builders import (
 )
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
-from meshcore_bot.config import load_config
+from meshcore_bot.config import load_config, save_raw_config
 from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
@@ -133,6 +133,18 @@ def build_test_app_config(tmp_path) -> AppConfig:
             event_socket_path=tmp_path / "gateway-events.sock",
         ),
         endpoints=(EndpointConfig(name="test-endpoint", raw_host="127.0.0.1", raw_port=5002, enabled=True),),
+    )
+
+
+def build_multi_endpoint_test_app_config(tmp_path) -> AppConfig:
+    base = build_test_app_config(tmp_path)
+    return replace(
+        base,
+        endpoints=(
+            EndpointConfig(name="RPT_Okolna", raw_host="127.0.0.1", raw_port=5002, enabled=True),
+            EndpointConfig(name="RPT_Przesocin", raw_host="127.0.0.1", raw_port=5003, enabled=True),
+            EndpointConfig(name="RPT_Zapas", raw_host="127.0.0.1", raw_port=5004, enabled=True),
+        ),
     )
 
 
@@ -2817,6 +2829,190 @@ enabled = true
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["endpoint_name"] == "beta"
+
+
+def test_cli_repeater_probe_now_prefers_stored_preferred_endpoint(tmp_path, monkeypatch, capsys) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="CLI RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name="RPT_Przesocin")
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "config.toml"
+    save_raw_config(
+        config_path,
+        {
+            "service": {"name": config.service.name, "log_level": config.service.log_level},
+            "storage": {"database_path": "./meshcore-bot.db"},
+            "identity": {"key_file_path": "./identity.bin"},
+            "gateway": {
+                "control_socket_path": "./gateway-control.sock",
+                "event_socket_path": "./gateway-events.sock",
+            },
+            "endpoints": [
+                {"name": endpoint.name, "raw_host": endpoint.raw_host, "raw_port": endpoint.raw_port, "enabled": endpoint.enabled}
+                for endpoint in config.endpoints
+            ],
+        },
+    )
+
+    observed_kwargs: dict[str, object] = {}
+
+    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, **kwargs) -> None:
+        observed_kwargs.update(kwargs)
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=1,
+            firmware_capability_level=2,
+            login_server_time=123,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", fake_probe_repeater_as_guest)
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe-now", "--config", str(config_path), str(repeater_id)])
+    cli_main.main()
+    output = capsys.readouterr().out
+
+    assert "Endpoint: RPT_Przesocin" in output
+    assert observed_kwargs["endpoint"].name == "RPT_Przesocin"
+
+
+def test_schedule_stale_repeater_probe_jobs_prefers_stored_endpoint(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Sched RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name="RPT_Przesocin")
+
+    enqueued = database.schedule_stale_repeater_probe_jobs(
+        endpoint_names=[endpoint.name for endpoint in config.endpoints],
+        stale_after_secs=3600.0,
+        seen_within_secs=3600.0,
+        reason="scheduled stale refresh",
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+    )
+
+    assert enqueued == 1
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=5)
+    assert jobs[0]["endpoint_name"] == "RPT_Przesocin"
+
+
+def test_run_job_success_sets_preferred_endpoint(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Probe RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    job_id = database.enqueue_probe_job(repeater_id=repeater_id, endpoint_name="RPT_Przesocin", reason="manual cli probe")
+    assert job_id is not None
+    job = database.claim_probe_job()
+    assert job is not None
+
+    worker = GuestProbeWorker(config, database)
+
+    async def fake_probe_repeater_as_guest(*, probe_run_id: int, repeater_id: int, endpoint: EndpointConfig, **kwargs) -> None:
+        database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=1,
+            firmware_capability_level=2,
+            login_server_time=123,
+            error_message=None,
+        )
+
+    worker.probe_repeater_as_guest = fake_probe_repeater_as_guest  # type: ignore[method-assign]
+    asyncio.run(worker._run_job(job))
+
+    preferred = database.preferred_repeater_endpoint(repeater_id=repeater_id)
+    assert preferred is not None
+    assert preferred["preferred_endpoint_name"] == "RPT_Przesocin"
+
+
+def test_run_job_failure_enqueues_fallback_jobs_once(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Fail RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    job_id = database.enqueue_probe_job(repeater_id=repeater_id, endpoint_name="RPT_Okolna", reason="manual cli probe")
+    assert job_id is not None
+    job = database.claim_probe_job()
+    assert job is not None
+
+    worker = GuestProbeWorker(config, database)
+
+    async def failing_probe(*, probe_run_id: int, repeater_id: int, endpoint: EndpointConfig, **kwargs) -> None:
+        raise RuntimeError(f"failed via {endpoint.name}")
+
+    worker.probe_repeater_as_guest = failing_probe  # type: ignore[method-assign]
+    asyncio.run(worker._run_job(job))
+
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
+    endpoint_names = {(item["endpoint_name"], item["reason"], item["status"]) for item in jobs}
+    assert ("RPT_Okolna", "manual cli probe", "failed") in endpoint_names
+    assert ("RPT_Przesocin", GuestProbeWorker.ENDPOINT_FALLBACK_REASON, "pending") in endpoint_names
+    assert ("RPT_Zapas", GuestProbeWorker.ENDPOINT_FALLBACK_REASON, "pending") in endpoint_names
+
+    fallback_job = database.claim_probe_job()
+    assert fallback_job is not None
+    asyncio.run(worker._run_job(fallback_job))
+    jobs_after = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
+    fallback_pending = [item for item in jobs_after if item["reason"] == GuestProbeWorker.ENDPOINT_FALLBACK_REASON and item["status"] == "pending"]
+    assert len(fallback_pending) == 1
 
 
 def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:
