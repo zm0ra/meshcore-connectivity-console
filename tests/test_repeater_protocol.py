@@ -2319,3 +2319,111 @@ enabled = true
     assert show_payload["repeater"]["id"] == repeater_id
     assert show_payload["repeater"]["next_probe_reason"] == "cli scheduled probe"
     assert show_payload["probe_jobs"][0]["reason"] == "cli scheduled probe"
+
+
+def test_cli_without_subcommand_prints_help(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "test-endpoint"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+""".strip()
+    )
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot"])
+    cli_main.main()
+    output = capsys.readouterr().out
+    assert "usage:" in output
+    assert "init-db" in output
+    assert "rpt-probe-now" in output
+
+
+def test_cli_repeater_probe_now_runs_direct_probe(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "test-endpoint"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+""".strip()
+    )
+
+    pubkey_hex = LocalIdentity.generate().public_key.hex().upper()
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-add", "--config", str(config_path), "--pubkey", pubkey_hex, "--name", "CLI RPT"])
+    cli_main.main()
+    add_payload = json.loads(capsys.readouterr().out)
+    repeater_id = int(add_payload["repeater_id"])
+
+    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, endpoint, remote_pubkey: bytes, repeater_name: str | None) -> None:
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=1,
+            firmware_capability_level=2,
+            login_server_time=123,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", fake_probe_repeater_as_guest)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "meshcore-bot",
+            "rpt-probe-now",
+            "--config",
+            str(config_path),
+            str(repeater_id),
+            "--role",
+            "guest",
+            "--password",
+            "hello",
+        ],
+    )
+    cli_main.main()
+    output = capsys.readouterr().out.strip()
+    decoder = json.JSONDecoder()
+    start_payload, end_idx = decoder.raw_decode(output)
+    end_payload, _ = decoder.raw_decode(output[end_idx:].lstrip())
+    assert start_payload["action"] == "starting probe"
+    assert end_payload["action"] == "probe completed"
+    assert end_payload["repeater"]["last_probe_status"] == "success"

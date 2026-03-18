@@ -32,6 +32,17 @@ def print_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
+def resolve_endpoint(config, endpoint_name: str | None):
+    if endpoint_name is None:
+        selected_name = default_endpoint_name(config)
+    else:
+        selected_name = endpoint_name
+    for endpoint in config.endpoints:
+        if endpoint.name == selected_name and endpoint.enabled:
+            return endpoint
+    raise SystemExit(f"unknown or disabled endpoint: {selected_name}")
+
+
 def default_endpoint_name(config) -> str:
     for endpoint in config.endpoints:
         if endpoint.enabled:
@@ -176,6 +187,14 @@ def main() -> None:
     rpt_probe.add_argument("--password", default=None, help="remember this login password before probe")
     rpt_probe.add_argument("--clear-learned-login", action="store_true", help="clear learned login before probe")
 
+    rpt_probe_now = subparsers.add_parser("rpt-probe-now", help="run manual probe immediately and stream progress")
+    rpt_probe_now.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_probe_now.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_probe_now.add_argument("--endpoint", default=None, help="endpoint name, defaults to first enabled endpoint")
+    rpt_probe_now.add_argument("--role", choices=["guest", "admin"], default=None, help="remember this login role before probe")
+    rpt_probe_now.add_argument("--password", default=None, help="remember this login password before probe")
+    rpt_probe_now.add_argument("--clear-learned-login", action="store_true", help="clear learned login before probe")
+
     rpt_login_set = subparsers.add_parser("rpt-login-set", help="store learned login override for repeater")
     rpt_login_set.add_argument("--config", default="config/config.toml", help="path to TOML config")
     rpt_login_set.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
@@ -207,8 +226,12 @@ def main() -> None:
     rpt_delete.add_argument("--yes", action="store_true", help="confirm destructive delete")
 
     args = parser.parse_args()
-    command = args.command or "init-db"
-    config = load_config(args.config)
+    command = args.command
+    if command is None:
+        parser.print_help()
+        return
+
+    config = load_config(getattr(args, "config", "config/config.toml"))
     configure_logging(config.service.log_level)
 
     if command == "show-config":
@@ -352,6 +375,83 @@ def main() -> None:
                 probe_runs_limit=args.probe_runs_limit,
                 neighbours_limit=args.neighbours_limit,
             )
+        )
+        return
+
+    if command == "rpt-probe-now":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        repeater_id = int(repeater["id"])
+        endpoint = resolve_endpoint(config, args.endpoint)
+        if args.clear_learned_login:
+            database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=0)
+        if args.role is not None or args.password is not None:
+            if not args.role or args.password is None:
+                raise SystemExit("--role and --password must be provided together")
+            database.remember_repeater_login(
+                repeater_id=repeater_id,
+                login_role=str(args.role),
+                login_password=str(args.password),
+            )
+
+        worker = GuestProbeWorker(config, database)
+        probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name=endpoint.name)
+        print_json(
+            {
+                "mode": "direct",
+                "action": "starting probe",
+                "repeater_id": repeater_id,
+                "name": repeater.get("name"),
+                "pubkey_hex": repeater.get("pubkey_hex"),
+                "endpoint_name": endpoint.name,
+                "probe_run_id": probe_run_id,
+                "learned_login": database.preferred_repeater_login(repeater_id=repeater_id),
+            }
+        )
+        try:
+            asyncio.run(
+                worker.probe_repeater_as_guest(
+                    probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
+                    endpoint=endpoint,
+                    remote_pubkey=bytes.fromhex(str(repeater["pubkey_hex"])),
+                    repeater_name=str(repeater.get("name") or "") or None,
+                )
+            )
+        except Exception as exc:
+            database.complete_probe_run(
+                probe_run_id,
+                repeater_id=repeater_id,
+                result="failed",
+                guest_login_ok=False,
+                guest_permissions=None,
+                firmware_capability_level=None,
+                login_server_time=None,
+                error_message=str(exc),
+            )
+            print_json(
+                {
+                    "mode": "direct",
+                    "action": "probe failed",
+                    "repeater_id": repeater_id,
+                    "probe_run_id": probe_run_id,
+                    "error": str(exc),
+                    "repeater": database.repeater_full_state(repeater_id=repeater_id),
+                    "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=3),
+                }
+            )
+            raise SystemExit(1) from exc
+
+        print_json(
+            {
+                "mode": "direct",
+                "action": "probe completed",
+                "repeater_id": repeater_id,
+                "probe_run_id": probe_run_id,
+                "repeater": database.repeater_full_state(repeater_id=repeater_id),
+                "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=3),
+                "latest_neighbours": database.latest_repeater_neighbours(repeater_id=repeater_id, limit=16),
+            }
         )
         return
 
