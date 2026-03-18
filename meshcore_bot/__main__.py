@@ -219,6 +219,28 @@ def build_repeater_payload(database: BotDatabase, repeater_id: int, *, adverts_l
     }
 
 
+def build_endpoint_payload(config, database: BotDatabase, endpoint_name: str, *, limit: int, seen_within_hours: float | None) -> dict[str, object]:
+    endpoint = resolve_endpoint(config, endpoint_name)
+    repeaters = database.list_repeaters_seen_on_endpoint(
+        endpoint_name=endpoint.name,
+        limit=limit,
+        seen_within_hours=seen_within_hours,
+    )
+    return {
+        "endpoint": {
+            "name": endpoint.name,
+            "raw_host": endpoint.raw_host,
+            "raw_port": endpoint.raw_port,
+            "enabled": endpoint.enabled,
+            "console_mirror_host": endpoint.console_mirror_host or endpoint.raw_host,
+            "console_mirror_port": endpoint.console_mirror_port,
+        },
+        "seen_within_hours": seen_within_hours,
+        "count": len(repeaters),
+        "repeaters": repeaters,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="MeshCore TCP bot foundation")
     subparsers = parser.add_subparsers(dest="command")
@@ -272,6 +294,17 @@ def main() -> None:
     rpt_show.add_argument("--jobs-limit", type=int, default=10)
     rpt_show.add_argument("--probe-runs-limit", type=int, default=10)
     rpt_show.add_argument("--neighbours-limit", type=int, default=32)
+
+    endpoint_show = subparsers.add_parser("endpoint-show", help="show repeaters recently seen on one endpoint")
+    endpoint_show.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    endpoint_show.add_argument("endpoint", help="endpoint name")
+    endpoint_show.add_argument("--limit", type=int, default=100, help="maximum number of repeaters to return")
+    endpoint_show.add_argument(
+        "--seen-within-hours",
+        type=float,
+        default=24.0,
+        help="only include repeaters seen on this endpoint within this many hours; set 0 to disable time filter",
+    )
 
     rpt_probe = subparsers.add_parser("rpt-probe", help="enqueue manual probe for repeater")
     rpt_probe.add_argument("--config", default="config/config.toml", help="path to TOML config")
@@ -472,6 +505,20 @@ def main() -> None:
                 jobs_limit=args.jobs_limit,
                 probe_runs_limit=args.probe_runs_limit,
                 neighbours_limit=args.neighbours_limit,
+            )
+        )
+        return
+
+    if command == "endpoint-show":
+        database.initialize()
+        seen_within_hours = None if float(args.seen_within_hours) <= 0 else float(args.seen_within_hours)
+        print_json(
+            build_endpoint_payload(
+                config,
+                database,
+                str(args.endpoint),
+                limit=int(args.limit),
+                seen_within_hours=seen_within_hours,
             )
         )
         return

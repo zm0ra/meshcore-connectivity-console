@@ -2321,6 +2321,89 @@ enabled = true
     assert show_payload["probe_jobs"][0]["reason"] == "cli scheduled probe"
 
 
+def test_cli_endpoint_show_lists_recent_repeaters_for_endpoint(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "main"
+raw_host = "172.30.105.24"
+raw_port = 5002
+enabled = true
+
+[[endpoints]]
+name = "backup"
+raw_host = "172.30.252.58"
+raw_port = 5002
+enabled = true
+console_mirror_port = 5003
+""".strip()
+    )
+
+    config = load_config(config_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    old_pubkey = LocalIdentity.generate().public_key
+    new_pubkey = LocalIdentity.generate().public_key
+    database.upsert_repeater_from_advert(
+        endpoint_name="backup",
+        observed_at=(datetime.now(tz=UTC) - timedelta(hours=30)).isoformat(),
+        public_key=old_pubkey,
+        advert_name="Old backup RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.upsert_repeater_from_advert(
+        endpoint_name="backup",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=new_pubkey,
+        advert_name="Fresh backup RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=2,
+        path_len=2,
+        path_hex="3548",
+        raw_packet_hex="00",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["meshcore-bot", "endpoint-show", "--config", str(config_path), "backup", "--seen-within-hours", "24"],
+    )
+    cli_main.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["endpoint"]["name"] == "backup"
+    assert payload["endpoint"]["raw_host"] == "172.30.252.58"
+    assert payload["endpoint"]["console_mirror_host"] == "172.30.252.58"
+    assert payload["endpoint"]["console_mirror_port"] == 5003
+    assert payload["count"] == 1
+    assert payload["repeaters"][0]["name"] == "Fresh backup RPT"
+    assert payload["repeaters"][0]["advert_path_hex"] == "3548"
+
+
 def test_cli_without_subcommand_prints_help(tmp_path, monkeypatch, capsys) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()

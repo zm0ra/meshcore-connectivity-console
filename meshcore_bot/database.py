@@ -1371,6 +1371,50 @@ class BotDatabase:
                 ).fetchall()
             return [dict(row) for row in rows]
 
+    def list_repeaters_seen_on_endpoint(
+        self,
+        *,
+        endpoint_name: str,
+        limit: int = 100,
+        seen_within_hours: float | None = 24.0,
+    ) -> list[dict[str, object]]:
+        normalized_endpoint = endpoint_name.strip()
+        if not normalized_endpoint:
+            return []
+        with self.connect() as connection:
+            params: list[object] = [normalized_endpoint]
+            time_filter = ""
+            if seen_within_hours is not None and seen_within_hours > 0:
+                cutoff_iso = (datetime.now(tz=UTC) - timedelta(hours=seen_within_hours)).isoformat()
+                time_filter = " AND observed_at >= ?"
+                params.append(cutoff_iso)
+            params.append(limit)
+            rows = connection.execute(
+                f"""
+                SELECT r.id,
+                       r.pubkey_hex,
+                       COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                       ra.observed_at AS advert_observed_at,
+                       ra.path_len AS advert_path_len,
+                       ra.path_hex AS advert_path_hex,
+                       ra.advert_name,
+                       r.last_probe_status,
+                       r.last_probe_at
+                FROM repeater_adverts ra
+                JOIN (
+                    SELECT repeater_id, MAX(id) AS max_id
+                    FROM repeater_adverts
+                    WHERE endpoint_name = ?{time_filter}
+                    GROUP BY repeater_id
+                ) latest ON latest.max_id = ra.id
+                JOIN repeaters r ON r.id = ra.repeater_id
+                ORDER BY ra.observed_at DESC, r.id DESC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def repeater_full_state(self, *, repeater_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
