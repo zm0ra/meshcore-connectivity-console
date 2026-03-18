@@ -2420,13 +2420,11 @@ enabled = true
         ],
     )
     cli_main.main()
-    output = capsys.readouterr().out.strip()
-    decoder = json.JSONDecoder()
-    start_payload, end_idx = decoder.raw_decode(output)
-    end_payload, _ = decoder.raw_decode(output[end_idx:].lstrip())
-    assert start_payload["action"] == "starting probe"
-    assert end_payload["action"] == "probe completed"
-    assert end_payload["repeater"]["last_probe_status"] == "success"
+    output = capsys.readouterr().out
+    assert "Starting probe for RPT" in output
+    assert "Login succeeded:" not in output or "Probe completed successfully" in output
+    assert "Probe completed successfully" in output
+    assert "Last probe status: success" in output
 
 
 def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:

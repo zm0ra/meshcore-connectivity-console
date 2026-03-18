@@ -132,6 +132,7 @@ class GuestProbeWorker:
         database: BotDatabase,
         *,
         transport_factory: Callable[[EndpointConfig], PacketTransportClient] | None = None,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> None:
         self.config = config
         self.database = database
@@ -143,6 +144,12 @@ class GuestProbeWorker:
         self._local_hash = self.identity.public_hash(1)
         self._transport_factory = transport_factory or self._build_direct_transport
         self._next_scheduled_reprobe_scan_monotonic = 0.0
+        self._progress_callback = progress_callback
+
+    def _progress(self, event: str, **payload: object) -> None:
+        if self._progress_callback is None:
+            return
+        self._progress_callback(event, payload)
 
     async def run(self) -> None:
         self.database.initialize()
@@ -362,6 +369,7 @@ class GuestProbeWorker:
                 local_zero_hop_visible=local_zero_hop_visible,
             )
             if not route_attempts:
+                self._progress("path_discovery_started", endpoint_name=endpoint.name)
                 learned_path_len, learned_path_bytes = await self._discover_repeater_path(
                     client=client,
                     endpoint_name=endpoint.name,
@@ -381,6 +389,14 @@ class GuestProbeWorker:
                 for route_path_len, route_path_bytes in route_attempts:
                     password_label = "empty" if login_password == "" else "configured"
                     route_label = "direct" if route_path_len else "flood"
+                    self._progress(
+                        "login_attempt_started",
+                        endpoint_name=endpoint.name,
+                        login_role=login_role,
+                        route=route_label,
+                        password_label=password_label,
+                        path_len=route_path_len,
+                    )
                     login_packet = build_login_packet(
                         identity=self.identity,
                         remote_public_key=remote_pubkey,
@@ -434,6 +450,13 @@ class GuestProbeWorker:
                         break
                     except ProbeTimeoutError as exc:
                         login_error = exc
+                        self._progress(
+                            "login_attempt_failed",
+                            endpoint_name=endpoint.name,
+                            login_role=login_role,
+                            route=route_label,
+                            error=str(exc),
+                        )
                         self.logger.warning(
                             "login attempt failed endpoint=%s repeater=%s role=%s route=%s error=%s",
                             endpoint.name,
@@ -465,6 +488,13 @@ class GuestProbeWorker:
             guest_permissions = login.permissions
             firmware_capability_level = login.firmware_capability_level
             login_server_time = login.server_time
+            self._progress(
+                "login_succeeded",
+                endpoint_name=endpoint.name,
+                login_role=successful_login[0],
+                guest_permissions=guest_permissions,
+                firmware_capability_level=firmware_capability_level,
+            )
             assert successful_login is not None
             self.database.remember_repeater_login(
                 repeater_id=repeater_id,
@@ -491,6 +521,7 @@ class GuestProbeWorker:
 
             neighbour_pages_saved = 0
             offset = 0
+            self._progress("neighbours_started", endpoint_name=endpoint.name)
             while True:
                 neighbours_tag = next_request_tag()
                 neighbours_plaintext = (
@@ -545,6 +576,13 @@ class GuestProbeWorker:
                         for entry in neighbours.entries
                     ],
                 )
+                self._progress(
+                    "neighbours_page_saved",
+                    endpoint_name=endpoint.name,
+                    page_offset=offset,
+                    results_count=neighbours.results_count,
+                    total_neighbours_count=neighbours.neighbours_count,
+                )
                 neighbour_pages_saved += 1
                 offset += neighbours.results_count
                 if neighbours.results_count == 0 or offset >= neighbours.neighbours_count:
@@ -554,6 +592,7 @@ class GuestProbeWorker:
                 raise RuntimeError("neighbours polling returned no pages")
 
             try:
+                self._progress("status_requested", endpoint_name=endpoint.name)
                 status_tag = next_request_tag()
                 status_plaintext = struct.pack("<IB4s4s", status_tag, REQ_TYPE_GET_STATUS, b"\x00\x00\x00\x00", os.urandom(4))
                 status_request = build_request_packet(
@@ -579,10 +618,13 @@ class GuestProbeWorker:
                 )
                 status = parse_status_response(status_payload)
                 self.database.save_status_snapshot(probe_run_id=probe_run_id, status=asdict(status))
+                self._progress("status_received", endpoint_name=endpoint.name)
             except Exception as exc:
+                self._progress("status_failed", endpoint_name=endpoint.name, error=str(exc))
                 self.logger.warning("optional status polling failed for repeater %s: %s", remote_pubkey.hex().upper()[:12], exc)
 
             try:
+                self._progress("owner_requested", endpoint_name=endpoint.name)
                 owner_tag = next_request_tag()
                 owner_request = build_request_packet(
                     identity=self.identity,
@@ -612,7 +654,9 @@ class GuestProbeWorker:
                     node_name=owner.node_name,
                     owner_info=owner.owner_info,
                 )
+                self._progress("owner_received", endpoint_name=endpoint.name)
             except Exception as exc:
+                self._progress("owner_failed", endpoint_name=endpoint.name, error=str(exc))
                 self.logger.warning("optional owner polling failed for repeater %s: %s", remote_pubkey.hex().upper()[:12], exc)
 
             self.database.complete_probe_run(
@@ -625,6 +669,7 @@ class GuestProbeWorker:
                 login_server_time=login_server_time,
                 error_message=None,
             )
+            self._progress("probe_completed", endpoint_name=endpoint.name, result="success")
         finally:
             await client.close()
 

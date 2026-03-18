@@ -32,6 +32,65 @@ def print_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
+class DirectProbeConsoleReporter:
+    def __init__(self, *, verbose: bool) -> None:
+        self.verbose = verbose
+
+    def print_start(self, *, repeater_id: int, name: object, endpoint_name: str, login: dict[str, object] | None) -> None:
+        print(f"Starting probe for RPT {repeater_id}: {name or '-'}")
+        print(f"Endpoint: {endpoint_name}")
+        if login is not None:
+            role = login.get("learned_login_role") or "-"
+            password = "configured" if login.get("learned_login_password") not in (None, "") else "empty"
+            print(f"Preferred login: {role}/{password}")
+
+    def __call__(self, event: str, payload: dict[str, object]) -> None:
+        if event == "path_discovery_started":
+            print("- Discovering route")
+            return
+        if event == "login_attempt_started":
+            print(
+                f"- Login attempt: role={payload['login_role']} route={payload['route']} password={payload['password_label']}"
+            )
+            return
+        if event == "login_attempt_failed":
+            print(
+                f"  failed: role={payload['login_role']} route={payload['route']} error={payload['error']}"
+            )
+            return
+        if event == "login_succeeded":
+            print(
+                f"- Login succeeded: role={payload['login_role']} permissions={payload['guest_permissions']} capability={payload['firmware_capability_level']}"
+            )
+            return
+        if event == "neighbours_started":
+            print("- Fetching neighbours")
+            return
+        if event == "neighbours_page_saved":
+            print(
+                f"  neighbours page: offset={payload['page_offset']} results={payload['results_count']} total={payload['total_neighbours_count']}"
+            )
+            return
+        if event == "status_requested":
+            print("- Fetching status")
+            return
+        if event == "status_received":
+            print("  status received")
+            return
+        if event == "status_failed":
+            print(f"  status skipped: {payload['error']}")
+            return
+        if event == "owner_requested":
+            print("- Fetching owner info")
+            return
+        if event == "owner_received":
+            print("  owner info received")
+            return
+        if event == "owner_failed":
+            print(f"  owner info skipped: {payload['error']}")
+            return
+
+
 def resolve_endpoint(config, endpoint_name: str | None):
     if endpoint_name is None:
         selected_name = default_endpoint_name(config)
@@ -194,6 +253,7 @@ def main() -> None:
     rpt_probe_now.add_argument("--role", choices=["guest", "admin"], default=None, help="remember this login role before probe")
     rpt_probe_now.add_argument("--password", default=None, help="remember this login password before probe")
     rpt_probe_now.add_argument("--clear-learned-login", action="store_true", help="clear learned login before probe")
+    rpt_probe_now.add_argument("--verbose", action="store_true", help="show raw packet and debug logs")
 
     rpt_login_set = subparsers.add_parser("rpt-login-set", help="store learned login override for repeater")
     rpt_login_set.add_argument("--config", default="config/config.toml", help="path to TOML config")
@@ -383,6 +443,10 @@ def main() -> None:
         repeater = resolve_repeater(database, args.selector)
         repeater_id = int(repeater["id"])
         endpoint = resolve_endpoint(config, args.endpoint)
+        reporter = DirectProbeConsoleReporter(verbose=bool(args.verbose))
+        if not args.verbose:
+            logging.getLogger("meshcore-bot.tcp_client").setLevel(logging.WARNING)
+            logging.getLogger(f"{config.service.name}.probe").setLevel(logging.WARNING)
         forced_login = None
         if args.clear_learned_login:
             database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=0)
@@ -396,20 +460,28 @@ def main() -> None:
                 login_password=str(args.password),
             )
 
-        worker = GuestProbeWorker(config, database)
+        worker = GuestProbeWorker(config, database, progress_callback=reporter if not args.verbose else None)
         probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name=endpoint.name)
-        print_json(
-            {
-                "mode": "direct",
-                "action": "starting probe",
-                "repeater_id": repeater_id,
-                "name": repeater.get("name"),
-                "pubkey_hex": repeater.get("pubkey_hex"),
-                "endpoint_name": endpoint.name,
-                "probe_run_id": probe_run_id,
-                "learned_login": database.preferred_repeater_login(repeater_id=repeater_id),
-            }
-        )
+        if args.verbose:
+            print_json(
+                {
+                    "mode": "direct",
+                    "action": "starting probe",
+                    "repeater_id": repeater_id,
+                    "name": repeater.get("name"),
+                    "pubkey_hex": repeater.get("pubkey_hex"),
+                    "endpoint_name": endpoint.name,
+                    "probe_run_id": probe_run_id,
+                    "learned_login": database.preferred_repeater_login(repeater_id=repeater_id),
+                }
+            )
+        else:
+            reporter.print_start(
+                repeater_id=repeater_id,
+                name=repeater.get("name"),
+                endpoint_name=endpoint.name,
+                login=database.preferred_repeater_login(repeater_id=repeater_id),
+            )
         try:
             asyncio.run(
                 worker.probe_repeater_as_guest(
@@ -433,30 +505,44 @@ def main() -> None:
                 login_server_time=None,
                 error_message=str(exc),
             )
+            if args.verbose:
+                print_json(
+                    {
+                        "mode": "direct",
+                        "action": "probe failed",
+                        "repeater_id": repeater_id,
+                        "probe_run_id": probe_run_id,
+                        "error": str(exc),
+                        "repeater": database.repeater_full_state(repeater_id=repeater_id),
+                        "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=3),
+                    }
+                )
+            else:
+                print(f"Probe failed: {exc}")
+                repeater_state = database.repeater_full_state(repeater_id=repeater_id)
+                print(f"Last probe status: {repeater_state['last_probe_status'] if repeater_state else 'failed'}")
+            raise SystemExit(1) from exc
+
+        if args.verbose:
             print_json(
                 {
                     "mode": "direct",
-                    "action": "probe failed",
+                    "action": "probe completed",
                     "repeater_id": repeater_id,
                     "probe_run_id": probe_run_id,
-                    "error": str(exc),
                     "repeater": database.repeater_full_state(repeater_id=repeater_id),
                     "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=3),
+                    "latest_neighbours": database.latest_repeater_neighbours(repeater_id=repeater_id, limit=16),
                 }
             )
-            raise SystemExit(1) from exc
-
-        print_json(
-            {
-                "mode": "direct",
-                "action": "probe completed",
-                "repeater_id": repeater_id,
-                "probe_run_id": probe_run_id,
-                "repeater": database.repeater_full_state(repeater_id=repeater_id),
-                "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=3),
-                "latest_neighbours": database.latest_repeater_neighbours(repeater_id=repeater_id, limit=16),
-            }
-        )
+        else:
+            repeater_state = database.repeater_full_state(repeater_id=repeater_id)
+            neighbours = database.latest_repeater_neighbours(repeater_id=repeater_id, limit=16)
+            print("Probe completed successfully")
+            if repeater_state is not None:
+                print(f"Last probe status: {repeater_state['last_probe_status']}")
+                print(f"Learned login: {repeater_state['learned_login_role'] or '-'}")
+            print(f"Neighbours collected: {len(neighbours)}")
         return
 
     if command == "rpt-login-set":
