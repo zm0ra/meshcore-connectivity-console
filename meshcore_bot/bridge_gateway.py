@@ -18,6 +18,8 @@ class _EndpointRuntime:
     client: MeshcoreTCPClient | None = None
     connected_event: asyncio.Event | None = None
     send_lock: asyncio.Lock | None = None
+    send_queue: asyncio.PriorityQueue[tuple[int, int, bytes, str, asyncio.Future[str]]] | None = None
+    send_order: int = 0
     quiet_until_monotonic: float = 0.0
 
 
@@ -33,7 +35,12 @@ class BridgeGatewayService:
         self._subscribers: set[asyncio.StreamWriter] = set()
         self._subscribers_lock = asyncio.Lock()
         self._endpoint_runtimes = {
-            endpoint.name: _EndpointRuntime(endpoint=endpoint, connected_event=asyncio.Event(), send_lock=asyncio.Lock())
+            endpoint.name: _EndpointRuntime(
+                endpoint=endpoint,
+                connected_event=asyncio.Event(),
+                send_lock=asyncio.Lock(),
+                send_queue=asyncio.PriorityQueue(),
+            )
             for endpoint in config.endpoints
             if endpoint.enabled
         }
@@ -54,6 +61,10 @@ class BridgeGatewayService:
             asyncio.create_task(self._run_endpoint(runtime), name=f"bridge-gateway:{runtime.endpoint.name}")
             for runtime in self._endpoint_runtimes.values()
         ]
+        self._tasks.extend(
+            asyncio.create_task(self._run_sender(runtime), name=f"bridge-gateway-sender:{runtime.endpoint.name}")
+            for runtime in self._endpoint_runtimes.values()
+        )
         try:
             await self._stop_event.wait()
         finally:
@@ -157,20 +168,7 @@ class BridgeGatewayService:
             return {"ok": False, "error": f"endpoint {endpoint_name} has no active client"}
         try:
             packet = bytes.fromhex(str(payload["packet_hex"]))
-            if traffic_class != "bot":
-                while True:
-                    remaining = runtime.quiet_until_monotonic - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    self.logger.info(
-                        "[GATEWAY-DEFER] endpoint=%s traffic_class=%s sleep=%.2fs",
-                        endpoint_name,
-                        traffic_class,
-                        remaining,
-                    )
-                    await asyncio.sleep(min(remaining, 0.5))
-            async with runtime.send_lock:
-                frame_hex = await runtime.client.send_packet(packet)
+            frame_hex = await self._enqueue_send_request(runtime, packet=packet, traffic_class=traffic_class)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         self.logger.info(
@@ -183,6 +181,76 @@ class BridgeGatewayService:
             frame_hex,
         )
         return {"ok": True, "frame_hex": frame_hex}
+
+    async def _run_sender(self, runtime: _EndpointRuntime) -> None:
+        assert runtime.connected_event is not None
+        assert runtime.send_lock is not None
+        assert runtime.send_queue is not None
+        while not self._stop_event.is_set():
+            try:
+                _, _, packet, traffic_class, result_future = await runtime.send_queue.get()
+            except asyncio.CancelledError:
+                raise
+            try:
+                if traffic_class != "bot":
+                    remaining = runtime.quiet_until_monotonic - time.monotonic()
+                    if remaining > 0:
+                        self.logger.info(
+                            "[GATEWAY-DEFER] endpoint=%s traffic_class=%s sleep=%.2fs",
+                            runtime.endpoint.name,
+                            traffic_class,
+                            remaining,
+                        )
+                        await asyncio.sleep(min(remaining, 0.5))
+                        await self._requeue_send_request(runtime, packet=packet, traffic_class=traffic_class, result_future=result_future)
+                        continue
+                try:
+                    await asyncio.wait_for(runtime.connected_event.wait(), timeout=5.0)
+                except asyncio.TimeoutError as exc:
+                    raise RuntimeError(f"endpoint {runtime.endpoint.name} is not connected") from exc
+                if runtime.client is None:
+                    raise RuntimeError(f"endpoint {runtime.endpoint.name} has no active client")
+                async with runtime.send_lock:
+                    frame_hex = await runtime.client.send_packet(packet)
+            except asyncio.CancelledError:
+                if not result_future.done():
+                    result_future.cancel()
+                raise
+            except Exception as exc:
+                if not result_future.done():
+                    result_future.set_exception(exc)
+            else:
+                if not result_future.done():
+                    result_future.set_result(frame_hex)
+
+    async def _enqueue_send_request(self, runtime: _EndpointRuntime, *, packet: bytes, traffic_class: str) -> str:
+        assert runtime.send_queue is not None
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[str] = loop.create_future()
+        await self._requeue_send_request(runtime, packet=packet, traffic_class=traffic_class, result_future=result_future)
+        return await result_future
+
+    async def _requeue_send_request(
+        self,
+        runtime: _EndpointRuntime,
+        *,
+        packet: bytes,
+        traffic_class: str,
+        result_future: asyncio.Future[str],
+    ) -> None:
+        assert runtime.send_queue is not None
+        priority = self._traffic_class_priority(traffic_class)
+        order = runtime.send_order
+        runtime.send_order += 1
+        await runtime.send_queue.put((priority, order, packet, traffic_class, result_future))
+
+    def _traffic_class_priority(self, traffic_class: str) -> int:
+        normalized = traffic_class.strip().lower()
+        if normalized == "bot":
+            return 0
+        if normalized == "probe":
+            return 20
+        return 10
 
     async def _handle_event_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async with self._subscribers_lock:

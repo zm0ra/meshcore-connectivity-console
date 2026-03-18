@@ -1033,6 +1033,61 @@ def test_bridge_gateway_reconnects_after_connection_error(tmp_path) -> None:
     assert service._broadcast_packet.await_count == 1
 
 
+def test_bridge_gateway_prioritizes_bot_traffic_over_probe_backlog(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    service = BridgeGatewayService(config)
+    runtime = service._endpoint_runtimes["test-endpoint"]
+
+    class FakeGatewayTCPClient:
+        def __init__(self) -> None:
+            self.sent_packets: list[bytes] = []
+
+        async def send_packet(self, packet: bytes) -> str:
+            self.sent_packets.append(packet)
+            await asyncio.sleep(0.01)
+            return packet.hex().upper()
+
+    async def scenario() -> None:
+        assert runtime.connected_event is not None
+        runtime.client = cast(Any, FakeGatewayTCPClient())
+        runtime.connected_event.set()
+        sender_task = asyncio.create_task(service._run_sender(runtime))
+        try:
+            probe_one = bytes.fromhex("01")
+            probe_two = bytes.fromhex("02")
+            bot_packet = bytes.fromhex("AA")
+
+            probe_one_task = asyncio.create_task(
+                service._handle_control_message(
+                    ('{"command":"send_packet","endpoint_name":"test-endpoint","packet_hex":"01","traffic_class":"probe"}\n').encode("ascii")
+                )
+            )
+            await asyncio.sleep(0)
+            probe_two_task = asyncio.create_task(
+                service._handle_control_message(
+                    ('{"command":"send_packet","endpoint_name":"test-endpoint","packet_hex":"02","traffic_class":"probe"}\n').encode("ascii")
+                )
+            )
+            await asyncio.sleep(0)
+            bot_task = asyncio.create_task(
+                service._handle_control_message(
+                    ('{"command":"send_packet","endpoint_name":"test-endpoint","packet_hex":"AA","traffic_class":"bot"}\n').encode("ascii")
+                )
+            )
+
+            probe_one_result, probe_two_result, bot_result = await asyncio.gather(probe_one_task, probe_two_task, bot_task)
+            assert probe_one_result["ok"] is True
+            assert probe_two_result["ok"] is True
+            assert bot_result["ok"] is True
+            assert cast(Any, runtime.client).sent_packets == [probe_one, bot_packet, probe_two]
+        finally:
+            service._stop_event.set()
+            sender_task.cancel()
+            await asyncio.gather(sender_task, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 def test_meshcore_tcp_client_surfaces_remote_disconnect_without_hanging() -> None:
     async def scenario() -> None:
         async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
