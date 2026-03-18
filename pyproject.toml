@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+meshcore_bot = "meshcore_bot.__main__:main"
 meshcore-bot = "meshcore_bot.__main__:main"
 
 [tool.setuptools]

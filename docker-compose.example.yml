@@ -2,7 +2,7 @@ services:
   init-db:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "init-db", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "init-db"]
     restart: "no"
     volumes:
       - ./config:/app/config
@@ -11,7 +11,7 @@ services:
   ensure-identity:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "ensure-identity", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "ensure-identity"]
     restart: "no"
     depends_on:
       init-db:
@@ -23,7 +23,7 @@ services:
   bridge-gateway:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-bridge-gateway", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "run-bridge-gateway"]
     restart: unless-stopped
     depends_on:
       init-db:
@@ -38,7 +38,7 @@ services:
   neighbours-worker:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-neighbours-worker", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "run-neighbours-worker"]
     restart: unless-stopped
     depends_on:
       bridge-gateway:
@@ -55,7 +55,7 @@ services:
   bot-worker:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-bot-worker", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "run-bot-worker"]
     restart: unless-stopped
     depends_on:
       bridge-gateway:
@@ -72,7 +72,7 @@ services:
   web:
     build:
       context: .
-    command: ["python", "-m", "meshcore_bot", "run-web", "--config", "/app/config/config.toml"]
+    command: ["meshcore_bot", "run-web"]
     restart: unless-stopped
     depends_on:
       init-db:

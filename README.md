@@ -155,7 +155,9 @@ Bot retries are adaptive.
 - successful echoes let the budget fall back down over time toward the base value
 - the bot still treats echo as the only success signal; local send completion is not enough
 
-Use `python -m meshcore_bot show-config --config config/config.toml` to print the resolved configuration.
+Use `meshcore_bot show-config` inside the container to print the resolved configuration.
+
+The image installs both `meshcore_bot` and `meshcore-bot` console commands. Container defaults assume `/app` as the working directory and automatically load `config/config.toml`, so `docker exec ... meshcore_bot rpt-show RAKU` works without passing `--config`.
 
 Advert-driven probing is intentionally selective.
 

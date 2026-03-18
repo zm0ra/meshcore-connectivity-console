@@ -12,4 +12,4 @@ COPY config ./config
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
-CMD ["python", "-m", "meshcore_bot", "show-config", "--config", "config/config.toml"]
+CMD ["meshcore_bot", "show-config"]
