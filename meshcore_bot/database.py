@@ -1328,6 +1328,312 @@ class BotDatabase:
             ).fetchone()
             return dict(row) if row is not None else None
 
+    def list_repeaters(self, *, query: str | None = None, limit: int = 100) -> list[dict[str, object]]:
+        normalized_query = (query or "").strip()
+        with self.connect() as connection:
+            if normalized_query:
+                pattern = f"%{normalized_query.lower()}%"
+                rows = connection.execute(
+                    """
+                    SELECT r.id,
+                           r.pubkey_hex,
+                           COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                           r.last_seen_at,
+                           r.last_probe_status,
+                           r.last_probe_at,
+                           r.learned_login_role,
+                           r.learned_login_success_count
+                    FROM repeaters r
+                    WHERE LOWER(COALESCE(r.last_name_from_advert, '')) LIKE ?
+                       OR LOWER(r.pubkey_hex) LIKE ?
+                       OR CAST(r.id AS TEXT) = ?
+                    ORDER BY r.last_seen_at DESC, r.id DESC
+                    LIMIT ?
+                    """,
+                    (pattern, pattern, normalized_query, limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT r.id,
+                           r.pubkey_hex,
+                           COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                           r.last_seen_at,
+                           r.last_probe_status,
+                           r.last_probe_at,
+                           r.learned_login_role,
+                           r.learned_login_success_count
+                    FROM repeaters r
+                    ORDER BY r.last_seen_at DESC, r.id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            return [dict(row) for row in rows]
+
+    def repeater_full_state(self, *, repeater_id: int) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT r.id,
+                       r.pubkey_hex,
+                       r.first_seen_at,
+                       r.last_seen_at,
+                       r.last_name_from_advert,
+                       r.last_lat,
+                       r.last_lon,
+                       r.last_advert_timestamp_remote,
+                       r.last_guest_permissions,
+                       r.last_firmware_capability_level,
+                       r.last_login_server_time,
+                       r.last_probe_status,
+                       r.last_probe_at,
+                       r.learned_login_role,
+                       r.learned_login_password,
+                       r.learned_login_success_count,
+                       r.learned_login_updated_at,
+                       (
+                           SELECT MAX(ns.observed_at)
+                           FROM repeater_probe_runs pr
+                           JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                           WHERE pr.repeater_id = r.id
+                       ) AS last_data_at,
+                       (
+                           SELECT MAX(pr.finished_at)
+                           FROM repeater_probe_runs pr
+                           WHERE pr.repeater_id = r.id AND pr.result = 'success'
+                       ) AS last_successful_probe_at,
+                       (
+                           SELECT pj.scheduled_at
+                           FROM probe_jobs pj
+                           WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
+                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           LIMIT 1
+                       ) AS next_probe_scheduled_at,
+                       (
+                           SELECT pj.reason
+                           FROM probe_jobs pj
+                           WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
+                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           LIMIT 1
+                       ) AS next_probe_reason,
+                       (
+                           SELECT pj.status
+                           FROM probe_jobs pj
+                           WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
+                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           LIMIT 1
+                       ) AS next_probe_status,
+                       (
+                           SELECT COUNT(*)
+                           FROM repeater_adverts ra
+                           WHERE ra.repeater_id = r.id
+                       ) AS advert_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM repeater_probe_runs pr
+                           WHERE pr.repeater_id = r.id
+                       ) AS probe_run_count
+                FROM repeaters r
+                WHERE r.id = ?
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
+
+    def repeater_recent_probe_runs(self, *, repeater_id: int, limit: int = 10) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, endpoint_name, started_at, finished_at, result,
+                       guest_login_ok, guest_permissions, firmware_capability_level,
+                       login_server_time, error_message
+                FROM repeater_probe_runs
+                WHERE repeater_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (repeater_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def latest_repeater_neighbours(self, *, repeater_id: int, limit: int = 64) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                WITH latest_run AS (
+                    SELECT pr.id AS probe_run_id
+                    FROM repeater_probe_runs pr
+                    JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                    WHERE pr.repeater_id = ?
+                    ORDER BY COALESCE(pr.finished_at, pr.started_at) DESC, pr.id DESC
+                    LIMIT 1
+                )
+                SELECT ns.probe_run_id,
+                       ns.observed_at,
+                       ns.page_offset,
+                       ns.total_neighbours_count,
+                       ns.results_count,
+                       ns.neighbour_pubkey_prefix_hex,
+                       ns.heard_seconds_ago,
+                       ns.snr,
+                       (
+                           SELECT t.pubkey_hex
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS resolved_pubkey_hex,
+                       (
+                           SELECT COALESCE(NULLIF(TRIM(t.last_name_from_advert), ''), SUBSTR(t.pubkey_hex, 1, 8))
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS resolved_name
+                FROM repeater_neighbour_snapshots ns
+                WHERE ns.probe_run_id = (SELECT probe_run_id FROM latest_run)
+                ORDER BY ns.snr DESC, ns.heard_seconds_ago ASC, ns.id ASC
+                LIMIT ?
+                """,
+                (repeater_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def probe_jobs_for_repeater(self, *, repeater_id: int, limit: int = 20) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, endpoint_name, reason, status, scheduled_at, started_at, finished_at, attempts, last_error
+                FROM probe_jobs
+                WHERE repeater_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (repeater_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_repeater_metadata(
+        self,
+        *,
+        repeater_id: int,
+        name: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> dict[str, object] | None:
+        def operation(connection: sqlite3.Connection) -> dict[str, object] | None:
+            row = connection.execute(
+                "SELECT id, last_name_from_advert, last_lat, last_lon FROM repeaters WHERE id = ? LIMIT 1",
+                (repeater_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            next_name = row["last_name_from_advert"] if name is None else name
+            next_lat = row["last_lat"] if latitude is None else latitude
+            next_lon = row["last_lon"] if longitude is None else longitude
+            connection.execute(
+                """
+                UPDATE repeaters
+                SET last_name_from_advert = ?, last_lat = ?, last_lon = ?
+                WHERE id = ?
+                """,
+                (next_name, next_lat, next_lon, repeater_id),
+            )
+            updated = connection.execute(
+                "SELECT id, last_name_from_advert, last_lat, last_lon FROM repeaters WHERE id = ? LIMIT 1",
+                (repeater_id,),
+            ).fetchone()
+            return dict(updated) if updated is not None else None
+
+        return self._run_with_retry(operation)
+
+    def create_manual_repeater(
+        self,
+        *,
+        pubkey_hex: str,
+        name: str | None,
+        endpoint_name: str,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> int:
+        normalized_pubkey_hex = pubkey_hex.strip().upper()
+        public_key = bytes.fromhex(normalized_pubkey_hex)
+        now_iso = utc_now_iso()
+
+        def operation(connection: sqlite3.Connection) -> int:
+            existing = connection.execute(
+                "SELECT id FROM repeaters WHERE pubkey_hex = ? LIMIT 1",
+                (normalized_pubkey_hex,),
+            ).fetchone()
+            if existing is not None:
+                repeater_id = int(existing["id"])
+                connection.execute(
+                    """
+                    UPDATE repeaters
+                    SET last_name_from_advert = COALESCE(?, last_name_from_advert),
+                        last_lat = COALESCE(?, last_lat),
+                        last_lon = COALESCE(?, last_lon),
+                        last_seen_at = ?
+                    WHERE id = ?
+                    """,
+                    (name, latitude, longitude, now_iso, repeater_id),
+                )
+                return repeater_id
+            cursor = connection.execute(
+                """
+                INSERT INTO repeaters (
+                    pubkey, pubkey_hex, first_seen_at, last_seen_at, last_name_from_advert,
+                    last_lat, last_lon, last_advert_timestamp_remote, last_probe_status, last_probe_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                """,
+                (public_key, normalized_pubkey_hex, now_iso, now_iso, name, latitude, longitude),
+            )
+            lastrowid = cursor.lastrowid
+            assert lastrowid is not None
+            repeater_id = int(lastrowid)
+            connection.execute(
+                """
+                INSERT INTO repeater_adverts (
+                    repeater_id, endpoint_name, observed_at, advert_timestamp_remote,
+                    advert_name, advert_lat, advert_lon, path_len, path_hex, raw_packet_hex
+                ) VALUES (?, ?, ?, 0, ?, ?, ?, 0, '', '')
+                """,
+                (repeater_id, endpoint_name, now_iso, name, latitude, longitude),
+            )
+            return repeater_id
+
+        return self._run_with_retry(operation)
+
+    def delete_repeater(self, *, repeater_id: int) -> bool:
+        def operation(connection: sqlite3.Connection) -> bool:
+            exists = connection.execute("SELECT 1 FROM repeaters WHERE id = ? LIMIT 1", (repeater_id,)).fetchone()
+            if exists is None:
+                return False
+            probe_run_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT id FROM repeater_probe_runs WHERE repeater_id = ?",
+                    (repeater_id,),
+                ).fetchall()
+            ]
+            if probe_run_ids:
+                placeholders = ",".join("?" for _ in probe_run_ids)
+                connection.execute(f"DELETE FROM repeater_owner_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+                connection.execute(f"DELETE FROM repeater_status_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+                connection.execute(f"DELETE FROM repeater_telemetry_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+                connection.execute(f"DELETE FROM repeater_neighbour_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+                connection.execute(f"DELETE FROM raw_mesh_packets WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+            connection.execute("DELETE FROM probe_jobs WHERE repeater_id = ?", (repeater_id,))
+            connection.execute("DELETE FROM repeater_probe_runs WHERE repeater_id = ?", (repeater_id,))
+            connection.execute("DELETE FROM repeater_paths WHERE repeater_id = ?", (repeater_id,))
+            connection.execute("DELETE FROM repeater_adverts WHERE repeater_id = ?", (repeater_id,))
+            connection.execute("DELETE FROM repeaters WHERE id = ?", (repeater_id,))
+            return True
+
+        return self._run_with_retry(operation)
+
     def list_probe_jobs(self, limit: int = 100) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(

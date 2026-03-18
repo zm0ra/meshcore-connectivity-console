@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .bot_service import ChannelCommandBotService
 from .bridge_gateway import BridgeGatewayService
@@ -24,6 +26,90 @@ def configure_logging(level: str) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True,
     )
+
+
+def print_json(payload: Any) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def default_endpoint_name(config) -> str:
+    for endpoint in config.endpoints:
+        if endpoint.enabled:
+            return endpoint.name
+    if config.endpoints:
+        return config.endpoints[0].name
+    raise SystemExit("no endpoints configured")
+
+
+def resolve_repeater(database: BotDatabase, selector: str) -> dict[str, object]:
+    normalized = selector.strip()
+    if not normalized:
+        raise SystemExit("repeater selector cannot be empty")
+
+    repeaters = database.list_repeaters(limit=500)
+    lowered = normalized.lower()
+
+    if normalized.isdigit():
+        for repeater in repeaters:
+            if int(repeater["id"]) == int(normalized):
+                return repeater
+
+    for repeater in repeaters:
+        if str(repeater["pubkey_hex"]).lower() == lowered:
+            return repeater
+
+    prefix_matches = [repeater for repeater in repeaters if str(repeater["pubkey_hex"]).lower().startswith(lowered)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+
+    exact_name_matches = [repeater for repeater in repeaters if str(repeater.get("name") or "").lower() == lowered]
+    if len(exact_name_matches) == 1:
+        return exact_name_matches[0]
+
+    substring_matches = [repeater for repeater in repeaters if lowered in str(repeater.get("name") or "").lower()]
+    if len(substring_matches) == 1:
+        return substring_matches[0]
+
+    combined_matches = prefix_matches or exact_name_matches or substring_matches
+    if not combined_matches:
+        raise SystemExit(f"repeater not found for selector: {selector}")
+
+    raise SystemExit(
+        "ambiguous repeater selector: "
+        + selector
+        + "\n"
+        + json.dumps(
+            [
+                {
+                    "id": int(repeater["id"]),
+                    "name": repeater.get("name"),
+                    "pubkey_hex": repeater.get("pubkey_hex"),
+                }
+                for repeater in combined_matches[:10]
+            ],
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def build_repeater_payload(database: BotDatabase, repeater_id: int, *, adverts_limit: int, jobs_limit: int, probe_runs_limit: int, neighbours_limit: int) -> dict[str, object]:
+    details = database.repeater_full_state(repeater_id=repeater_id)
+    if details is None:
+        raise SystemExit(f"repeater id not found: {repeater_id}")
+    return {
+        "repeater": details,
+        "probe_state": database.repeater_probe_state(repeater_id=repeater_id),
+        "latest_advert": database.latest_repeater_advert(repeater_id=repeater_id),
+        "latest_zero_hop_advert": database.latest_repeater_zero_hop_advert(repeater_id=repeater_id),
+        "latest_advert_path": database.latest_repeater_advert_path(repeater_id=repeater_id),
+        "latest_saved_path": database.latest_repeater_path(repeater_id=repeater_id),
+        "recent_adverts": database.recent_repeater_adverts(repeater_id=repeater_id, limit=adverts_limit),
+        "recent_advert_paths": database.recent_repeater_advert_paths(repeater_id=repeater_id, limit=adverts_limit),
+        "recent_probe_runs": database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=probe_runs_limit),
+        "probe_jobs": database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=jobs_limit),
+        "latest_neighbours": database.latest_repeater_neighbours(repeater_id=repeater_id, limit=neighbours_limit),
+    }
 
 
 def main() -> None:
@@ -66,6 +152,59 @@ def main() -> None:
         help="delete only failed jobs older than this many hours",
     )
     cleanup_probe_jobs.add_argument("--dry-run", action="store_true", help="report how many rows would be deleted")
+
+    rpt_list = subparsers.add_parser("rpt-list", help="list known repeaters")
+    rpt_list.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_list.add_argument("--query", default=None, help="filter by id, name, or pubkey hex")
+    rpt_list.add_argument("--limit", type=int, default=100, help="maximum number of repeaters to return")
+
+    rpt_show = subparsers.add_parser("rpt-show", help="show full repeater state")
+    rpt_show.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_show.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_show.add_argument("--adverts-limit", type=int, default=8)
+    rpt_show.add_argument("--jobs-limit", type=int, default=10)
+    rpt_show.add_argument("--probe-runs-limit", type=int, default=10)
+    rpt_show.add_argument("--neighbours-limit", type=int, default=32)
+
+    rpt_probe = subparsers.add_parser("rpt-probe", help="enqueue manual probe for repeater")
+    rpt_probe.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_probe.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_probe.add_argument("--endpoint", default=None, help="endpoint name, defaults to first enabled endpoint")
+    rpt_probe.add_argument("--reason", default="manual cli probe", help="probe job reason")
+    rpt_probe.add_argument("--schedule-after-secs", type=float, default=0.0, help="delay before job becomes claimable")
+    rpt_probe.add_argument("--role", choices=["guest", "admin"], default=None, help="remember this login role before probe")
+    rpt_probe.add_argument("--password", default=None, help="remember this login password before probe")
+    rpt_probe.add_argument("--clear-learned-login", action="store_true", help="clear learned login before probe")
+
+    rpt_login_set = subparsers.add_parser("rpt-login-set", help="store learned login override for repeater")
+    rpt_login_set.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_login_set.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_login_set.add_argument("--role", required=True, choices=["guest", "admin"])
+    rpt_login_set.add_argument("--password", required=True)
+
+    rpt_login_clear = subparsers.add_parser("rpt-login-clear", help="clear learned login override for repeater")
+    rpt_login_clear.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_login_clear.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+
+    rpt_update = subparsers.add_parser("rpt-update", help="update repeater metadata")
+    rpt_update.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_update.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_update.add_argument("--name", default=None, help="override stored repeater name")
+    rpt_update.add_argument("--lat", type=float, default=None, help="override latitude")
+    rpt_update.add_argument("--lon", type=float, default=None, help="override longitude")
+
+    rpt_add = subparsers.add_parser("rpt-add", help="create or refresh manual repeater row")
+    rpt_add.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_add.add_argument("--pubkey", required=True, help="full repeater public key hex")
+    rpt_add.add_argument("--name", default=None, help="display name")
+    rpt_add.add_argument("--endpoint", default="manual", help="synthetic endpoint label for manual row")
+    rpt_add.add_argument("--lat", type=float, default=None, help="initial latitude")
+    rpt_add.add_argument("--lon", type=float, default=None, help="initial longitude")
+
+    rpt_delete = subparsers.add_parser("rpt-delete", help="delete repeater and all related history")
+    rpt_delete.add_argument("--config", default="config/config.toml", help="path to TOML config")
+    rpt_delete.add_argument("selector", help="repeater id, pubkey hex/prefix, or name")
+    rpt_delete.add_argument("--yes", action="store_true", help="confirm destructive delete")
 
     args = parser.parse_args()
     command = args.command or "init-db"
@@ -148,7 +287,7 @@ def main() -> None:
                 for endpoint in config.endpoints
             ],
         }
-        print(json.dumps(payload, indent=2, ensure_ascii=True))
+        print_json(payload)
         return
 
     if command == "ensure-identity":
@@ -168,7 +307,7 @@ def main() -> None:
     database = BotDatabase(config.storage.database_path)
     if command == "init-db":
         database.initialize()
-        print(json.dumps(database.snapshot_overview(), indent=2, ensure_ascii=True))
+        print_json(database.snapshot_overview())
         return
 
     if command == "cleanup-probe-jobs":
@@ -188,6 +327,135 @@ def main() -> None:
                 indent=2,
                 ensure_ascii=True,
             )
+        )
+        return
+
+    if command == "rpt-list":
+        database.initialize()
+        print_json(
+            {
+                "count": len(database.list_repeaters(query=args.query, limit=args.limit)),
+                "repeaters": database.list_repeaters(query=args.query, limit=args.limit),
+            }
+        )
+        return
+
+    if command == "rpt-show":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        print_json(
+            build_repeater_payload(
+                database,
+                int(repeater["id"]),
+                adverts_limit=args.adverts_limit,
+                jobs_limit=args.jobs_limit,
+                probe_runs_limit=args.probe_runs_limit,
+                neighbours_limit=args.neighbours_limit,
+            )
+        )
+        return
+
+    if command == "rpt-login-set":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        database.remember_repeater_login(
+            repeater_id=int(repeater["id"]),
+            login_role=str(args.role),
+            login_password=str(args.password),
+        )
+        print_json(
+            {
+                "updated": True,
+                "repeater": database.repeater_full_state(repeater_id=int(repeater["id"])),
+            }
+        )
+        return
+
+    if command == "rpt-login-clear":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        cleared = database.reset_repeater_login_if_stable(repeater_id=int(repeater["id"]), min_success_count=0)
+        print_json(
+            {
+                "updated": bool(cleared),
+                "repeater": database.repeater_full_state(repeater_id=int(repeater["id"])),
+            }
+        )
+        return
+
+    if command == "rpt-update":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        if args.name is None and args.lat is None and args.lon is None:
+            raise SystemExit("provide at least one of --name, --lat, or --lon")
+        updated = database.update_repeater_metadata(
+            repeater_id=int(repeater["id"]),
+            name=args.name,
+            latitude=args.lat,
+            longitude=args.lon,
+        )
+        print_json({"updated": updated})
+        return
+
+    if command == "rpt-add":
+        database.initialize()
+        repeater_id = database.create_manual_repeater(
+            pubkey_hex=args.pubkey,
+            name=args.name,
+            endpoint_name=args.endpoint,
+            latitude=args.lat,
+            longitude=args.lon,
+        )
+        print_json(
+            {
+                "repeater_id": repeater_id,
+                "repeater": database.repeater_full_state(repeater_id=repeater_id),
+            }
+        )
+        return
+
+    if command == "rpt-delete":
+        database.initialize()
+        if not args.yes:
+            raise SystemExit("rpt-delete requires --yes")
+        repeater = resolve_repeater(database, args.selector)
+        deleted = database.delete_repeater(repeater_id=int(repeater["id"]))
+        print_json({"deleted": deleted, "repeater_id": int(repeater["id"])})
+        return
+
+    if command == "rpt-probe":
+        database.initialize()
+        repeater = resolve_repeater(database, args.selector)
+        repeater_id = int(repeater["id"])
+        if args.clear_learned_login:
+            database.reset_repeater_login_if_stable(repeater_id=repeater_id, min_success_count=0)
+        if args.role is not None or args.password is not None:
+            if not args.role or args.password is None:
+                raise SystemExit("--role and --password must be provided together")
+            database.remember_repeater_login(
+                repeater_id=repeater_id,
+                login_role=str(args.role),
+                login_password=str(args.password),
+            )
+        scheduled_at = None
+        if float(args.schedule_after_secs) > 0:
+            scheduled_at = (datetime.now(tz=UTC) + timedelta(seconds=float(args.schedule_after_secs))).isoformat()
+        endpoint_name = args.endpoint or default_endpoint_name(config)
+        job_id = database.enqueue_probe_job(
+            repeater_id=repeater_id,
+            endpoint_name=endpoint_name,
+            reason=str(args.reason),
+            scheduled_at=scheduled_at,
+        )
+        print_json(
+            {
+                "repeater_id": repeater_id,
+                "endpoint_name": endpoint_name,
+                "job_id": job_id,
+                "scheduled_at": scheduled_at,
+                "learned_login": database.preferred_repeater_login(repeater_id=repeater_id),
+                "probe_jobs": database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=5),
+            }
         )
         return
 

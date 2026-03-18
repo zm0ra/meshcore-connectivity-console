@@ -1,5 +1,7 @@
 import asyncio
+import json
 import struct
+import sys
 
 from datetime import UTC, datetime, timedelta
 from dataclasses import replace
@@ -7,6 +9,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
+from meshcore_bot import __main__ as cli_main
 from meshcore_bot.config import AppConfig, BotConfig, EndpointConfig, GatewayConfig, IdentityConfig, ProbeConfig, ServiceConfig, StorageConfig, WebConfig
 from meshcore_bot.bot_service import ChannelCommandBotService
 from meshcore_bot.bridge_gateway import BridgeGatewayService
@@ -2180,3 +2183,139 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
     assert source_history[0]["target_identity_hex"] == target_identity.public_key.hex().upper()
     assert source_history[0]["snr"] == 9.5
     assert source_history[1]["snr"] == 4.0
+
+
+def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    identity = LocalIdentity.generate()
+    repeater_id = database.create_manual_repeater(
+        pubkey_hex=identity.public_key.hex().upper(),
+        name="Manual RPT",
+        endpoint_name="test-endpoint",
+        latitude=53.12,
+        longitude=14.55,
+    )
+    assert repeater_id > 0
+
+    database.remember_repeater_login(repeater_id=repeater_id, login_role="guest", login_password="hello")
+    probe_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual test probe",
+    )
+    assert probe_job_id is not None
+
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+    database.save_neighbour_snapshot_page(
+        probe_run_id=probe_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[
+            {
+                "neighbour_pubkey_prefix_hex": "A1B2C3D4",
+                "heard_seconds_ago": 11,
+                "snr": 7.5,
+            }
+        ],
+    )
+    database.complete_probe_run(
+        probe_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=2,
+        login_server_time=123,
+        error_message=None,
+    )
+
+    full_state = database.repeater_full_state(repeater_id=repeater_id)
+    assert full_state is not None
+    assert full_state["last_name_from_advert"] == "Manual RPT"
+    assert full_state["learned_login_role"] == "guest"
+    assert full_state["next_probe_reason"] == "manual test probe"
+
+    recent_runs = database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=4)
+    assert recent_runs[0]["result"] == "success"
+
+    neighbours = database.latest_repeater_neighbours(repeater_id=repeater_id, limit=4)
+    assert neighbours[0]["neighbour_pubkey_prefix_hex"] == "A1B2C3D4"
+
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=4)
+    assert jobs[0]["reason"] == "manual test probe"
+
+    updated = database.update_repeater_metadata(repeater_id=repeater_id, name="Manual RPT 2", latitude=50.0, longitude=16.0)
+    assert updated is not None
+    assert updated["last_name_from_advert"] == "Manual RPT 2"
+
+    assert database.delete_repeater(repeater_id=repeater_id) is True
+    assert database.repeater_full_state(repeater_id=repeater_id) is None
+
+
+def test_cli_repeater_commands_add_probe_and_show(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "test-endpoint"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+""".strip()
+    )
+
+    pubkey_hex = LocalIdentity.generate().public_key.hex().upper()
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-add", "--config", str(config_path), "--pubkey", pubkey_hex, "--name", "CLI RPT"])
+    cli_main.main()
+    add_payload = json.loads(capsys.readouterr().out)
+    repeater_id = int(add_payload["repeater_id"])
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "meshcore-bot",
+            "rpt-probe",
+            "--config",
+            str(config_path),
+            str(repeater_id),
+            "--reason",
+            "cli scheduled probe",
+            "--role",
+            "guest",
+            "--password",
+            "hello",
+        ],
+    )
+    cli_main.main()
+    probe_payload = json.loads(capsys.readouterr().out)
+    assert probe_payload["job_id"] is not None
+    assert probe_payload["learned_login"]["learned_login_role"] == "guest"
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-show", "--config", str(config_path), str(repeater_id)])
+    cli_main.main()
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["repeater"]["id"] == repeater_id
+    assert show_payload["repeater"]["next_probe_reason"] == "cli scheduled probe"
+    assert show_payload["probe_jobs"][0]["reason"] == "cli scheduled probe"
