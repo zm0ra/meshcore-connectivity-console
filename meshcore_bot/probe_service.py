@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import struct
@@ -11,6 +12,7 @@ from typing import Any, Callable, cast
 
 from .config import AppConfig, EndpointConfig
 from .database import BotDatabase
+from .endpoint_console import parse_console_neighbors_reply, parse_console_text_reply, run_console_command
 from .identity import LocalIdentity
 from .mesh_builders import build_login_packet, build_request_packet, next_request_tag, parse_encrypted_datagram, parse_path_response
 from .mesh_builders import build_advert_packet
@@ -126,6 +128,7 @@ class GuestProbeWorker:
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
+    LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
 
     def __init__(
         self,
@@ -146,6 +149,12 @@ class GuestProbeWorker:
         self._transport_factory = transport_factory or self._build_direct_transport
         self._next_scheduled_reprobe_scan_monotonic = 0.0
         self._progress_callback = progress_callback
+        self._endpoint_local_node_name_cache: dict[str, str | None] = {}
+        self._endpoint_local_node_name_checked: set[str] = set()
+        for endpoint in self._endpoint_map.values():
+            if endpoint.local_node_name:
+                self._endpoint_local_node_name_cache[endpoint.name] = endpoint.local_node_name.strip()
+                self._endpoint_local_node_name_checked.add(endpoint.name)
 
     def _progress(self, event: str, **payload: object) -> None:
         if self._progress_callback is None:
@@ -241,16 +250,38 @@ class GuestProbeWorker:
         repeater_id = int(cast(int, job["repeater_id"]))
         remote_pubkey = bytes(cast(bytes, job["pubkey"]))
         repeater_name = cast(str | None, job.get("last_name_from_advert"))
+        local_console_endpoint = await self._resolve_local_console_endpoint(repeater_name)
+        if local_console_endpoint is not None and local_console_endpoint.name != endpoint.name:
+            self.database.enqueue_probe_job(
+                repeater_id=repeater_id,
+                endpoint_name=local_console_endpoint.name,
+                reason=self.LOCAL_CONSOLE_REDIRECT_REASON,
+                success_cooldown_secs=0.0,
+                failure_cooldown_secs=0.0,
+            )
+            self.database.finish_probe_job(job_id, status="completed")
+            return
+
         probe_run_id = self.database.create_probe_run(repeater_id=repeater_id, endpoint_name=endpoint.name)
+        used_direct_console = False
 
         try:
-            await self.probe_repeater_as_guest(
-                probe_run_id=probe_run_id,
-                repeater_id=repeater_id,
-                endpoint=endpoint,
-                remote_pubkey=remote_pubkey,
-                repeater_name=repeater_name,
-            )
+            if local_console_endpoint is not None and local_console_endpoint.name == endpoint.name:
+                used_direct_console = True
+                await self.probe_repeater_via_console(
+                    probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
+                    endpoint=endpoint,
+                    repeater_name=repeater_name,
+                )
+            else:
+                await self.probe_repeater_as_guest(
+                    probe_run_id=probe_run_id,
+                    repeater_id=repeater_id,
+                    endpoint=endpoint,
+                    remote_pubkey=remote_pubkey,
+                    repeater_name=repeater_name,
+                )
         except Exception as exc:
             self.logger.warning("probe job %s failed: %s", job_id, exc)
             self.database.complete_probe_run(
@@ -264,15 +295,122 @@ class GuestProbeWorker:
                 error_message=str(exc),
             )
             self.database.finish_probe_job(job_id, status="failed", last_error=str(exc))
-            self._enqueue_endpoint_fallback_jobs(
-                repeater_id=repeater_id,
-                failed_endpoint_name=endpoint.name,
-                trigger_reason=job_reason,
-            )
+            if not used_direct_console:
+                self._enqueue_endpoint_fallback_jobs(
+                    repeater_id=repeater_id,
+                    failed_endpoint_name=endpoint.name,
+                    trigger_reason=job_reason,
+                )
             return
 
         self.database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name=endpoint.name)
         self.database.finish_probe_job(job_id, status="completed")
+
+    async def _resolve_local_console_endpoint(self, repeater_name: str | None) -> EndpointConfig | None:
+        normalized = (repeater_name or "").strip().upper()
+        if not normalized:
+            return None
+        for endpoint in self._endpoint_map.values():
+            endpoint_node_name = await self._resolve_endpoint_local_node_name(endpoint)
+            if endpoint_node_name and endpoint_node_name.strip().upper() == normalized:
+                return endpoint
+        return None
+
+    async def _resolve_endpoint_local_node_name(self, endpoint: EndpointConfig) -> str | None:
+        if endpoint.name in self._endpoint_local_node_name_checked:
+            return self._endpoint_local_node_name_cache.get(endpoint.name)
+        self._endpoint_local_node_name_checked.add(endpoint.name)
+        if endpoint.console_port is None:
+            return None
+        try:
+            reply = await run_console_command(
+                endpoint.raw_host,
+                endpoint.console_port,
+                "get name",
+                timeout=max(2.0, self.config.gateway.console_probe_timeout_secs),
+            )
+        except Exception as exc:
+            self.logger.debug("console get name failed endpoint=%s error=%s", endpoint.name, exc)
+            return None
+        node_name = parse_console_text_reply(reply) or None
+        if node_name:
+            self._endpoint_local_node_name_cache[endpoint.name] = node_name
+        return node_name
+
+    async def probe_repeater_via_console(
+        self,
+        *,
+        probe_run_id: int,
+        repeater_id: int,
+        endpoint: EndpointConfig,
+        repeater_name: str | None,
+    ) -> None:
+        if endpoint.console_port is None:
+            raise RuntimeError(f"endpoint {endpoint.name} has no console port configured")
+        command_timeout = max(2.0, self.config.probe.request_timeout_secs, self.config.gateway.console_probe_timeout_secs)
+
+        self._progress("owner_requested", endpoint_name=endpoint.name)
+        node_name_reply = await run_console_command(endpoint.raw_host, endpoint.console_port, "get name", timeout=command_timeout)
+        node_name = parse_console_text_reply(node_name_reply) or endpoint.local_node_name or repeater_name
+        firmware_version: str | None = None
+        owner_info: str | None = None
+        with contextlib.suppress(Exception):
+            firmware_version = parse_console_text_reply(
+                await run_console_command(endpoint.raw_host, endpoint.console_port, "ver", timeout=command_timeout)
+            ) or None
+        with contextlib.suppress(Exception):
+            owner_reply = parse_console_text_reply(
+                await run_console_command(endpoint.raw_host, endpoint.console_port, "get owner.info", timeout=command_timeout)
+            )
+            owner_info = owner_reply.replace("|", "\n") if owner_reply else None
+        if node_name:
+            self._endpoint_local_node_name_cache[endpoint.name] = node_name
+            self.database.update_repeater_metadata(repeater_id=repeater_id, name=node_name)
+        self.database.save_owner_snapshot(
+            probe_run_id=probe_run_id,
+            firmware_version=firmware_version,
+            node_name=node_name,
+            owner_info=owner_info,
+        )
+        self._progress("owner_received", endpoint_name=endpoint.name)
+
+        self._progress("neighbours_started", endpoint_name=endpoint.name)
+        neighbours_reply = await run_console_command(endpoint.raw_host, endpoint.console_port, "neighbors", timeout=command_timeout)
+        neighbours = parse_console_neighbors_reply(neighbours_reply)
+        if neighbours:
+            self.database.save_neighbour_snapshot_page(
+                probe_run_id=probe_run_id,
+                page_offset=0,
+                total_neighbours_count=len(neighbours),
+                results_count=len(neighbours),
+                entries=[
+                    {
+                        "neighbour_pubkey_prefix_hex": str(entry["neighbor_hash_prefix"]),
+                        "heard_seconds_ago": int(entry["last_heard_seconds"]),
+                        "snr": float(entry["snr"]),
+                    }
+                    for entry in neighbours
+                ],
+            )
+        self._progress(
+            "neighbours_page_saved",
+            endpoint_name=endpoint.name,
+            page_offset=0,
+            results_count=len(neighbours),
+            total_neighbours_count=len(neighbours),
+        )
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=3,
+            firmware_capability_level=None,
+            login_server_time=None,
+            error_message=None,
+        )
+        self.database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name=endpoint.name)
+        self._progress("probe_completed", endpoint_name=endpoint.name, result="success")
 
     def _enqueue_endpoint_fallback_jobs(self, *, repeater_id: int, failed_endpoint_name: str, trigger_reason: str) -> None:
         if trigger_reason == self.ENDPOINT_FALLBACK_REASON:

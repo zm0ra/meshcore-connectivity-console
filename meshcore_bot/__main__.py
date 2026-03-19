@@ -277,6 +277,8 @@ def _endpoint_public_payload(endpoint: dict[str, object]) -> dict[str, object]:
         "name": str(endpoint.get("name") or ""),
         "raw_host": str(endpoint.get("raw_host") or ""),
         "raw_port": int(endpoint.get("raw_port", 5002)),
+        "console_port": int(endpoint.get("console_port", 5001)) if endpoint.get("console_port", 5001) is not None else None,
+        "local_node_name": endpoint.get("local_node_name"),
         "enabled": bool(endpoint.get("enabled", True)),
         "console_mirror_host": endpoint.get("console_mirror_host"),
         "console_mirror_port": endpoint.get("console_mirror_port"),
@@ -362,6 +364,8 @@ def main() -> None:
     endpoint_add.add_argument("--name", required=True, help="endpoint name")
     endpoint_add.add_argument("--raw-host", required=True, help="RS232@TCP host")
     endpoint_add.add_argument("--raw-port", type=int, default=5002, help="RS232@TCP port")
+    endpoint_add.add_argument("--console-port", type=int, default=5001, help="clean CLI console port for direct local-node harvest")
+    endpoint_add.add_argument("--local-node-name", default=None, help="optional local repeater name exposed on this endpoint")
     endpoint_add.add_argument("--console-mirror-host", default=None, help="optional console mirror host")
     endpoint_add.add_argument("--console-mirror-port", type=int, default=None, help="optional console mirror port")
     endpoint_add.add_argument("--disabled", action="store_true", help="create endpoint as disabled")
@@ -372,6 +376,10 @@ def main() -> None:
     endpoint_update.add_argument("--name", default=None, help="new endpoint name")
     endpoint_update.add_argument("--raw-host", default=None, help="new RS232@TCP host")
     endpoint_update.add_argument("--raw-port", type=int, default=None, help="new RS232@TCP port")
+    endpoint_update.add_argument("--console-port", type=int, default=None, help="set clean CLI console port")
+    endpoint_update.add_argument("--clear-console-port", action="store_true", help="remove clean CLI console port")
+    endpoint_update.add_argument("--local-node-name", default=None, help="set local repeater name exposed on this endpoint")
+    endpoint_update.add_argument("--clear-local-node-name", action="store_true", help="remove local repeater name mapping")
     endpoint_update.add_argument("--console-mirror-host", default=None, help="set console mirror host")
     endpoint_update.add_argument("--console-mirror-port", type=int, default=None, help="set console mirror port")
     endpoint_update.add_argument("--clear-console-mirror-host", action="store_true", help="remove console mirror host")
@@ -512,6 +520,8 @@ def main() -> None:
                     "name": endpoint.name,
                     "raw_host": endpoint.raw_host,
                     "raw_port": endpoint.raw_port,
+                    "console_port": endpoint.console_port,
+                    "local_node_name": endpoint.local_node_name,
                     "enabled": endpoint.enabled,
                     "console_mirror_host": endpoint.console_mirror_host,
                     "console_mirror_port": endpoint.console_mirror_port,
@@ -542,8 +552,11 @@ def main() -> None:
             "name": name,
             "raw_host": str(args.raw_host),
             "raw_port": int(args.raw_port),
+            "console_port": int(args.console_port) if args.console_port is not None else None,
             "enabled": not bool(args.disabled),
         }
+        if args.local_node_name is not None:
+            endpoint["local_node_name"] = str(args.local_node_name)
         if args.console_mirror_host is not None:
             endpoint["console_mirror_host"] = str(args.console_mirror_host)
         if args.console_mirror_port is not None:
@@ -568,6 +581,14 @@ def main() -> None:
             endpoint["raw_host"] = str(args.raw_host)
         if args.raw_port is not None:
             endpoint["raw_port"] = int(args.raw_port)
+        if args.clear_console_port:
+            endpoint.pop("console_port", None)
+        elif args.console_port is not None:
+            endpoint["console_port"] = int(args.console_port)
+        if args.clear_local_node_name:
+            endpoint.pop("local_node_name", None)
+        elif args.local_node_name is not None:
+            endpoint["local_node_name"] = str(args.local_node_name)
         if args.enabled and args.disabled:
             raise SystemExit("--enabled and --disabled are mutually exclusive")
         if args.enabled:

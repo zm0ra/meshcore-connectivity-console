@@ -89,6 +89,8 @@ class EndpointConfig:
     raw_host: str
     raw_port: int
     enabled: bool
+    console_port: int | None = 5001
+    local_node_name: str | None = None
     console_mirror_host: str | None = None
     console_mirror_port: int | None = None
 
@@ -140,6 +142,10 @@ def load_config(config_path: str | Path) -> AppConfig:
             raw_host=str(item["raw_host"]),
             raw_port=int(item.get("raw_port", 5002)),
             enabled=bool(item.get("enabled", True)),
+            console_port=int(item["console_port"]) if item.get("console_port") is not None else 5001,
+            local_node_name=str(item["local_node_name"]).strip() or None
+            if item.get("local_node_name") is not None
+            else None,
             console_mirror_host=str(item["console_mirror_host"]).strip() or None
             if item.get("console_mirror_host") is not None
             else None,

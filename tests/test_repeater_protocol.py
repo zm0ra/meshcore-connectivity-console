@@ -148,6 +148,23 @@ def build_multi_endpoint_test_app_config(tmp_path) -> AppConfig:
     )
 
 
+def build_local_console_test_app_config(tmp_path) -> AppConfig:
+    base = build_test_app_config(tmp_path)
+    return replace(
+        base,
+        endpoints=(
+            EndpointConfig(
+                name="RPT_Okolna",
+                raw_host="127.0.0.1",
+                raw_port=5002,
+                enabled=True,
+                local_node_name="SZN_STO_OMNI_RPT",
+            ),
+            EndpointConfig(name="RPT_Przesocin", raw_host="127.0.0.1", raw_port=5003, enabled=True),
+        ),
+    )
+
+
 def test_hashtag_channel_secret_is_deterministic() -> None:
     secret = derive_hashtag_secret("#test")
     assert secret.hex() == "9cd8fcf22a47333b591d96a2b848b73f"
@@ -2969,6 +2986,105 @@ def test_probe_repeater_as_guest_uses_global_advert_path_when_endpoint_was_renam
     assert sent_summary.path_len == 3
     assert sent_summary.path_bytes.hex().upper() == "4805EF"
     worker._discover_repeater_path.assert_not_awaited()
+
+
+def test_run_job_uses_direct_console_for_local_endpoint_node(tmp_path, monkeypatch) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Przesocin",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="RPT_Okolna",
+        reason="manual cli probe",
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+    )
+    assert job_id is not None
+    job = database.claim_probe_job()
+    assert job is not None
+    worker = GuestProbeWorker(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+
+    async def fake_console_probe(self, *, probe_run_id: int, repeater_id: int, endpoint, repeater_name: str | None) -> None:
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=3,
+            firmware_capability_level=None,
+            login_server_time=None,
+            error_message=None,
+        )
+
+    radio_probe = AsyncMock(side_effect=AssertionError("radio probe should not run for local console node"))
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_via_console", fake_console_probe)
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", radio_probe)
+
+    asyncio.run(worker._run_job(job))
+
+    state = database.repeater_full_state(repeater_id=repeater_id)
+    assert state is not None
+    assert state["last_probe_status"] == "success"
+    assert state["preferred_endpoint_name"] == "RPT_Okolna"
+    radio_probe.assert_not_awaited()
+
+
+def test_run_job_redirects_local_node_to_matching_console_endpoint(tmp_path, monkeypatch) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Przesocin",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="RPT_Przesocin",
+        reason="scheduled stale refresh",
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+    )
+    assert job_id is not None
+    job = database.claim_probe_job()
+    assert job is not None
+    worker = GuestProbeWorker(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_via_console", AsyncMock(side_effect=AssertionError("should redirect before probing")))
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", AsyncMock(side_effect=AssertionError("should redirect before probing")))
+
+    asyncio.run(worker._run_job(job))
+
+    state = database.repeater_full_state(repeater_id=repeater_id)
+    assert state is not None
+    probe_jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
+    redirected_jobs = [
+        item for item in probe_jobs
+        if item["endpoint_name"] == "RPT_Okolna" and item["reason"] == GuestProbeWorker.LOCAL_CONSOLE_REDIRECT_REASON
+    ]
+    original_jobs = [item for item in probe_jobs if item["endpoint_name"] == "RPT_Przesocin"]
+    assert redirected_jobs
+    assert original_jobs[0]["status"] == "completed"
 
 
 def test_schedule_stale_repeater_probe_jobs_prefers_stored_endpoint(tmp_path) -> None:
