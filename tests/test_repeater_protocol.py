@@ -2894,6 +2894,83 @@ def test_cli_repeater_probe_now_prefers_stored_preferred_endpoint(tmp_path, monk
     assert observed_kwargs["endpoint"].name == "RPT_Przesocin"
 
 
+def test_probe_repeater_as_guest_uses_global_advert_path_when_endpoint_was_renamed(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(
+        base_config,
+        probe=replace(base_config.probe, pre_login_advert_name=""),
+        endpoints=(EndpointConfig(name="RPT_Okolna", raw_host="127.0.0.1", raw_port=5002, enabled=True),),
+    )
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="rpt-primary",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=3,
+        path_hex="4805EF",
+        raw_packet_hex="00",
+    )
+    worker = GuestProbeWorker(config, database, transport_factory=lambda endpoint: FakeTCPClient([]))
+    fake_client = cast(FakeTCPClient, worker._transport_factory(config.endpoints[0]))
+    worker._transport_factory = lambda endpoint: fake_client
+
+    async def fail_discovery(**kwargs) -> tuple[int, bytes]:
+        raise AssertionError("path discovery should not run when a fresh advert path exists")
+
+    async def fake_login_response(**kwargs) -> tuple[bytes, int, bytes]:
+        payload = struct.pack("<IBBBB4sB", 1234, 0, 0, 1, 3, b"ABCD", 2)
+        return payload, 3, bytes.fromhex("4805EF")
+
+    async def fake_settle_post_login_frames(**kwargs) -> tuple[int, bytes]:
+        return int(kwargs["current_path_len"]), bytes(kwargs["current_path_bytes"])
+
+    async def fake_send_with_tagged_response_retries(**kwargs) -> tuple[bytes, int, bytes]:
+        return b"dummy", int(kwargs["current_path_len"]), bytes(kwargs["current_path_bytes"])
+
+    worker._discover_repeater_path = AsyncMock(side_effect=fail_discovery)
+    worker._await_login_response = AsyncMock(side_effect=fake_login_response)
+    worker._settle_post_login_frames = AsyncMock(side_effect=fake_settle_post_login_frames)
+    worker._send_with_tagged_response_retries = AsyncMock(side_effect=fake_send_with_tagged_response_retries)
+
+    with (
+        patch("meshcore_bot.probe_service.parse_neighbours_response") as parse_neighbours,
+        patch("meshcore_bot.probe_service.parse_status_response") as parse_status,
+        patch("meshcore_bot.probe_service.parse_owner_info_response") as parse_owner,
+    ):
+        parse_neighbours.return_value = type(
+            "NeighboursResponse",
+            (),
+            {"neighbours_count": 1, "results_count": 1, "entries": []},
+        )()
+        parse_status.return_value = type("StatusResponse", (), {})()
+        parse_owner.return_value = type(
+            "OwnerInfoResponse",
+            (),
+            {"firmware_version": "v1", "node_name": "SZN_STO_OMNI_RPT", "owner_info": "owner"},
+        )()
+
+        asyncio.run(
+            worker.probe_repeater_as_guest(
+                probe_run_id=database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Okolna"),
+                repeater_id=repeater_id,
+                endpoint=config.endpoints[0],
+                remote_pubkey=remote_identity.public_key,
+                repeater_name="SZN_STO_OMNI_RPT",
+            )
+        )
+
+    sent_summary = parse_packet(fake_client.sent_packets[0])
+    assert sent_summary.path_len == 3
+    assert sent_summary.path_bytes.hex().upper() == "4805EF"
+    worker._discover_repeater_path.assert_not_awaited()
+
+
 def test_schedule_stale_repeater_probe_jobs_prefers_stored_endpoint(tmp_path) -> None:
     config = build_multi_endpoint_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)

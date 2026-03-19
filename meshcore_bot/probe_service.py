@@ -342,10 +342,11 @@ class GuestProbeWorker:
                 learned_path_len = int(cast(int, latest_path.get("out_path_len", latest_path.get("path_len"))))
                 learned_path_bytes = bytes.fromhex(str(cast(str, latest_path.get("out_path_hex", latest_path.get("path_hex")))))
                 known_direct_paths.append((learned_path_len, learned_path_bytes))
-            for advert_path in self.database.recent_repeater_advert_paths(
+            endpoint_advert_paths = self.database.recent_repeater_advert_paths(
                 repeater_id=repeater_id,
                 endpoint_name=endpoint.name,
-            ):
+            )
+            for advert_path in endpoint_advert_paths:
                 if not self._is_usable_stored_path(advert_path):
                     continue
                 path_len = int(cast(int, advert_path.get("path_len", advert_path.get("out_path_len"))))
@@ -353,6 +354,15 @@ class GuestProbeWorker:
                 candidate = (path_len, path_bytes)
                 if candidate not in known_direct_paths:
                     known_direct_paths.append(candidate)
+            if not endpoint_advert_paths:
+                for advert_path in self.database.recent_repeater_advert_paths(repeater_id=repeater_id):
+                    if not self._is_usable_stored_path(advert_path):
+                        continue
+                    path_len = int(cast(int, advert_path.get("path_len", advert_path.get("out_path_len"))))
+                    path_bytes = bytes.fromhex(str(cast(str, advert_path.get("path_hex", advert_path.get("out_path_hex")))))
+                    candidate = (path_len, path_bytes)
+                    if candidate not in known_direct_paths:
+                        known_direct_paths.append(candidate)
             if known_direct_paths:
                 learned_path_len, learned_path_bytes = known_direct_paths[0]
 
