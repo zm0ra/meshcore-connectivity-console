@@ -30,6 +30,19 @@ def normalize_console_reply(transcript: str, command: str) -> str:
         line = line.strip()
         if line == command:
             continue
+        while True:
+            stripped = line
+            if stripped.startswith(">"):
+                stripped = stripped[1:].strip()
+            elif stripped.startswith("->"):
+                stripped = stripped[2:].strip()
+            else:
+                break
+            if stripped == line:
+                break
+            line = stripped
+        if line == command:
+            continue
         if not line or line == ">" or line == "->":
             continue
         lines.append(line)
@@ -63,7 +76,25 @@ def parse_console_neighbors_reply(reply: str) -> list[dict[str, object]]:
 
 
 def parse_console_text_reply(reply: str) -> str:
-    return reply.strip()
+    for line in reply.splitlines():
+        normalized = line.strip()
+        if not normalized or normalized in {">", "->", "-none-"}:
+            continue
+        while True:
+            stripped = normalized
+            if stripped.startswith(">"):
+                stripped = stripped[1:].strip()
+            elif stripped.startswith("->"):
+                stripped = stripped[2:].strip()
+            else:
+                break
+            if stripped == normalized:
+                break
+            normalized = stripped
+        if not normalized or normalized in {">", "->", "-none-"}:
+            continue
+        return normalized
+    return ""
 
 
 async def run_console_command(host: str, port: int, command: str, *, timeout: float) -> str:
