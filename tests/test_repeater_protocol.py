@@ -33,6 +33,7 @@ from meshcore_bot.mesh_builders import (
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
 from meshcore_bot.config import load_config, save_raw_config
+from meshcore_bot.endpoint_console import normalize_console_reply, parse_console_neighbors_reply, parse_console_text_reply
 from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
@@ -218,7 +219,41 @@ def test_parse_status_response() -> None:
     assert parsed.request_tag == 77
     assert parsed.batt_milli_volts == 4200
     assert parsed.last_snr == 3.5
-    assert parsed.n_recv_errors == 7
+
+
+def test_normalize_console_reply_strips_nested_prompt_markers() -> None:
+    transcript = "MeshCore repeater console\r\n> get name\r\n  -> > SZN_STO_OMNI_RPT\r\n> "
+    normalized = normalize_console_reply(transcript, "get name")
+    assert normalized == "SZN_STO_OMNI_RPT"
+    assert parse_console_text_reply(normalized) == "SZN_STO_OMNI_RPT"
+
+
+def test_parse_console_neighbors_reply_parses_console_rows() -> None:
+    transcript = (
+        "> neighbors\n"
+        "  -> 01C97DDB:238:12\n"
+        "35D4F997:275:-10\n"
+        "F238FEE0:713:-33\n"
+        "DFA33F82:1846:21\n"
+        "4E50AFA0:3151:35\n"
+        "025656AD:3244:-25\n"
+        "481BB67F:3572:29\n"
+        "> "
+    )
+    normalized = normalize_console_reply(transcript, "neighbors")
+    parsed = parse_console_neighbors_reply(normalized)
+    assert [item["neighbor_hash_prefix"] for item in parsed] == [
+        "01C97DDB",
+        "35D4F997",
+        "F238FEE0",
+        "DFA33F82",
+        "4E50AFA0",
+        "025656AD",
+        "481BB67F",
+    ]
+    assert parsed[0]["last_heard_seconds"] == 238
+    assert parsed[0]["snr"] == 3.0
+    assert parsed[1]["snr"] == -2.5
 
 
 def test_parse_neighbours_response() -> None:

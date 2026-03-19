@@ -16,12 +16,22 @@ def normalize_console_reply(transcript: str, command: str) -> str:
             continue
         if line == ">":
             continue
-        if line.startswith("> "):
-            line = line[2:]
-            if not line:
+        while True:
+            if line.startswith("> "):
+                line = line[2:]
                 continue
-        if line.startswith("  -> "):
-            line = line[5:]
+            if line.startswith("-> "):
+                line = line[3:]
+                continue
+            if line.startswith("  -> "):
+                line = line[5:]
+                continue
+            break
+        line = line.strip()
+        if line == command:
+            continue
+        if not line or line == ">" or line == "->":
+            continue
         lines.append(line)
     return "\n".join(lines).strip()
 
