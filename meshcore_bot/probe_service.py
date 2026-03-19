@@ -178,6 +178,7 @@ class GuestProbeWorker:
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
     LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
+    CONSOLE_COMMAND_RETRY_ATTEMPTS = 3
 
     def __init__(
         self,
@@ -353,6 +354,60 @@ class GuestProbeWorker:
     async def resolve_local_console_endpoint(self, repeater_name: str | None) -> EndpointConfig | None:
         return await self._local_console_resolver.resolve_endpoint(repeater_name)
 
+    async def _run_console_text_command(
+        self,
+        *,
+        endpoint_name: str,
+        target: tuple[str, int],
+        command: str,
+        timeout: float,
+        retries: int | None = None,
+    ) -> str:
+        max_attempts = retries or self.CONSOLE_COMMAND_RETRY_ATTEMPTS
+        last_value = ""
+        for attempt in range(1, max_attempts + 1):
+            reply = await run_console_command(target[0], target[1], command, timeout=timeout)
+            parsed = parse_console_text_reply(reply)
+            if parsed or reply.strip() == "-none-":
+                return parsed
+            last_value = parsed
+            if attempt < max_attempts:
+                self.logger.debug(
+                    "console text command returned empty response endpoint=%s command=%s attempt=%s/%s",
+                    endpoint_name,
+                    command,
+                    attempt,
+                    max_attempts,
+                )
+                await asyncio.sleep(0.25 * attempt)
+        return last_value
+
+    async def _run_console_neighbors_command(
+        self,
+        *,
+        endpoint_name: str,
+        target: tuple[str, int],
+        timeout: float,
+        retries: int | None = None,
+    ) -> list[dict[str, object]]:
+        max_attempts = retries or self.CONSOLE_COMMAND_RETRY_ATTEMPTS
+        last_neighbours: list[dict[str, object]] = []
+        for attempt in range(1, max_attempts + 1):
+            reply = await run_console_command(target[0], target[1], "neighbors", timeout=timeout)
+            neighbours = parse_console_neighbors_reply(reply)
+            if neighbours or reply.strip() == "-none-":
+                return neighbours
+            last_neighbours = neighbours
+            if attempt < max_attempts:
+                self.logger.debug(
+                    "console neighbors command returned empty response endpoint=%s attempt=%s/%s",
+                    endpoint_name,
+                    attempt,
+                    max_attempts,
+                )
+                await asyncio.sleep(0.25 * attempt)
+        return last_neighbours
+
     async def probe_repeater_via_console(
         self,
         *,
@@ -367,17 +422,31 @@ class GuestProbeWorker:
         command_timeout = max(2.0, self.config.probe.request_timeout_secs, self.config.gateway.console_probe_timeout_secs)
 
         self._progress("owner_requested", endpoint_name=endpoint.name)
-        node_name_reply = await run_console_command(target[0], target[1], "get name", timeout=command_timeout)
-        node_name = parse_console_text_reply(node_name_reply) or endpoint.local_node_name or repeater_name
+        node_name = (
+            await self._run_console_text_command(
+                endpoint_name=endpoint.name,
+                target=target,
+                command="get name",
+                timeout=command_timeout,
+            )
+        ) or endpoint.local_node_name or repeater_name
         firmware_version: str | None = None
         owner_info: str | None = None
         with contextlib.suppress(Exception):
-            firmware_version = parse_console_text_reply(
-                await run_console_command(target[0], target[1], "ver", timeout=command_timeout)
+            firmware_version = (
+                await self._run_console_text_command(
+                    endpoint_name=endpoint.name,
+                    target=target,
+                    command="ver",
+                    timeout=command_timeout,
+                )
             ) or None
         with contextlib.suppress(Exception):
-            owner_reply = parse_console_text_reply(
-                await run_console_command(target[0], target[1], "get owner.info", timeout=command_timeout)
+            owner_reply = await self._run_console_text_command(
+                endpoint_name=endpoint.name,
+                target=target,
+                command="get owner.info",
+                timeout=command_timeout,
             )
             owner_info = owner_reply.replace("|", "\n") if owner_reply else None
         if node_name:
@@ -392,8 +461,11 @@ class GuestProbeWorker:
         self._progress("owner_received", endpoint_name=endpoint.name)
 
         self._progress("neighbours_started", endpoint_name=endpoint.name)
-        neighbours_reply = await run_console_command(target[0], target[1], "neighbors", timeout=command_timeout)
-        neighbours = parse_console_neighbors_reply(neighbours_reply)
+        neighbours = await self._run_console_neighbors_command(
+            endpoint_name=endpoint.name,
+            target=target,
+            timeout=command_timeout,
+        )
         if neighbours:
             self.database.save_neighbour_snapshot_page(
                 probe_run_id=probe_run_id,

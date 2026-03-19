@@ -3077,6 +3077,56 @@ def test_cli_repeater_probe_now_uses_console_for_tcp_accessible_node(tmp_path, m
     radio_probe.assert_not_awaited()
 
 
+def test_probe_repeater_via_console_retries_empty_neighbors_reply(tmp_path) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Okolna")
+    worker = GuestProbeWorker(config, database)
+    endpoint = next(item for item in config.endpoints if item.name == "RPT_Okolna")
+
+    responses = AsyncMock(
+        side_effect=[
+            "SZN_STO_OMNI_RPT",
+            "1.2.3",
+            "Owner|Info",
+            "",
+            "01C97DDB:238:12\n35D4F997:275:-10",
+        ]
+    )
+
+    async def scenario() -> None:
+        with patch("meshcore_bot.probe_service.run_console_command", responses):
+            await worker.probe_repeater_via_console(
+                probe_run_id=probe_run_id,
+                repeater_id=repeater_id,
+                endpoint=endpoint,
+                repeater_name="SZN_STO_OMNI_RPT",
+            )
+
+    asyncio.run(scenario())
+
+    neighbours = database.latest_repeater_neighbours(repeater_id=repeater_id, limit=16)
+    recent_runs = database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=1)
+
+    assert len(neighbours) == 2
+    assert recent_runs[0]["result"] == "success"
+    assert responses.await_count == 5
+
+
 def test_cli_repeater_probe_enqueues_local_console_endpoint_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:
     config = build_local_console_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
