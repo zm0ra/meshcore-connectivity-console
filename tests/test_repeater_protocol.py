@@ -3134,6 +3134,13 @@ def test_probe_repeater_via_console_retries_empty_neighbors_reply(tmp_path) -> N
             "",
             "",
             "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             "01C97DDB:238:12\n35D4F997:275:-10",
         ]
     )
@@ -3154,7 +3161,7 @@ def test_probe_repeater_via_console_retries_empty_neighbors_reply(tmp_path) -> N
 
     assert len(neighbours) == 2
     assert recent_runs[0]["result"] == "success"
-    assert responses.await_count == 9
+    assert responses.await_count == 16
 
 
 def test_cli_repeater_probe_enqueues_local_console_endpoint_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:

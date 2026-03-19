@@ -179,7 +179,7 @@ class GuestProbeWorker:
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
     LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
     CONSOLE_TEXT_COMMAND_RETRY_ATTEMPTS = 3
-    CONSOLE_NEIGHBORS_RETRY_ATTEMPTS = 8
+    CONSOLE_NEIGHBORS_RETRY_ATTEMPTS = 20
 
     def __init__(
         self,
@@ -406,7 +406,7 @@ class GuestProbeWorker:
                     attempt,
                     max_attempts,
                 )
-                await asyncio.sleep(0.25 * attempt)
+                await asyncio.sleep(0.1)
         return last_neighbours
 
     async def probe_repeater_via_console(
