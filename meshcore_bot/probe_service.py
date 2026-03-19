@@ -151,15 +151,16 @@ class LocalConsoleEndpointResolver:
         return None
 
     async def resolve_endpoint_local_node_name(self, endpoint: EndpointConfig) -> str | None:
+        target = endpoint.console_probe_target()
+        if target is None:
+            return None
         if endpoint.name in self._endpoint_local_node_name_checked:
             return self._endpoint_local_node_name_cache.get(endpoint.name)
         self._endpoint_local_node_name_checked.add(endpoint.name)
-        if endpoint.console_port is None:
-            return None
         try:
             reply = await run_console_command(
-                endpoint.raw_host,
-                endpoint.console_port,
+                target[0],
+                target[1],
                 "get name",
                 timeout=max(2.0, self.config.gateway.console_probe_timeout_secs),
             )
@@ -360,22 +361,23 @@ class GuestProbeWorker:
         endpoint: EndpointConfig,
         repeater_name: str | None,
     ) -> None:
-        if endpoint.console_port is None:
+        target = endpoint.console_probe_target()
+        if target is None:
             raise RuntimeError(f"endpoint {endpoint.name} has no console port configured")
         command_timeout = max(2.0, self.config.probe.request_timeout_secs, self.config.gateway.console_probe_timeout_secs)
 
         self._progress("owner_requested", endpoint_name=endpoint.name)
-        node_name_reply = await run_console_command(endpoint.raw_host, endpoint.console_port, "get name", timeout=command_timeout)
+        node_name_reply = await run_console_command(target[0], target[1], "get name", timeout=command_timeout)
         node_name = parse_console_text_reply(node_name_reply) or endpoint.local_node_name or repeater_name
         firmware_version: str | None = None
         owner_info: str | None = None
         with contextlib.suppress(Exception):
             firmware_version = parse_console_text_reply(
-                await run_console_command(endpoint.raw_host, endpoint.console_port, "ver", timeout=command_timeout)
+                await run_console_command(target[0], target[1], "ver", timeout=command_timeout)
             ) or None
         with contextlib.suppress(Exception):
             owner_reply = parse_console_text_reply(
-                await run_console_command(endpoint.raw_host, endpoint.console_port, "get owner.info", timeout=command_timeout)
+                await run_console_command(target[0], target[1], "get owner.info", timeout=command_timeout)
             )
             owner_info = owner_reply.replace("|", "\n") if owner_reply else None
         if node_name:
@@ -390,7 +392,7 @@ class GuestProbeWorker:
         self._progress("owner_received", endpoint_name=endpoint.name)
 
         self._progress("neighbours_started", endpoint_name=endpoint.name)
-        neighbours_reply = await run_console_command(endpoint.raw_host, endpoint.console_port, "neighbors", timeout=command_timeout)
+        neighbours_reply = await run_console_command(target[0], target[1], "neighbors", timeout=command_timeout)
         neighbours = parse_console_neighbors_reply(neighbours_reply)
         if neighbours:
             self.database.save_neighbour_snapshot_page(
