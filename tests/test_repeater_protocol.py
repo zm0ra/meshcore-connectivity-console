@@ -256,6 +256,12 @@ def test_parse_console_neighbors_reply_parses_console_rows() -> None:
     assert parsed[1]["snr"] == -2.5
 
 
+def test_parse_console_text_reply_ignores_placeholder_tokens() -> None:
+    assert parse_console_text_reply("->") == ""
+    assert parse_console_text_reply(">") == ""
+    assert parse_console_text_reply("-none-") == ""
+
+
 def test_parse_neighbours_response() -> None:
     payload = struct.pack("<IHH", 99, 2, 2)
     payload += bytes.fromhex("A1B2C3D4") + struct.pack("<Ib", 15, 8)
@@ -1534,6 +1540,32 @@ def test_ingest_spaces_advert_probe_jobs_per_endpoint(tmp_path) -> None:
     second_scheduled = datetime.fromisoformat(str(rows[1]["scheduled_at"]))
     assert (second_scheduled - first_scheduled).total_seconds() >= 30.0
     assert service.stats.advert_jobs_deferred == 1
+
+
+def test_ingest_enqueues_local_console_probe_for_tcp_accessible_node(tmp_path) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+
+    advert_packet = build_advert_packet(
+        identity=LocalIdentity.generate(),
+        name="SZN_STO_OMNI_RPT",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=advert_packet.packet.hex().upper(),
+        packet_hex=advert_packet.packet.hex().upper(),
+        summary=advert_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(config.endpoints[1], received))
+
+    claimed = database.claim_probe_job()
+    assert claimed is not None
+    assert claimed["endpoint_name"] == "RPT_Okolna"
+    assert claimed["reason"] == "repeater advert observed"
 
 
 def test_enqueue_probe_job_skips_recent_completed_advert_reprobe_but_allows_manual_reason(tmp_path) -> None:
@@ -2944,6 +2976,130 @@ def test_cli_repeater_probe_now_prefers_stored_preferred_endpoint(tmp_path, monk
 
     assert "Endpoint: RPT_Przesocin" in output
     assert observed_kwargs["endpoint"].name == "RPT_Przesocin"
+
+
+def test_cli_repeater_probe_now_uses_console_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Przesocin",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "config.toml"
+    save_raw_config(
+        config_path,
+        {
+            "service": {"name": config.service.name, "log_level": config.service.log_level},
+            "storage": {"database_path": "./meshcore-bot.db"},
+            "identity": {"key_file_path": "./identity.bin"},
+            "gateway": {
+                "control_socket_path": "./gateway-control.sock",
+                "event_socket_path": "./gateway-events.sock",
+            },
+            "endpoints": [
+                {
+                    **{
+                        "name": endpoint.name,
+                        "raw_host": endpoint.raw_host,
+                        "raw_port": endpoint.raw_port,
+                        "enabled": endpoint.enabled,
+                    },
+                    **({"local_node_name": endpoint.local_node_name} if endpoint.local_node_name else {}),
+                }
+                for endpoint in config.endpoints
+            ],
+        },
+    )
+
+    async def fake_console_probe(self, *, probe_run_id: int, repeater_id: int, endpoint, repeater_name: str | None) -> None:
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=3,
+            firmware_capability_level=None,
+            login_server_time=None,
+            error_message=None,
+        )
+
+    radio_probe = AsyncMock(side_effect=AssertionError("radio probe should not run for TCP-accessible node"))
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_via_console", fake_console_probe)
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", radio_probe)
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe-now", "--config", str(config_path), str(repeater_id)])
+
+    cli_main.main()
+    output = capsys.readouterr().out
+
+    assert "Endpoint: RPT_Okolna" in output
+    assert "Probe completed successfully" in output
+    radio_probe.assert_not_awaited()
+
+
+def test_cli_repeater_probe_enqueues_local_console_endpoint_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Przesocin",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "config.toml"
+    save_raw_config(
+        config_path,
+        {
+            "service": {"name": config.service.name, "log_level": config.service.log_level},
+            "storage": {"database_path": "./meshcore-bot.db"},
+            "identity": {"key_file_path": "./identity.bin"},
+            "gateway": {
+                "control_socket_path": "./gateway-control.sock",
+                "event_socket_path": "./gateway-events.sock",
+            },
+            "endpoints": [
+                {
+                    **{
+                        "name": endpoint.name,
+                        "raw_host": endpoint.raw_host,
+                        "raw_port": endpoint.raw_port,
+                        "enabled": endpoint.enabled,
+                    },
+                    **({"local_node_name": endpoint.local_node_name} if endpoint.local_node_name else {}),
+                }
+                for endpoint in config.endpoints
+            ],
+        },
+    )
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe", "--config", str(config_path), str(repeater_id)])
+    cli_main.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["endpoint_name"] == "RPT_Okolna"
 
 
 def test_probe_repeater_as_guest_uses_global_advert_path_when_endpoint_was_renamed(tmp_path) -> None:

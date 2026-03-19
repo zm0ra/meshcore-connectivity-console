@@ -123,6 +123,54 @@ def select_login_route_attempts(*, known_paths: list[tuple[int, bytes]], local_z
     return []
 
 
+class LocalConsoleEndpointResolver:
+    def __init__(self, config: AppConfig, *, logger: logging.Logger | None = None) -> None:
+        self.config = config
+        self.logger = logger or logging.getLogger(f"{config.service.name}.probe")
+        self._endpoint_map = {endpoint.name: endpoint for endpoint in config.endpoints if endpoint.enabled}
+        self._endpoint_local_node_name_cache: dict[str, str | None] = {}
+        self._endpoint_local_node_name_checked: set[str] = set()
+        for endpoint in self._endpoint_map.values():
+            if endpoint.local_node_name:
+                self._endpoint_local_node_name_cache[endpoint.name] = endpoint.local_node_name.strip()
+                self._endpoint_local_node_name_checked.add(endpoint.name)
+
+    def remember_endpoint_node_name(self, endpoint_name: str, node_name: str | None) -> None:
+        normalized = (node_name or "").strip() or None
+        self._endpoint_local_node_name_checked.add(endpoint_name)
+        self._endpoint_local_node_name_cache[endpoint_name] = normalized
+
+    async def resolve_endpoint(self, repeater_name: str | None) -> EndpointConfig | None:
+        normalized = (repeater_name or "").strip().upper()
+        if not normalized:
+            return None
+        for endpoint in self._endpoint_map.values():
+            endpoint_node_name = await self.resolve_endpoint_local_node_name(endpoint)
+            if endpoint_node_name and endpoint_node_name.strip().upper() == normalized:
+                return endpoint
+        return None
+
+    async def resolve_endpoint_local_node_name(self, endpoint: EndpointConfig) -> str | None:
+        if endpoint.name in self._endpoint_local_node_name_checked:
+            return self._endpoint_local_node_name_cache.get(endpoint.name)
+        self._endpoint_local_node_name_checked.add(endpoint.name)
+        if endpoint.console_port is None:
+            return None
+        try:
+            reply = await run_console_command(
+                endpoint.raw_host,
+                endpoint.console_port,
+                "get name",
+                timeout=max(2.0, self.config.gateway.console_probe_timeout_secs),
+            )
+        except Exception as exc:
+            self.logger.debug("console get name failed endpoint=%s error=%s", endpoint.name, exc)
+            return None
+        node_name = parse_console_text_reply(reply) or None
+        self.remember_endpoint_node_name(endpoint.name, node_name)
+        return node_name
+
+
 class GuestProbeWorker:
     SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
@@ -149,12 +197,7 @@ class GuestProbeWorker:
         self._transport_factory = transport_factory or self._build_direct_transport
         self._next_scheduled_reprobe_scan_monotonic = 0.0
         self._progress_callback = progress_callback
-        self._endpoint_local_node_name_cache: dict[str, str | None] = {}
-        self._endpoint_local_node_name_checked: set[str] = set()
-        for endpoint in self._endpoint_map.values():
-            if endpoint.local_node_name:
-                self._endpoint_local_node_name_cache[endpoint.name] = endpoint.local_node_name.strip()
-                self._endpoint_local_node_name_checked.add(endpoint.name)
+        self._local_console_resolver = LocalConsoleEndpointResolver(config, logger=self.logger)
 
     def _progress(self, event: str, **payload: object) -> None:
         if self._progress_callback is None:
@@ -250,7 +293,7 @@ class GuestProbeWorker:
         repeater_id = int(cast(int, job["repeater_id"]))
         remote_pubkey = bytes(cast(bytes, job["pubkey"]))
         repeater_name = cast(str | None, job.get("last_name_from_advert"))
-        local_console_endpoint = await self._resolve_local_console_endpoint(repeater_name)
+        local_console_endpoint = await self.resolve_local_console_endpoint(repeater_name)
         if local_console_endpoint is not None and local_console_endpoint.name != endpoint.name:
             self.database.enqueue_probe_job(
                 repeater_id=repeater_id,
@@ -306,36 +349,8 @@ class GuestProbeWorker:
         self.database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name=endpoint.name)
         self.database.finish_probe_job(job_id, status="completed")
 
-    async def _resolve_local_console_endpoint(self, repeater_name: str | None) -> EndpointConfig | None:
-        normalized = (repeater_name or "").strip().upper()
-        if not normalized:
-            return None
-        for endpoint in self._endpoint_map.values():
-            endpoint_node_name = await self._resolve_endpoint_local_node_name(endpoint)
-            if endpoint_node_name and endpoint_node_name.strip().upper() == normalized:
-                return endpoint
-        return None
-
-    async def _resolve_endpoint_local_node_name(self, endpoint: EndpointConfig) -> str | None:
-        if endpoint.name in self._endpoint_local_node_name_checked:
-            return self._endpoint_local_node_name_cache.get(endpoint.name)
-        self._endpoint_local_node_name_checked.add(endpoint.name)
-        if endpoint.console_port is None:
-            return None
-        try:
-            reply = await run_console_command(
-                endpoint.raw_host,
-                endpoint.console_port,
-                "get name",
-                timeout=max(2.0, self.config.gateway.console_probe_timeout_secs),
-            )
-        except Exception as exc:
-            self.logger.debug("console get name failed endpoint=%s error=%s", endpoint.name, exc)
-            return None
-        node_name = parse_console_text_reply(reply) or None
-        if node_name:
-            self._endpoint_local_node_name_cache[endpoint.name] = node_name
-        return node_name
+    async def resolve_local_console_endpoint(self, repeater_name: str | None) -> EndpointConfig | None:
+        return await self._local_console_resolver.resolve_endpoint(repeater_name)
 
     async def probe_repeater_via_console(
         self,
@@ -364,7 +379,7 @@ class GuestProbeWorker:
             )
             owner_info = owner_reply.replace("|", "\n") if owner_reply else None
         if node_name:
-            self._endpoint_local_node_name_cache[endpoint.name] = node_name
+            self._local_console_resolver.remember_endpoint_node_name(endpoint.name, node_name)
             self.database.update_repeater_metadata(repeater_id=repeater_id, name=node_name)
         self.database.save_owner_snapshot(
             probe_run_id=probe_run_id,

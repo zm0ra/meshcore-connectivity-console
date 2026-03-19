@@ -11,7 +11,7 @@ from .database import BotDatabase
 from .mesh_packets import AdvertType, describe_packet_summary, parse_advert
 from .tcp_client import MeshcoreTCPClient, ReceivedPacket
 from .transport import PacketTransportClient
-from .probe_service import is_recent_observation
+from .probe_service import LocalConsoleEndpointResolver, is_recent_observation
 
 
 @dataclass(slots=True)
@@ -43,6 +43,7 @@ class AdvertIngestService:
         self._tasks: list[asyncio.Task[None]] = []
         self._transport_factory = transport_factory or self._build_direct_transport
         self._next_advert_probe_slot_at: dict[str, datetime] = {}
+        self._local_console_resolver = LocalConsoleEndpointResolver(config, logger=self.logger)
 
     async def run(self) -> None:
         self.database.initialize()
@@ -142,17 +143,19 @@ class AdvertIngestService:
             path_hex=summary.path_bytes.hex().upper(),
             raw_packet_hex=packet.packet_hex,
         )
+        probe_endpoint = await self._local_console_resolver.resolve_endpoint(advert.name)
+        target_endpoint_name = probe_endpoint.name if probe_endpoint is not None else endpoint.name
         job_id = self.database.enqueue_probe_job(
             repeater_id=repeater_id,
-            endpoint_name=endpoint.name,
+            endpoint_name=target_endpoint_name,
             reason="repeater advert observed",
             success_cooldown_secs=self.config.probe.advert_reprobe_success_cooldown_secs,
             failure_cooldown_secs=self.config.probe.advert_reprobe_failure_cooldown_secs,
-            scheduled_at=self._planned_advert_probe_time(endpoint.name, packet.observed_at, repeater_id, summary.path_len, summary.path_bytes.hex().upper()),
+            scheduled_at=self._planned_advert_probe_time(target_endpoint_name, packet.observed_at, repeater_id, summary.path_len, summary.path_bytes.hex().upper()),
             max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
         ) if self._should_enqueue_advert_probe(
             repeater_id=repeater_id,
-            endpoint_name=endpoint.name,
+            endpoint_name=target_endpoint_name,
             observed_at=packet.observed_at,
             current_path_len=summary.path_len,
             current_path_hex=summary.path_bytes.hex().upper(),
@@ -163,7 +166,7 @@ class AdvertIngestService:
                 "[PROBE-QUEUE] job=%s repeater=%s via=%s",
                 job_id,
                 advert.public_key.hex().upper()[:12],
-                endpoint.name,
+                target_endpoint_name,
             )
 
     def _should_enqueue_advert_probe(

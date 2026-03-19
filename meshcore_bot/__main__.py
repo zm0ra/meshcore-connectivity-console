@@ -15,7 +15,7 @@ from .database import BotDatabase
 from .identity import LocalIdentity
 from .ingest_service import AdvertIngestService
 from .neighbours_worker import NeighboursWorkerApp
-from .probe_service import GuestProbeWorker
+from .probe_service import GuestProbeWorker, LocalConsoleEndpointResolver
 from .web_service import create_app
 
 import uvicorn
@@ -155,6 +155,11 @@ def resolve_probe_endpoint(config, database: BotDatabase, repeater_id: int, endp
                 return endpoint
 
     return resolve_endpoint(config, None)
+
+
+def resolve_local_console_probe_endpoint(config, repeater_name: str | None):
+    resolver = LocalConsoleEndpointResolver(config)
+    return asyncio.run(resolver.resolve_endpoint(repeater_name))
 
 
 def resolve_repeater(database: BotDatabase, selector: str) -> dict[str, object]:
@@ -703,7 +708,8 @@ def main() -> None:
         database.initialize()
         repeater = resolve_repeater(database, args.selector)
         repeater_id = int(repeater["id"])
-        endpoint = resolve_probe_endpoint(config, database, repeater_id, args.endpoint)
+        local_console_endpoint = resolve_local_console_probe_endpoint(config, str(repeater.get("name") or ""))
+        endpoint = local_console_endpoint or resolve_probe_endpoint(config, database, repeater_id, args.endpoint)
         reporter = DirectProbeConsoleReporter(verbose=bool(args.verbose))
         if not args.verbose:
             logging.getLogger("meshcore-bot.tcp_client").setLevel(logging.ERROR)
@@ -746,18 +752,28 @@ def main() -> None:
                 force_path_discovery=bool(args.force_path_discovery),
             )
         try:
-            asyncio.run(
-                worker.probe_repeater_as_guest(
-                    probe_run_id=probe_run_id,
-                    repeater_id=repeater_id,
-                    endpoint=endpoint,
-                    remote_pubkey=bytes.fromhex(str(repeater["pubkey_hex"])),
-                    repeater_name=str(repeater.get("name") or "") or None,
-                    forced_login=forced_login,
-                    allow_default_guest_fallback=forced_login is None,
-                    force_path_discovery=bool(args.force_path_discovery),
+            if local_console_endpoint is not None and local_console_endpoint.name == endpoint.name:
+                asyncio.run(
+                    worker.probe_repeater_via_console(
+                        probe_run_id=probe_run_id,
+                        repeater_id=repeater_id,
+                        endpoint=endpoint,
+                        repeater_name=str(repeater.get("name") or "") or None,
+                    )
                 )
-            )
+            else:
+                asyncio.run(
+                    worker.probe_repeater_as_guest(
+                        probe_run_id=probe_run_id,
+                        repeater_id=repeater_id,
+                        endpoint=endpoint,
+                        remote_pubkey=bytes.fromhex(str(repeater["pubkey_hex"])),
+                        repeater_name=str(repeater.get("name") or "") or None,
+                        forced_login=forced_login,
+                        allow_default_guest_fallback=forced_login is None,
+                        force_path_discovery=bool(args.force_path_discovery),
+                    )
+                )
         except Exception as exc:
             database.complete_probe_run(
                 probe_run_id,
@@ -894,7 +910,8 @@ def main() -> None:
         scheduled_at = None
         if float(args.schedule_after_secs) > 0:
             scheduled_at = (datetime.now(tz=UTC) + timedelta(seconds=float(args.schedule_after_secs))).isoformat()
-        endpoint_name = resolve_probe_endpoint(config, database, repeater_id, args.endpoint).name
+        local_console_endpoint = resolve_local_console_probe_endpoint(config, str(repeater.get("name") or ""))
+        endpoint_name = (local_console_endpoint or resolve_probe_endpoint(config, database, repeater_id, args.endpoint)).name
         job_id = database.enqueue_probe_job(
             repeater_id=repeater_id,
             endpoint_name=endpoint_name,
