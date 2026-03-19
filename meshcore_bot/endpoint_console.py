@@ -4,6 +4,9 @@ import asyncio
 import contextlib
 
 
+PROMPT_IDLE_GRACE_SECS = 1.0
+
+
 def normalize_console_reply(transcript: str, command: str) -> str:
     lines: list[str] = []
     for raw_line in transcript.replace("\r", "").split("\n"):
@@ -119,14 +122,17 @@ async def _drain_console_banner(reader: asyncio.StreamReader, *, timeout: float)
 
 
 async def _read_console_reply(reader: asyncio.StreamReader, *, timeout: float) -> str:
-    deadline = asyncio.get_running_loop().time() + timeout
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
     chunks: list[bytes] = []
+    prompt_seen = False
     while True:
-        remaining = deadline - asyncio.get_running_loop().time()
+        remaining = deadline - loop.time()
         if remaining <= 0:
             break
         try:
-            data = await asyncio.wait_for(reader.read(4096), timeout=remaining)
+            read_timeout = min(remaining, PROMPT_IDLE_GRACE_SECS if prompt_seen else remaining)
+            data = await asyncio.wait_for(reader.read(4096), timeout=read_timeout)
         except asyncio.TimeoutError:
             break
         if not data:
@@ -134,5 +140,5 @@ async def _read_console_reply(reader: asyncio.StreamReader, *, timeout: float) -
         chunks.append(data)
         joined = b"".join(chunks).replace(b"\r", b"")
         if b"\n>" in joined or joined.rstrip().endswith(b">"):
-            break
+            prompt_seen = True
     return b"".join(chunks).decode("utf-8", errors="replace")

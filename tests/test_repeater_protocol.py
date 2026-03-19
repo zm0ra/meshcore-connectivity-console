@@ -33,7 +33,7 @@ from meshcore_bot.mesh_builders import (
 from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_advert, parse_packet
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
 from meshcore_bot.config import load_config, save_raw_config
-from meshcore_bot.endpoint_console import normalize_console_reply, parse_console_neighbors_reply, parse_console_text_reply
+from meshcore_bot.endpoint_console import normalize_console_reply, parse_console_neighbors_reply, parse_console_text_reply, run_console_command
 from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
@@ -288,6 +288,32 @@ def test_parse_console_text_reply_ignores_placeholder_tokens() -> None:
     assert parse_console_text_reply("->") == ""
     assert parse_console_text_reply(">") == ""
     assert parse_console_text_reply("-none-") == ""
+
+
+def test_run_console_command_waits_for_payload_after_prompt() -> None:
+    async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.write(b"MeshCore repeater console mirror\r\n")
+        await writer.drain()
+        await reader.readline()
+        writer.write(b"> neighbors\r\n  -> ")
+        await writer.drain()
+        await asyncio.sleep(0.15)
+        writer.write(b"01C97DDB:238:12\r\n35D4F997:275:-10\r\n> ")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    async def scenario() -> None:
+        server = await asyncio.start_server(handle_client, host="127.0.0.1", port=0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            reply = await run_console_command("127.0.0.1", port, "neighbors", timeout=1.0)
+        finally:
+            server.close()
+            await server.wait_closed()
+        assert reply == "01C97DDB:238:12\n35D4F997:275:-10"
+
+    asyncio.run(scenario())
 
 
 def test_parse_neighbours_response() -> None:
