@@ -178,7 +178,8 @@ class GuestProbeWorker:
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
     LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
-    CONSOLE_COMMAND_RETRY_ATTEMPTS = 3
+    CONSOLE_TEXT_COMMAND_RETRY_ATTEMPTS = 3
+    CONSOLE_NEIGHBORS_RETRY_ATTEMPTS = 8
 
     def __init__(
         self,
@@ -363,7 +364,7 @@ class GuestProbeWorker:
         timeout: float,
         retries: int | None = None,
     ) -> str:
-        max_attempts = retries or self.CONSOLE_COMMAND_RETRY_ATTEMPTS
+        max_attempts = retries or self.CONSOLE_TEXT_COMMAND_RETRY_ATTEMPTS
         last_value = ""
         for attempt in range(1, max_attempts + 1):
             reply = await run_console_command(target[0], target[1], command, timeout=timeout)
@@ -390,7 +391,7 @@ class GuestProbeWorker:
         timeout: float,
         retries: int | None = None,
     ) -> list[dict[str, object]]:
-        max_attempts = retries or self.CONSOLE_COMMAND_RETRY_ATTEMPTS
+        max_attempts = retries or self.CONSOLE_NEIGHBORS_RETRY_ATTEMPTS
         last_neighbours: list[dict[str, object]] = []
         for attempt in range(1, max_attempts + 1):
             reply = await run_console_command(target[0], target[1], "neighbors", timeout=timeout)
