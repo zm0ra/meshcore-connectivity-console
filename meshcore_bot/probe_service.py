@@ -156,7 +156,6 @@ class LocalConsoleEndpointResolver:
             return None
         if endpoint.name in self._endpoint_local_node_name_checked:
             return self._endpoint_local_node_name_cache.get(endpoint.name)
-        self._endpoint_local_node_name_checked.add(endpoint.name)
         try:
             reply = await run_console_command(
                 target[0],
@@ -168,7 +167,8 @@ class LocalConsoleEndpointResolver:
             self.logger.debug("console get name failed endpoint=%s error=%s", endpoint.name, exc)
             return None
         node_name = parse_console_text_reply(reply) or None
-        self.remember_endpoint_node_name(endpoint.name, node_name)
+        if node_name:
+            self.remember_endpoint_node_name(endpoint.name, node_name)
         return node_name
 
 
@@ -407,7 +407,7 @@ class GuestProbeWorker:
                     max_attempts,
                 )
                 await asyncio.sleep(0.1)
-        return last_neighbours
+        raise RuntimeError(f"console neighbors command returned empty response on endpoint {endpoint_name}")
 
     async def probe_repeater_via_console(
         self,

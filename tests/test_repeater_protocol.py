@@ -34,7 +34,7 @@ from meshcore_bot.mesh_packets import AdvertType, PayloadType, RouteType, parse_
 from meshcore_bot.channels import channel_hash, derive_hashtag_secret, hashtag_psk_base64
 from meshcore_bot.config import load_config, save_raw_config
 from meshcore_bot.endpoint_console import normalize_console_reply, parse_console_neighbors_reply, parse_console_text_reply, run_console_command
-from meshcore_bot.probe_service import ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
+from meshcore_bot.probe_service import LocalConsoleEndpointResolver, ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
     build_path_discovery_request,
     parse_login_response,
@@ -3162,6 +3162,77 @@ def test_probe_repeater_via_console_retries_empty_neighbors_reply(tmp_path) -> N
     assert len(neighbours) == 2
     assert recent_runs[0]["result"] == "success"
     assert responses.await_count == 16
+
+
+def test_local_console_endpoint_resolver_retries_after_transient_get_name_failure(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(
+        base_config,
+        endpoints=(
+            EndpointConfig(
+                name="RPT_Okolna",
+                raw_host="127.0.0.1",
+                raw_port=5002,
+                enabled=True,
+                console_mirror_host="127.0.0.2",
+                console_mirror_port=5003,
+            ),
+        ),
+    )
+    resolver = LocalConsoleEndpointResolver(config)
+    endpoint = next(item for item in config.endpoints if item.name == "RPT_Okolna")
+    responses = AsyncMock(side_effect=[RuntimeError("temporary console failure"), "SZN_STO_OMNI_RPT"])
+
+    async def scenario() -> None:
+        with patch("meshcore_bot.probe_service.run_console_command", responses):
+            assert await resolver.resolve_endpoint_local_node_name(endpoint) is None
+            assert await resolver.resolve_endpoint_local_node_name(endpoint) == "SZN_STO_OMNI_RPT"
+
+    asyncio.run(scenario())
+
+    assert responses.await_count == 2
+
+
+def test_probe_repeater_via_console_fails_after_exhausted_empty_neighbors_reply(tmp_path) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Okolna")
+    worker = GuestProbeWorker(config, database)
+    endpoint = next(item for item in config.endpoints if item.name == "RPT_Okolna")
+    responses = AsyncMock(side_effect=["SZN_STO_OMNI_RPT", "1.2.3", "Owner|Info", *([""] * worker.CONSOLE_NEIGHBORS_RETRY_ATTEMPTS)])
+
+    async def scenario() -> None:
+        with patch("meshcore_bot.probe_service.run_console_command", responses):
+            await worker.probe_repeater_via_console(
+                probe_run_id=probe_run_id,
+                repeater_id=repeater_id,
+                endpoint=endpoint,
+                repeater_name="SZN_STO_OMNI_RPT",
+            )
+
+    try:
+        asyncio.run(scenario())
+    except RuntimeError as exc:
+        assert str(exc) == "console neighbors command returned empty response on endpoint RPT_Okolna"
+    else:
+        raise AssertionError("console probe should fail when neighbors reply stays empty")
+
+    recent_runs = database.repeater_recent_probe_runs(repeater_id=repeater_id, limit=1)
+    assert recent_runs[0]["result"] == "running"
 
 
 def test_cli_repeater_probe_enqueues_local_console_endpoint_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:
