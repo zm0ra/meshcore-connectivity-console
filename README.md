@@ -1,213 +1,560 @@
 # MeshCore Connectivity Console
 
-MeshCore Connectivity Console is a Docker-first MeshCore operations stack for collecting repeater neighbor data, probing reachable nodes, serving a connectivity dashboard, and running a small channel bot.
+MeshCore Connectivity Console is a Docker-first operations stack for collecting MeshCore repeater data over serial-over-TCP, storing probe history in SQLite, serving a web dashboard, and exposing a practical CLI for day-to-day inspection and maintenance.
 
-The project is built around one hard requirement: it must talk to MeshCore over serial-over-TCP exposed by [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp). That bridge is not optional in this setup.
+It is meant for operators who need one place for:
 
-## What it does
+- advert ingestion
+- repeater discovery
+- neighbour harvesting
+- route and connectivity inspection
+- lightweight bot-driven operational responses
 
-- connects to an RS232Bridge-compatible TCP endpoint, usually on port `5002`
-- ingests MeshCore adverts and stores repeater metadata in SQLite
-- logs into reachable repeaters and fetches neighbor snapshots
-- builds a directed connectivity graph from the latest known neighbor data
-- calculates directional path results for `A->B` and `B->A` separately
-- serves a desktop and mobile web UI for map, connectivity, and route analysis
-- runs a minimal hashtag-channel bot over the same gateway layer
+## Scope
 
-## Why it is complicated
+This repository is not a generic MeshCore SDK.
 
-This is not a thin wrapper around an existing serial client.
+It implements a full runtime around a serial bridge exposed over TCP and assumes that a compatible serial-to-TCP layer already exists in front of the radio or companion device.
 
-The runtime builds MeshCore packets itself, encrypts and MACs payloads itself, wraps them into the RS232 bridge framing itself, and sends those frames over TCP to the serial bridge. It also parses the replies itself.
-
-In practice this means the stack owns the full path below:
-
-1. build MeshCore request or text payloads
-2. encrypt and authenticate them using the expected MeshCore wire format
-3. wrap them in the RS232 bridge frame format
-4. send the frame to the serial-over-TCP bridge
-5. decode responses, store snapshots, and derive graph views for the UI
-
-That is why this repository is more involved than a typical dashboard or bot project.
-
-## Must-have dependency
-
-This project requires a repeater or Companion-side setup that exposes the serial interface you want to consume, plus a separate serial-to-TCP bridge in front of it.
-
-The expected bridge implementation is:
+The expected bridge in this setup is:
 
 - [meshcore-xiao-wifi-serial2tcp](https://github.com/zm0ra/meshcore-xiao-wifi-serial2tcp)
 
-Without that bridge layer, this repository is not enough on its own.
+Without that bridge layer, this project cannot talk to MeshCore on its own.
 
-## Architecture
+## What the stack does
 
-The stack is split into four long-running services plus two one-shot initialization steps:
+- opens and maintains TCP sessions to configured RS232 bridge endpoints
+- ingests MeshCore adverts and stores discovered repeater metadata
+- probes reachable repeaters and saves neighbour snapshots
+- builds a directed connectivity model from the latest saved neighbour data
+- serves a web UI for map, connectivity, and route inspection
+- runs a small hashtag-channel bot on top of the same transport layer
 
-- `init-db`: initializes the SQLite schema
+## Transport model
+
+The runtime distinguishes three transport paths:
+
+- `5002`: primary RS232 bridge transport used for MeshCore packet exchange
+- `5001`: direct console port used for local text-console access when available
+- `5003`: optional console mirror used as a verifier channel, not as the primary mesh transport
+
+Important detail:
+
+- `5002` remains the authoritative packet path
+- `5003` may help verify console reachability or fetch local-node console data
+- `5003` is not treated as the main source of mesh packet truth
+
+## Services
+
+The Compose setup starts six processes:
+
+- `init-db`: creates or upgrades the SQLite schema
 - `ensure-identity`: creates or loads the local MeshCore identity
-- `bridge-gateway`: the only process allowed to hold the TCP connection to the serial bridge
-- `neighbours-worker`: ingests adverts, schedules probes, fetches neighbor snapshots, and stores results
-- `bot-worker`: listens on configured hashtag channels and replies to a limited command set
-- `web`: serves the FastAPI dashboard and `/api/state`
+- `bridge-gateway`: owns the raw TCP connection to each enabled endpoint
+- `neighbours-worker`: ingests adverts, schedules probes, and stores snapshots
+- `bot-worker`: listens on configured hashtag channels and replies to selected commands
+- `web`: serves the dashboard and the JSON state API
 
-SQLite remains file-based in the shared volume. There is no separate database container.
+SQLite is file-based and stored in the shared data volume. There is no separate database service.
 
-## Connectivity model
+## Repository layout
 
-The dashboard works on directed edges.
+- [meshcore_bot/__main__.py](meshcore_bot/__main__.py): CLI entrypoint
+- [meshcore_bot/bridge_gateway.py](meshcore_bot/bridge_gateway.py): endpoint connection ownership and gateway IPC
+- [meshcore_bot/neighbours_worker.py](meshcore_bot/neighbours_worker.py): advert-driven and scheduled probe orchestration
+- [meshcore_bot/probe_service.py](meshcore_bot/probe_service.py): probe execution, local-console probe flow, retries
+- [meshcore_bot/database.py](meshcore_bot/database.py): SQLite schema and queries
+- [meshcore_bot/web_service.py](meshcore_bot/web_service.py): FastAPI app and dashboard
+- [config/config.example.toml](config/config.example.toml): example configuration
+- [docker-compose.example.yml](docker-compose.example.yml): example container topology
 
-- `A -> B` means repeater `A` reported that it sees repeater `B`
-- missing reverse edge does not imply symmetry
-- route search is directional and always computed independently for `A->B` and `B->A`
-- the graph represents the latest known neighbor snapshots, not a guaranteed live routing table
+## Quick start
 
-The current implementation uses the latest known directed links and shortest-hop BFS for route exploration.
-
-## Desktop and mobile UI
-
-The web UI is designed for both desktop and mobile.
-
-- desktop uses a map-first operator workflow for connectivity and route inspection
-- mobile uses a split `Map` / `Analysis` flow instead of a compressed desktop clone
-- route results are shown per direction, not as a single symmetric answer
-- connectivity views explicitly distinguish outbound, inbound, and mutual visibility
-
-## Documentation
-
-Documentation assets live in `docs/`.
-
-- `docs/README.md` contains the documentation asset layout
-- `docs/screenshots/README.md` contains the screenshot naming scheme and suggested captions
-
-## Screenshots
-
-Documentation screenshots live under `docs/screenshots/`.
-
-### Desktop overview
-
-![Dashboard overview](docs/screenshots/dashboard-overview-desktop.png)
-
-Top-level repeater inventory with the main navigation used for `Map`, `Connectivity`, and `Route` workflows.
-
-### Connectivity inspection
-
-![Connectivity list](docs/screenshots/connectivity-list-desktop.png)
-
-Neighbor inspection on desktop with relation rows, directional link rendering, and operator-focused context in the side panel.
-
-![Signal history](docs/screenshots/signal-history-desktop.png)
-
-Signal history for a selected relation, shown next to the currently visible connectivity graph.
-
-![Outbound connectivity](docs/screenshots/connectivity-outbound-desktop.png)
-
-Outbound-focused desktop map view highlighting what a selected repeater can currently see.
-
-![Comparison view](docs/screenshots/connectivity-comparison-desktop.png)
-
-Comparison-oriented connectivity view for distinguishing mutual and one-way relations.
-
-### Mobile flow
-
-![Mobile map overview](docs/screenshots/mobile-map-overview.png)
-
-Mobile map mode designed for quick directional inspection without compressing the full desktop layout.
-
-![Mobile map connectivity](docs/screenshots/mobile-map-connectivity.png)
-
-Mobile-first connectivity exploration with a simplified map and tap-oriented interaction model.
-
-### Route analysis
-
-![Route analysis](docs/screenshots/route-analysis-desktop.png)
-
-Directional route analysis where `A->B` and `B->A` are computed and shown independently.
-
-## Bot scope
-
-The bot is intentionally small and operationally narrow.
-
-- it listens only on hashtag channels from `[bot].channels`
-- it supports only commands from `[bot].enabled_commands`
-- current supported commands are `!ping`, `!test`, and `!help`
-- it does not send self adverts
-- it does not handle private messages
-- replies are retried until their own echo is seen or the adaptive retry budget reaches `[bot].response_attempts_max`
-
-## Configuration
-
-- `config/config.example.toml` contains an example runtime configuration
-- `docker-compose.example.yml` contains the compose baseline
-
-Most important configuration sections:
-
-- `[endpoints]`: serial-over-TCP targets
-- `[gateway]`: Unix sockets shared between containers
-- `[probe]`: repeater probe behavior, credentials, retry windows
-- `[bot]`: enabled channels, commands, response behavior
-- `[web]`: dashboard bind address
-
-Bot retries are adaptive.
-
-- `[bot].response_attempts` is the starting retry budget for a fresh channel state
-- failed replies increase the future budget gradually, up to `[bot].response_attempts_max`
-- successful echoes let the budget fall back down over time toward the base value
-- the bot still treats echo as the only success signal; local send completion is not enough
-
-Use `meshcore_bot show-config` inside the container to print the resolved configuration.
-
-The image installs both `meshcore_bot` and `meshcore-bot` console commands. Container defaults assume `/app` as the working directory and automatically load `config/config.toml`, so `docker exec ... meshcore_bot rpt-show RAKU` works without passing `--config`.
-
-Advert-driven probing is intentionally selective.
-
-- stable adverts do not automatically trigger fresh probes anymore
-- advert-triggered probing is mainly for first-seen repeaters, recent failures, and meaningful path changes
-- `[probe].advert_probe_min_interval_secs` spaces advert-triggered jobs per endpoint to avoid bursts
-- `[probe].advert_path_change_cooldown_secs` suppresses route-flap induced reprobe storms
-- successful repeater logins are remembered per node and retried first on later probe runs
-- after a repeater had stable successful logins and then stops accepting that method, the learned login is cleared and the worker relearns from the configured candidates
-- `[probe].automatic_probe_max_per_day` hard-limits automatic collection to three jobs per node in a rolling 24h window
-- `[probe].scheduled_reprobe_interval_secs` now defaults to 8h, which keeps normal scheduled refreshes within that 2-3/day envelope
-
-## Local run
+### 1. Prepare configuration
 
 ```bash
 cp config/config.example.toml config/config.toml
 cp docker-compose.example.yml docker-compose.yml
+```
+
+### 2. Adjust the example config
+
+Replace the example hosts, passwords, and endpoint names with your own values.
+
+The example file intentionally uses documentation-only addresses and fake labels.
+
+### 3. Start the stack
+
+```bash
 docker compose up -d --build
 ```
 
-Check logs:
+### 4. Check logs
 
 ```bash
 docker compose logs --tail 100 bridge-gateway neighbours-worker bot-worker web
 ```
 
-Stop everything:
+### 5. Open the dashboard
 
-```bash
-docker compose down
+By default the web service listens on port `8080`.
+
+## Configuration guide
+
+The example configuration lives in [config/config.example.toml](config/config.example.toml).
+
+The most important sections are:
+
+- `[service]`: service name and log level
+- `[storage]`: SQLite database path
+- `[identity]`: local identity key path
+- `[probe]`: probe timing, login strategy, retry windows, neighbour paging
+- `[bot]`: bot enablement, channels, allowed commands, retry behaviour
+- `[web]`: host and port for the dashboard
+- `[gateway]`: Unix socket paths and transport watchdog settings
+- `[[endpoints]]`: RS232 bridge targets and optional console settings
+
+### Example endpoint block
+
+```toml
+[[endpoints]]
+name = "RPT_WEST"
+raw_host = "192.0.2.10"
+raw_port = 5002
+console_port = 5001
+console_mirror_port = 5003
+enabled = true
+local_node_name = "RPT_WEST_LOCAL"
 ```
 
-## Technical notes
+Notes:
 
-Relevant implementation areas:
+- use RFC 5737 documentation-only addresses such as `192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24` in examples and documentation
+- `local_node_name` is optional; it lets the runtime identify a repeater that is directly exposed on that endpoint
+- `console_mirror_port` is optional; when present it can be used as a verifier channel
 
-- `meshcore_bot/mesh_builders.py`: builds MeshCore packets and parses encrypted replies
-- `meshcore_bot/rs232.py`: encodes and decodes RS232 bridge frames
-- `meshcore_bot/bridge_gateway.py`: owns the TCP session and exposes local gateway IPC
-- `meshcore_bot/neighbours_worker.py` and `meshcore_bot/probe_service.py`: probing, retries, and snapshot collection
-- `meshcore_bot/database.py`: SQLite persistence and web-facing graph queries
-- `meshcore_bot/web_service.py`: FastAPI app and the desktop/mobile dashboard
+## CLI overview
 
-## TCP watchdog
+The image installs two equivalent commands:
 
-The raw `5002` bridge remains the authoritative transport, but `bridge-gateway` now also reconnects it when the stream stays idle for too long.
+- `meshcore_bot`
+- `meshcore-bot`
 
-- `[gateway].traffic_watchdog_secs` reconnects the raw TCP session after a prolonged lack of traffic
-- `[gateway].close_timeout_secs` prevents teardown from hanging forever on a broken socket
-- `[[endpoints]].console_mirror_port` optionally probes `5003` before reconnecting and logs whether the verifier channel is still reachable
+Unless you pass `--config`, the CLI uses `config/config.toml`.
 
-The `5003` console mirror is only a verifier. It is not treated as the primary mesh packet source.
+Most data-oriented commands print JSON so they can be piped into tools such as `jq`.
+
+This CLI is built around subcommands. The command name must come before the command-specific options.
+
+Valid form:
+
+```bash
+meshcore_bot rpt-show --config config/config.toml 42
+```
+
+Invalid form:
+
+```bash
+meshcore_bot --config config/config.toml rpt-show 42
+```
+
+Start here when in doubt:
+
+```bash
+meshcore_bot --help
+meshcore_bot rpt-probe-now --help
+meshcore_bot endpoint-update --help
+```
+
+### How repeater selection works
+
+Commands that take a repeater selector accept one of these forms:
+
+- numeric repeater ID
+- full public key hex
+- unique public key prefix
+- exact repeater name
+- unique name substring
+
+If a selector matches more than one repeater, the command stops and prints the candidates instead of guessing.
+
+### Command groups
+
+The CLI is easier to use if you treat it as four groups.
+
+#### Runtime and service commands
+
+- `init-db`
+- `show-config`
+- `ensure-identity`
+- `run-ingest`
+- `run-probe`
+- `run-bridge-gateway`
+- `run-neighbours-worker`
+- `run-bot-worker`
+- `run-web`
+- `cleanup-probe-jobs`
+
+#### Repeater inspection commands
+
+- `rpt-list`
+- `rpt-show`
+- `rpt-probe`
+- `rpt-probe-now`
+- `rpt-login-set`
+- `rpt-login-clear`
+
+#### Repeater data maintenance commands
+
+- `rpt-add`
+- `rpt-update`
+- `rpt-delete`
+
+#### Endpoint configuration commands
+
+- `endpoint-list`
+- `endpoint-show`
+- `endpoint-add`
+- `endpoint-update`
+- `endpoint-delete`
+
+## CLI reference
+
+### `show-config`
+
+Prints the resolved runtime configuration with secrets represented as booleans where appropriate.
+
+Example:
+
+```bash
+meshcore_bot show-config --config config/config.toml
+```
+
+Use this first when the runtime seems to ignore a setting.
+
+### `endpoint-list`
+
+Prints configured endpoints directly from the TOML file.
+
+Example:
+
+```bash
+meshcore_bot endpoint-list
+```
+
+Useful when you need to verify whether an endpoint is enabled, which raw port it uses, or whether a console mirror is configured.
+
+### `endpoint-show`
+
+Shows repeaters recently seen on one endpoint.
+
+Examples:
+
+```bash
+meshcore_bot endpoint-show RPT_WEST
+meshcore_bot endpoint-show RPT_WEST --seen-within-hours 6
+meshcore_bot endpoint-show RPT_WEST --limit 20
+```
+
+Use this when you want to answer: which repeaters were recently visible on this ingress point?
+
+### `endpoint-add`
+
+Adds a new endpoint entry to the config file.
+
+Example:
+
+```bash
+meshcore_bot endpoint-add \
+  --name RPT_NORTH \
+  --raw-host 198.51.100.20 \
+  --raw-port 5002 \
+  --console-port 5001 \
+  --console-mirror-port 5003 \
+  --local-node-name RPT_NORTH_LOCAL
+```
+
+This command edits the TOML file in place.
+
+### `endpoint-update`
+
+Updates a single endpoint entry.
+
+Examples:
+
+```bash
+meshcore_bot endpoint-update RPT_NORTH --raw-host 198.51.100.21
+meshcore_bot endpoint-update RPT_NORTH --disabled
+meshcore_bot endpoint-update RPT_NORTH --enabled
+meshcore_bot endpoint-update RPT_NORTH --clear-console-mirror-port
+```
+
+This is the safest way to change endpoint settings without editing the TOML file by hand.
+
+### `endpoint-delete`
+
+Deletes an endpoint from the config file.
+
+Example:
+
+```bash
+meshcore_bot endpoint-delete RPT_NORTH --yes
+```
+
+The `--yes` flag is required because the command is destructive.
+
+### `rpt-list`
+
+Lists known repeaters stored in the database.
+
+Examples:
+
+```bash
+meshcore_bot rpt-list
+meshcore_bot rpt-list --query west
+meshcore_bot rpt-list --limit 25
+```
+
+Use this to discover IDs before using more specific commands.
+
+### `rpt-show`
+
+Shows one repeater with recent adverts, probe jobs, probe runs, and latest neighbour data.
+
+Examples:
+
+```bash
+meshcore_bot rpt-show 42
+meshcore_bot rpt-show RPT_WEST_LOCAL
+meshcore_bot rpt-show ABCDEF12
+```
+
+If you are trying to understand why a node looks stale, this is the first inspection command to run.
+
+### `rpt-probe`
+
+Queues a manual probe job and returns job metadata immediately.
+
+Examples:
+
+```bash
+meshcore_bot rpt-probe 42
+meshcore_bot rpt-probe RPT_WEST_LOCAL --endpoint RPT_WEST
+meshcore_bot rpt-probe 42 --reason "manual verification after bridge restart"
+meshcore_bot rpt-probe 42 --schedule-after-secs 300
+```
+
+Use this when you want the worker to pick the job up asynchronously.
+
+### `rpt-probe-now`
+
+Runs a probe immediately in the current shell and streams progress.
+
+Examples:
+
+```bash
+meshcore_bot rpt-probe-now 42
+meshcore_bot rpt-probe-now RPT_WEST_LOCAL --endpoint RPT_WEST
+meshcore_bot rpt-probe-now 42 --force-path-discovery
+meshcore_bot rpt-probe-now 42 --role guest --password "guest-demo"
+meshcore_bot rpt-probe-now 42 --verbose
+```
+
+This is the most useful diagnostic command in the whole CLI.
+
+Typical progress output looks like this:
+
+```text
+Starting probe for RPT 42: RPT_WEST_LOCAL
+Endpoint: RPT_WEST
+- Login attempt: role=guest route=direct password=empty
+- Login succeeded: role=guest permissions=0 capability=2
+- Fetching neighbours
+  neighbours page: offset=0 results=8 total=8
+Probe completed successfully
+```
+
+When you are debugging routing or login behaviour, prefer `rpt-probe-now` over `rpt-probe`.
+
+### `rpt-login-set`
+
+Stores a preferred login for one repeater.
+
+Example:
+
+```bash
+meshcore_bot rpt-login-set 42 --role guest --password "guest-demo"
+```
+
+This is useful when a repeater needs a known override and you do not want to wait for the worker to relearn it.
+
+### `rpt-login-clear`
+
+Clears a stored login override.
+
+Example:
+
+```bash
+meshcore_bot rpt-login-clear 42
+```
+
+Use this when a remembered credential is wrong or outdated.
+
+### `rpt-add`
+
+Creates a manual repeater row.
+
+Example:
+
+```bash
+meshcore_bot rpt-add \
+  --pubkey ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 \
+  --name RPT_TEST_PORTABLE \
+  --endpoint manual \
+  --lat 53.4301 \
+  --lon 14.5500
+```
+
+This is useful for seeding metadata before the repeater is seen in normal traffic.
+
+### `rpt-update`
+
+Updates manual repeater metadata.
+
+Examples:
+
+```bash
+meshcore_bot rpt-update 42 --name RPT_TEST_PORTABLE
+meshcore_bot rpt-update 42 --lat 53.4301 --lon 14.5500
+```
+
+### `rpt-delete`
+
+Deletes a repeater and all related history.
+
+Example:
+
+```bash
+meshcore_bot rpt-delete 42 --yes
+```
+
+This command is destructive and removes related historical data.
+
+### `cleanup-probe-jobs`
+
+Deletes old failed probe jobs.
+
+Examples:
+
+```bash
+meshcore_bot cleanup-probe-jobs --dry-run
+meshcore_bot cleanup-probe-jobs --failed-older-than-hours 24
+```
+
+This helps keep the job table readable after repeated operational failures.
+
+## CLI usage patterns
+
+### Inspect first, mutate second
+
+Recommended operator flow:
+
+1. run `rpt-list` or `endpoint-show`
+2. inspect details with `rpt-show`
+3. run `rpt-probe-now` if you need immediate confirmation
+4. use `rpt-login-set`, `endpoint-update`, or `rpt-update` only after you know what is wrong
+
+### Prefer JSON-aware tooling for inspection
+
+Most output is JSON. That makes filtering easier.
+
+Examples:
+
+```bash
+meshcore_bot rpt-list --limit 200 | jq '.repeaters[] | {id, name, last_seen_at}'
+meshcore_bot rpt-show 42 | jq '.recent_probe_runs'
+meshcore_bot endpoint-list | jq '.endpoints[] | {name, raw_host, enabled}'
+```
+
+### Running the CLI inside Docker
+
+If the stack is already running in Compose, use `docker compose exec` instead of installing anything locally.
+
+Examples:
+
+```bash
+docker compose exec bot-worker meshcore_bot rpt-list --limit 20
+docker compose exec bot-worker meshcore_bot rpt-show 42
+docker compose exec bot-worker meshcore_bot rpt-probe-now 42
+docker compose exec web meshcore_bot show-config
+```
+
+## Probe behaviour
+
+Advert-driven probing is intentionally selective.
+
+- stable adverts do not automatically trigger fresh probes
+- first-seen repeaters and recent failures are more likely to be reprobed
+- path-change noise is rate-limited
+- successful logins are remembered and retried first
+- learned logins are cleared when they stop working reliably
+- automatic collection is capped per repeater in a rolling 24-hour window
+
+This keeps the runtime useful without turning every advert into an aggressive probe cycle.
+
+## Bot behaviour
+
+The bot is deliberately small.
+
+- it listens only on configured hashtag channels
+- it responds only to commands listed in `[bot].enabled_commands`
+- it treats packet echo as the success signal for replies
+- it is intended for operational shortcuts, not as a general chat bot
+
+## Web UI
+
+The dashboard exposes a map, connectivity views, and directional route analysis.
+
+The data model is directional:
+
+- `A -> B` means repeater `A` reported `B` as a neighbour
+- the reverse direction is evaluated separately
+- route analysis for `A -> B` and `B -> A` is not assumed to be identical
+
+## Safety notes for publishing
+
+If you are adapting this repository for a public deployment or an open-source release, keep these rules in place:
+
+- do not publish real endpoint names
+- do not publish private IP addresses or DNS names
+- do not publish real repeater labels unless they are already intentionally public
+- do not commit live credentials, identity files, or database snapshots
+- keep examples on fake data only
+
+The files shipped in this repository should stay safe to publish without leaking operational specifics.
+
+## Development notes
+
+Install development dependencies:
+
+```bash
+python -m pip install -e .[dev]
+```
+
+Run tests:
+
+```bash
+python -m pytest -q
+```
+
+Run one targeted test file:
+
+```bash
+python -m pytest -q tests/test_repeater_protocol.py
+```
+
+## License
+
+Add a repository-specific `LICENSE` file before publishing this project independently.
 
