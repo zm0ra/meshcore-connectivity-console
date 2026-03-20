@@ -522,6 +522,52 @@ The data model is directional:
 - the reverse direction is evaluated separately
 - route analysis for `A -> B` and `B -> A` is not assumed to be identical
 
+## Screenshots
+
+The repository includes screenshots of the current interface under [docs/screenshots/README.md](docs/screenshots/README.md).
+
+Before publishing screenshots, make sure the images themselves do not expose private hostnames, internal labels, private IP addresses, credentials, or other environment-specific details.
+
+### Dashboard overview
+
+![Dashboard overview](docs/screenshots/dashboard-overview-desktop.png)
+
+Top-level operator view with repeater inventory and the main navigation used for map, connectivity, and route workflows.
+
+### Connectivity inspection
+
+![Connectivity list](docs/screenshots/connectivity-list-desktop.png)
+
+Desktop connectivity inspection with a neighbour list and contextual relation details.
+
+![Signal history](docs/screenshots/signal-history-desktop.png)
+
+Historical signal view for a selected relation.
+
+![Outbound connectivity](docs/screenshots/connectivity-outbound-desktop.png)
+
+Outbound-focused map view showing what a selected repeater can currently see.
+
+![Connectivity comparison](docs/screenshots/connectivity-comparison-desktop.png)
+
+Comparison view for distinguishing one-way and mutual relations.
+
+### Mobile views
+
+![Mobile map overview](docs/screenshots/mobile-map-overview.png)
+
+Compact map-first mobile layout.
+
+![Mobile connectivity view](docs/screenshots/mobile-map-connectivity.png)
+
+Mobile connectivity exploration designed for tap-oriented use.
+
+### Route analysis
+
+![Route analysis](docs/screenshots/route-analysis-desktop.png)
+
+Directional route analysis where `A -> B` and `B -> A` are presented independently.
+
 ## Safety notes for publishing
 
 If you are adapting this repository for a public deployment or an open-source release, keep these rules in place:
