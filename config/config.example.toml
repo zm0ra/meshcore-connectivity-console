@@ -1,0 +1,88 @@
+# Example runtime config.
+#
+# Copy this file to `config/config.toml` and fill in your own values.
+
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/meshcore-bot.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[probe]
+key_file_path = "./data/probe-identity.bin"
+
+# Example repeater credentials and matching rules.
+admin_password = "change-me-admin"
+admin_password_name_prefixes = ["RPT_EXAMPLE"]
+admin_password_pubkey_prefixes = []
+guest_password = "change-me-guest"
+default_guest_password = ""
+guest_password_name_prefixes = ["RPT_EXAMPLE"]
+guest_password_pubkey_prefixes = []
+
+pre_login_advert_name = ""
+pre_login_advert_delay_secs = 1.0
+
+advert_reprobe_success_cooldown_secs = 60.0
+advert_reprobe_failure_cooldown_secs = 300.0
+advert_probe_min_interval_secs = 10.0
+advert_path_change_cooldown_secs = 300.0
+automatic_probe_max_per_day = 3
+scheduled_reprobe_interval_secs = 28800.0
+night_failed_retry_start_hour = 1
+night_failed_retry_end_hour = 7
+night_failed_retry_interval_secs = 3600.0
+poll_interval_secs = 2.0
+request_timeout_secs = 8.0
+route_freshness_secs = 1800
+neighbours_page_size = 15
+neighbours_prefix_len = 4
+
+[bot]
+enabled = true
+sender_name = ""
+channels = ["#bot"]
+enabled_commands = ["!ping", "!test", "!help"]
+min_response_delay_secs = 1.0
+response_attempts = 5
+response_attempts_max = 30
+echo_ack_timeout_secs = 2.0
+response_retry_delay_secs = 2.0
+response_retry_backoff_multiplier = 2.0
+response_retry_max_delay_secs = 10.0
+quiet_window_secs = 8.0
+command_dedup_ttl_secs = 30.0
+include_test_signal = true
+
+[web]
+host = "0.0.0.0"
+port = 8080
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+traffic_watchdog_secs = 900.0
+close_timeout_secs = 2.0
+console_probe_timeout_secs = 1.0
+
+[[endpoints]]
+name = "RPT_Okolna"
+raw_host = "192.0.2.10"
+raw_port = 5002
+console_port = 5001
+console_mirror_port = 5003
+enabled = true
+# local_node_name = "SZN_EXAMPLE_OKOLNA"
+
+[[endpoints]]
+name = "RPT_Przesocin"
+raw_host = "192.0.2.11"
+raw_port = 5002
+console_port = 5001
+console_mirror_port = 5003
+enabled = true
+# local_node_name = "SZN_EXAMPLE_PRZESOCIN"

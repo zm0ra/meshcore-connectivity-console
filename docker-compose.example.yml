@@ -1,0 +1,87 @@
+services:
+  init-db:
+    build:
+      context: .
+    command: ["meshcore_bot", "init-db"]
+    restart: "no"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  ensure-identity:
+    build:
+      context: .
+    command: ["meshcore_bot", "ensure-identity"]
+    restart: "no"
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+  bridge-gateway:
+    build:
+      context: .
+    command: ["meshcore_bot", "run-bridge-gateway"]
+    restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
+
+  neighbours-worker:
+    build:
+      context: .
+    command: ["meshcore_bot", "run-neighbours-worker"]
+    restart: unless-stopped
+    depends_on:
+      bridge-gateway:
+        condition: service_started
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
+
+  bot-worker:
+    build:
+      context: .
+    command: ["meshcore_bot", "run-bot-worker"]
+    restart: unless-stopped
+    depends_on:
+      bridge-gateway:
+        condition: service_started
+      init-db:
+        condition: service_completed_successfully
+      ensure-identity:
+        condition: service_completed_successfully
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - gateway-sockets:/app/data/gateway
+
+  web:
+    build:
+      context: .
+    command: ["meshcore_bot", "run-web"]
+    restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+volumes:
+  gateway-sockets:

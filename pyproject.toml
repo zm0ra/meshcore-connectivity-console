@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meshcore-bot"
+version = "0.1.0"
+description = "MeshCore TCP harvesting foundation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cryptography>=44.0.0",
+    "fastapi>=0.115.0",
+    "pynacl>=1.5.0",
+    "uvicorn>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[project.scripts]
+meshcore_bot = "meshcore_bot.__main__:main"
+meshcore-bot = "meshcore_bot.__main__:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["meshcore_bot*"]
