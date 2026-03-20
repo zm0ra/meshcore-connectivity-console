@@ -1514,6 +1514,7 @@ INDEX_HTML = """<!doctype html>
         distanceMissing: 'dyst: -',
         distancePrefix: 'dyst',
         lastAdvertLabel: 'ostatni advert',
+        lastDataLabel: 'ostatnie pobranie',
         chartHistory: 'historia',
         chartLatest: 'ostatnio',
         chartSNRHistory: 'historia SNR',
@@ -1674,6 +1675,7 @@ INDEX_HTML = """<!doctype html>
         distanceMissing: 'dist: -',
         distancePrefix: 'dist',
         lastAdvertLabel: 'last advert',
+        lastDataLabel: 'last data fetch',
         chartHistory: 'history',
         chartLatest: 'latest',
         chartSNRHistory: 'SNR history',
@@ -3119,6 +3121,7 @@ INDEX_HTML = """<!doctype html>
             <span class=\"node-main\">
               <span class=\"node-name\">${node.name || node.hash_prefix_hex}</span>
               <span class=\"node-age\">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>
+              <span class=\"node-age\">${tr('lastDataLabel')}: ${formatShortWhen(node.last_data_at)}</span>
             </span>
             <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
           </button>
