@@ -1682,7 +1682,7 @@ def test_ingest_spaces_advert_probe_jobs_per_endpoint_for_known_repeaters(tmp_pa
     assert service.stats.advert_jobs_deferred == 1
 
 
-def test_ingest_enqueues_local_console_probe_for_tcp_accessible_node(tmp_path) -> None:
+def test_ingest_enqueues_first_seen_probe_on_advert_source_endpoint(tmp_path) -> None:
     config = build_local_console_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
     database.initialize()
@@ -1690,6 +1690,46 @@ def test_ingest_enqueues_local_console_probe_for_tcp_accessible_node(tmp_path) -
 
     advert_packet = build_advert_packet(
         identity=LocalIdentity.generate(),
+        name="SZN_STO_OMNI_RPT",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=advert_packet.packet.hex().upper(),
+        packet_hex=advert_packet.packet.hex().upper(),
+        summary=advert_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(config.endpoints[1], received))
+
+    claimed = database.claim_probe_job()
+    assert claimed is not None
+    assert claimed["endpoint_name"] == config.endpoints[1].name
+    assert claimed["reason"] == "repeater advert observed"
+
+
+def test_ingest_enqueues_local_console_probe_for_known_tcp_accessible_node(tmp_path) -> None:
+    config = build_local_console_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+    remote_identity = LocalIdentity.generate()
+
+    database.upsert_repeater_from_advert(
+        endpoint_name=config.endpoints[1].name,
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="SZN_STO_OMNI_RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    advert_packet = build_advert_packet(
+        identity=remote_identity,
         name="SZN_STO_OMNI_RPT",
         advert_type=int(AdvertType.REPEATER),
     )

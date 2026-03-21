@@ -144,8 +144,11 @@ class AdvertIngestService:
             raw_packet_hex=packet.packet_hex,
             include_created=True,
         )
-        probe_endpoint = await self._local_console_resolver.resolve_endpoint(advert.name)
-        target_endpoint_name = probe_endpoint.name if probe_endpoint is not None else endpoint.name
+        target_endpoint_name = endpoint.name
+        if not repeater_created:
+            probe_endpoint = await self._local_console_resolver.resolve_endpoint(advert.name)
+            if probe_endpoint is not None:
+                target_endpoint_name = probe_endpoint.name
         job_id = self.database.enqueue_probe_job(
             repeater_id=repeater_id,
             endpoint_name=target_endpoint_name,
