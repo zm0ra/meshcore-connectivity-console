@@ -526,6 +526,111 @@ class BotDatabase:
             ).fetchone()
             return dict(row) if row is not None else None
 
+    def recommended_repeater_endpoint_names(self, *, repeater_id: int, endpoint_names: list[str]) -> list[str]:
+        allowed_names = [name for name in endpoint_names if name]
+        if not allowed_names:
+            return []
+
+        placeholders = ",".join("?" for _ in allowed_names)
+        with self.connect() as connection:
+            preferred_row = connection.execute(
+                """
+                SELECT preferred_endpoint_name
+                FROM repeaters
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (repeater_id,),
+            ).fetchone()
+            recent_rows = connection.execute(
+                f"""
+                SELECT endpoint_name,
+                       result,
+                       COALESCE(finished_at, started_at) AS observed_at
+                FROM repeater_probe_runs
+                WHERE repeater_id = ?
+                  AND endpoint_name IN ({placeholders})
+                ORDER BY id DESC
+                LIMIT 24
+                """,
+                (repeater_id, *allowed_names),
+            ).fetchall()
+
+        preferred_name = ""
+        if preferred_row is not None:
+            preferred_name = str(preferred_row["preferred_endpoint_name"] or "").strip()
+
+        endpoint_stats: dict[str, dict[str, str | None]] = {}
+        for row in recent_rows:
+            endpoint_name = str(row["endpoint_name"] or "").strip()
+            if not endpoint_name or endpoint_name not in allowed_names:
+                continue
+            stats = endpoint_stats.setdefault(
+                endpoint_name,
+                {"latest_result": None, "latest_observed_at": None, "latest_success_at": None},
+            )
+            observed_at = str(row["observed_at"] or "").strip() or None
+            result = str(row["result"] or "").strip() or None
+            if stats["latest_result"] is None:
+                stats["latest_result"] = result
+                stats["latest_observed_at"] = observed_at
+            if result == "success" and stats["latest_success_at"] is None:
+                stats["latest_success_at"] = observed_at
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+
+        def add_candidate(name: str | None) -> None:
+            normalized = str(name or "").strip()
+            if not normalized or normalized in seen or normalized not in allowed_names:
+                return
+            seen.add(normalized)
+            ordered.append(normalized)
+
+        successful_endpoints = sorted(
+            (
+                (name, str(stats["latest_success_at"] or ""), str(stats["latest_observed_at"] or ""))
+                for name, stats in endpoint_stats.items()
+                if stats["latest_success_at"]
+            ),
+            key=lambda item: (item[1], item[2], item[0]),
+            reverse=True,
+        )
+        for endpoint_name, _, _ in successful_endpoints:
+            add_candidate(endpoint_name)
+
+        add_candidate(preferred_name)
+
+        for advert_row in (
+            self.latest_repeater_advert_path(repeater_id=repeater_id),
+            self.latest_repeater_advert(repeater_id=repeater_id),
+        ):
+            if advert_row is None:
+                continue
+            add_candidate(str(advert_row.get("endpoint_name") or ""))
+
+        for endpoint_name in allowed_names:
+            if endpoint_name in endpoint_stats:
+                continue
+            add_candidate(endpoint_name)
+
+        remaining_endpoints = sorted(
+            (
+                (name, str(stats["latest_observed_at"] or ""), str(stats["latest_result"] or ""))
+                for name, stats in endpoint_stats.items()
+                if name not in seen
+            ),
+            key=lambda item: (item[1], item[2], item[0]),
+            reverse=True,
+        )
+        for endpoint_name, _, _ in remaining_endpoints:
+            add_candidate(endpoint_name)
+
+        for endpoint_name in allowed_names:
+            add_candidate(endpoint_name)
+
+        return ordered
+
     def set_repeater_preferred_endpoint(self, *, repeater_id: int, endpoint_name: str) -> None:
         preferred_at = utc_now_iso()
 
@@ -628,8 +733,12 @@ class BotDatabase:
             last_data_at = row["last_data_at"]
             if last_data_at and is_recent_iso_timestamp(str(last_data_at), stale_after_secs, now=now):
                 continue
-            endpoint_name = str(row["preferred_endpoint_name"] or row["endpoint_name"] or "").strip()
-            if not endpoint_name or endpoint_name not in endpoint_names:
+            candidate_names = self.recommended_repeater_endpoint_names(
+                repeater_id=int(row["id"]),
+                endpoint_names=endpoint_names,
+            )
+            endpoint_name = candidate_names[0] if candidate_names else ""
+            if not endpoint_name:
                 continue
             job_id = self.enqueue_probe_job(
                 repeater_id=int(row["id"]),
@@ -690,12 +799,10 @@ class BotDatabase:
 
         enqueued = 0
         for row in rows:
-            preferred_endpoint = str(row["preferred_endpoint_name"] or "").strip()
-            latest_endpoint = str(row["endpoint_name"] or "").strip()
-            candidate_names = [preferred_endpoint] if preferred_endpoint else []
-            candidate_names.extend(name for name in endpoint_names if name != preferred_endpoint)
-            if latest_endpoint and latest_endpoint not in candidate_names:
-                candidate_names.append(latest_endpoint)
+            candidate_names = self.recommended_repeater_endpoint_names(
+                repeater_id=int(row["id"]),
+                endpoint_names=endpoint_names,
+            )
             seen: set[str] = set()
             for endpoint_name in candidate_names:
                 if not endpoint_name or endpoint_name in seen or endpoint_name not in endpoint_names:

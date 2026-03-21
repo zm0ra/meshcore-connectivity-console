@@ -21,6 +21,10 @@ from .web_service import create_app
 import uvicorn
 
 
+DEFAULT_CONFIG_PATH = "config/config.toml"
+CONTAINER_CONFIG_PATH = "/app/config/config.toml"
+
+
 def configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -31,6 +35,28 @@ def configure_logging(level: str) -> None:
 
 def print_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def _config_candidate_exists(config_path: str | Path) -> bool:
+    path = Path(config_path).expanduser()
+    if path.is_absolute():
+        return path.exists()
+    if path.resolve().exists():
+        return True
+    return (Path(__file__).resolve().parent.parent / path).resolve().exists()
+
+
+def _resolve_cli_config_path(config_path: str | Path) -> str | Path:
+    normalized = Path(config_path).expanduser()
+    if normalized.is_absolute():
+        return config_path
+    if normalized.as_posix() != DEFAULT_CONFIG_PATH:
+        return config_path
+    if _config_candidate_exists(config_path):
+        return config_path
+    if _config_candidate_exists(CONTAINER_CONFIG_PATH):
+        return CONTAINER_CONFIG_PATH
+    return config_path
 
 
 class DirectProbeConsoleReporter:
@@ -132,6 +158,15 @@ def default_endpoint_name(config) -> str:
 def resolve_probe_endpoint(config, database: BotDatabase, repeater_id: int, endpoint_name: str | None):
     if endpoint_name is not None:
         return resolve_endpoint(config, endpoint_name)
+
+    recommended_names = database.recommended_repeater_endpoint_names(
+        repeater_id=repeater_id,
+        endpoint_names=[endpoint.name for endpoint in config.endpoints if endpoint.enabled],
+    )
+    for candidate_name in recommended_names:
+        for endpoint in config.endpoints:
+            if endpoint.name == candidate_name and endpoint.enabled:
+                return endpoint
 
     preferred_endpoint = database.preferred_repeater_endpoint(repeater_id=repeater_id)
     if preferred_endpoint is not None:
@@ -453,7 +488,10 @@ def main() -> None:
         parser.print_help()
         return
 
-    config = load_config(getattr(args, "config", "config/config.toml"))
+    if hasattr(args, "config"):
+        args.config = _resolve_cli_config_path(getattr(args, "config", DEFAULT_CONFIG_PATH))
+
+    config = load_config(getattr(args, "config", DEFAULT_CONFIG_PATH))
     configure_logging(config.service.log_level)
 
     if command == "show-config":

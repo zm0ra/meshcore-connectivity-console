@@ -5,6 +5,7 @@ import sys
 
 from datetime import UTC, datetime, timedelta
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock
 from unittest.mock import patch
@@ -988,6 +989,15 @@ def test_load_config_accepts_repo_relative_path_outside_repo_root(tmp_path, monk
     assert config.gateway.control_socket_path.name == "control.sock"
     assert config.endpoints
     assert config.endpoints[0].name
+
+
+def test_cli_resolve_config_path_falls_back_to_container_default(monkeypatch) -> None:
+    def fake_exists(self: Path) -> bool:
+        return self.as_posix() == "/app/config/config.toml"
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    assert cli_main._resolve_cli_config_path("config/config.toml") == "/app/config/config.toml"
 
 
 def test_discover_repeater_path_uses_flood_and_saves_learned_route(tmp_path) -> None:
@@ -3030,6 +3040,147 @@ def test_cli_repeater_probe_now_prefers_stored_preferred_endpoint(tmp_path, monk
 
     assert "Endpoint: RPT_Przesocin" in output
     assert observed_kwargs["endpoint"].name == "RPT_Przesocin"
+
+
+def test_cli_repeater_probe_now_prefers_recent_successful_endpoint_over_stored_preferred(tmp_path, monkeypatch, capsys) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="CLI RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.set_repeater_preferred_endpoint(repeater_id=repeater_id, endpoint_name="RPT_Przesocin")
+
+    old_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Przesocin")
+    database.complete_probe_run(
+        old_run_id,
+        repeater_id=repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="failed via stored preferred",
+    )
+    recent_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Okolna")
+    database.complete_probe_run(
+        recent_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=2,
+        login_server_time=123,
+        error_message=None,
+    )
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "config.toml"
+    save_raw_config(
+        config_path,
+        {
+            "service": {"name": config.service.name, "log_level": config.service.log_level},
+            "storage": {"database_path": "./meshcore-bot.db"},
+            "identity": {"key_file_path": "./identity.bin"},
+            "gateway": {
+                "control_socket_path": "./gateway-control.sock",
+                "event_socket_path": "./gateway-events.sock",
+            },
+            "endpoints": [
+                {"name": endpoint.name, "raw_host": endpoint.raw_host, "raw_port": endpoint.raw_port, "enabled": endpoint.enabled}
+                for endpoint in config.endpoints
+            ],
+        },
+    )
+
+    observed_kwargs: dict[str, object] = {}
+
+    async def fake_probe_repeater_as_guest(self, *, probe_run_id: int, repeater_id: int, **kwargs) -> None:
+        observed_kwargs.update(kwargs)
+        self.database.complete_probe_run(
+            probe_run_id,
+            repeater_id=repeater_id,
+            result="success",
+            guest_login_ok=True,
+            guest_permissions=1,
+            firmware_capability_level=2,
+            login_server_time=123,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(GuestProbeWorker, "probe_repeater_as_guest", fake_probe_repeater_as_guest)
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-probe-now", "--config", str(config_path), str(repeater_id)])
+
+    cli_main.main()
+    output = capsys.readouterr().out
+
+    assert "Endpoint: RPT_Okolna" in output
+    assert observed_kwargs["endpoint"].name == "RPT_Okolna"
+
+
+def test_cli_repeater_probe_accepts_name_selector(tmp_path, monkeypatch, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text(
+        """
+[service]
+name = "meshcore-bot"
+log_level = "INFO"
+
+[storage]
+database_path = "./data/test-cli.db"
+
+[identity]
+key_file_path = "./data/identity.bin"
+
+[gateway]
+control_socket_path = "./data/gateway/control.sock"
+event_socket_path = "./data/gateway/events.sock"
+
+[[endpoints]]
+name = "test-endpoint"
+raw_host = "127.0.0.1"
+raw_port = 5002
+enabled = true
+""".strip()
+    )
+
+    pubkey_hex = LocalIdentity.generate().public_key.hex().upper()
+
+    monkeypatch.setattr(sys, "argv", ["meshcore-bot", "rpt-add", "--config", str(config_path), "--pubkey", pubkey_hex, "--name", "CLI Named RPT"])
+    cli_main.main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "meshcore-bot",
+            "rpt-probe",
+            "--config",
+            str(config_path),
+            "CLI Named RPT",
+            "--reason",
+            "cli named probe",
+        ],
+    )
+    cli_main.main()
+    probe_payload = json.loads(capsys.readouterr().out)
+
+    assert probe_payload["job_id"] is not None
+    assert probe_payload["probe_jobs"][0]["reason"] == "cli named probe"
 
 
 def test_cli_repeater_probe_now_uses_console_for_tcp_accessible_node(tmp_path, monkeypatch, capsys) -> None:
