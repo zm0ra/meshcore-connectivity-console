@@ -263,13 +263,15 @@ class BotDatabase:
         path_len: int,
         path_hex: str,
         raw_packet_hex: str,
-    ) -> int:
+        include_created: bool = False,
+    ) -> int | tuple[int, bool]:
         pubkey_hex = public_key.hex().upper()
-        def operation(connection: sqlite3.Connection) -> int:
+        def operation(connection: sqlite3.Connection) -> tuple[int, bool]:
             row = connection.execute(
                 "SELECT id FROM repeaters WHERE pubkey_hex = ?",
                 (pubkey_hex,),
             ).fetchone()
+            repeater_created = False
             if row is None:
                 cursor = connection.execute(
                     """
@@ -292,6 +294,7 @@ class BotDatabase:
                 lastrowid = cursor.lastrowid
                 assert lastrowid is not None
                 repeater_id = int(lastrowid)
+                repeater_created = True
             else:
                 repeater_id = int(row["id"])
                 connection.execute(
@@ -334,9 +337,12 @@ class BotDatabase:
                     raw_packet_hex,
                 ),
             )
-            return repeater_id
+            return repeater_id, repeater_created
 
-        return self._run_with_retry(operation)
+        repeater_id, repeater_created = self._run_with_retry(operation)
+        if include_created:
+            return repeater_id, repeater_created
+        return repeater_id
 
     def insert_raw_packet(
         self,

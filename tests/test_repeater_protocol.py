@@ -1559,7 +1559,7 @@ def test_ingest_enqueues_probe_for_meaningful_path_change_after_cooldown(tmp_pat
     assert claimed["reason"] == "repeater advert observed"
 
 
-def test_ingest_spaces_advert_probe_jobs_per_endpoint(tmp_path) -> None:
+def test_ingest_prioritizes_first_seen_repeater_probe_without_endpoint_defer(tmp_path) -> None:
     base_config = build_test_app_config(tmp_path)
     config = replace(base_config, probe=replace(base_config.probe, advert_probe_min_interval_secs=30.0))
     database = BotDatabase(config.storage.database_path)
@@ -1602,6 +1602,82 @@ def test_ingest_spaces_advert_probe_jobs_per_endpoint(tmp_path) -> None:
     assert len(rows) == 2
     first_scheduled = datetime.fromisoformat(str(rows[0]["scheduled_at"]))
     second_scheduled = datetime.fromisoformat(str(rows[1]["scheduled_at"]))
+    assert first_scheduled == datetime.fromisoformat(first_received.observed_at)
+    assert second_scheduled == datetime.fromisoformat(second_received.observed_at)
+    assert service.stats.advert_jobs_deferred == 0
+
+
+def test_ingest_spaces_advert_probe_jobs_per_endpoint_for_known_repeaters(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(base_config, probe=replace(base_config.probe, advert_probe_min_interval_secs=30.0))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    service = AdvertIngestService(config, database)
+    endpoint = config.endpoints[0]
+
+    first_identity = LocalIdentity.generate()
+    second_identity = LocalIdentity.generate()
+    first_observed_at = datetime(2026, 3, 18, 8, 0, tzinfo=UTC).isoformat()
+    second_observed_at = datetime(2026, 3, 18, 8, 0, 1, tzinfo=UTC).isoformat()
+    database.upsert_repeater_from_advert(
+        endpoint_name=endpoint.name,
+        observed_at=first_observed_at,
+        public_key=first_identity.public_key,
+        advert_name="first-rpt",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    database.upsert_repeater_from_advert(
+        endpoint_name=endpoint.name,
+        observed_at=first_observed_at,
+        public_key=second_identity.public_key,
+        advert_name="second-rpt",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="36",
+        raw_packet_hex="00",
+    )
+
+    first_packet = build_advert_packet(
+        identity=first_identity,
+        name="first-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    second_packet = build_advert_packet(
+        identity=second_identity,
+        name="second-rpt",
+        advert_type=int(AdvertType.REPEATER),
+    )
+    first_received = ReceivedPacket(
+        observed_at=first_observed_at,
+        frame_hex=first_packet.packet.hex().upper(),
+        packet_hex=first_packet.packet.hex().upper(),
+        summary=first_packet.summary,
+    )
+    second_received = ReceivedPacket(
+        observed_at=second_observed_at,
+        frame_hex=second_packet.packet.hex().upper(),
+        packet_hex=second_packet.packet.hex().upper(),
+        summary=second_packet.summary,
+    )
+
+    asyncio.run(service._handle_packet(endpoint, first_received))
+    asyncio.run(service._handle_packet(endpoint, second_received))
+
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT scheduled_at FROM probe_jobs ORDER BY scheduled_at ASC, id ASC"
+        ).fetchall()
+    assert len(rows) == 2
+    first_scheduled = datetime.fromisoformat(str(rows[0]["scheduled_at"]))
+    second_scheduled = datetime.fromisoformat(str(rows[1]["scheduled_at"]))
+    assert first_scheduled == datetime.fromisoformat(first_observed_at)
     assert (second_scheduled - first_scheduled).total_seconds() >= 30.0
     assert service.stats.advert_jobs_deferred == 1
 

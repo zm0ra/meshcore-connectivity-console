@@ -131,7 +131,7 @@ class AdvertIngestService:
             summary.path_len,
             summary.path_bytes.hex().upper() or "-",
         )
-        repeater_id = self.database.upsert_repeater_from_advert(
+        repeater_id, repeater_created = self.database.upsert_repeater_from_advert(
             endpoint_name=endpoint.name,
             observed_at=packet.observed_at,
             public_key=advert.public_key,
@@ -142,6 +142,7 @@ class AdvertIngestService:
             path_len=summary.path_len,
             path_hex=summary.path_bytes.hex().upper(),
             raw_packet_hex=packet.packet_hex,
+            include_created=True,
         )
         probe_endpoint = await self._local_console_resolver.resolve_endpoint(advert.name)
         target_endpoint_name = probe_endpoint.name if probe_endpoint is not None else endpoint.name
@@ -151,7 +152,14 @@ class AdvertIngestService:
             reason="repeater advert observed",
             success_cooldown_secs=self.config.probe.advert_reprobe_success_cooldown_secs,
             failure_cooldown_secs=self.config.probe.advert_reprobe_failure_cooldown_secs,
-            scheduled_at=self._planned_advert_probe_time(target_endpoint_name, packet.observed_at, repeater_id, summary.path_len, summary.path_bytes.hex().upper()),
+            scheduled_at=self._planned_advert_probe_time(
+                target_endpoint_name,
+                packet.observed_at,
+                repeater_id,
+                summary.path_len,
+                summary.path_bytes.hex().upper(),
+                immediate=repeater_created,
+            ),
             max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
         ) if self._should_enqueue_advert_probe(
             repeater_id=repeater_id,
@@ -216,9 +224,15 @@ class AdvertIngestService:
         repeater_id: int,
         current_path_len: int,
         current_path_hex: str,
+        *,
+        immediate: bool = False,
     ) -> str:
         observed = self._parse_iso_timestamp(observed_at)
         min_interval = self.config.probe.advert_probe_min_interval_secs
+        if immediate:
+            if min_interval > 0:
+                self._next_advert_probe_slot_at[endpoint_name] = observed + timedelta(seconds=min_interval)
+            return observed.isoformat()
         if min_interval <= 0:
             return observed.isoformat()
         next_slot = self._next_advert_probe_slot_at.get(endpoint_name)
