@@ -2246,6 +2246,17 @@ INDEX_HTML = """<!doctype html>
       return null;
     }
 
+    function buildRouteResult(state, sourceId, targetId) {
+      const data = connectivityData(state);
+      const freshEdges = data.edges.filter((edge) => !edge.stale);
+      const freshPath = routePath(freshEdges, sourceId, targetId);
+      const path = freshPath || routePath(data.edges, sourceId, targetId);
+      if (!path) {
+        return { path: null, usesStale: false };
+      }
+      return { path, usesStale: !freshPath };
+    }
+
     function getSelectedNode(state) {
       return (state.nodes || []).find((node) => node.identity_hex === selectedSourceId) || null;
     }
