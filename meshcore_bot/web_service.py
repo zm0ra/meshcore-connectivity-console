@@ -2321,68 +2321,61 @@ INDEX_HTML = """<!doctype html>
     }
 
     function getSelectedLinks(state) {
-      const drawableLinks = getSelectedMapLinks(state);
-      const hiddenMapLinkCount = Math.max(0, selectedLinks.length - drawableLinks.length);
-      if (!selectedLinks.length || (selectedNeighborId && !selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId))) {
-        selectedNeighborId = null;
-      }
-      const selectedLink = selectedLinks.find((link) => link.target_identity_hex === selectedNeighborId) || null;
-      const historyRows = selectedHistoryRows(state, node, selectedNeighborId);
-      let mapWarningHtml = '';
-      if (selectedLinks.length && !isFiniteCoordinate(node.latitude, node.longitude)) {
-        mapWarningHtml = `<div class="map-warning-note">${tr('mapNodePositionMissing')}</div>`;
-      } else if (hiddenMapLinkCount > 0) {
-        mapWarningHtml = `<div class="map-warning-note">${trFormat('mapNeighborPositionsMissing', hiddenMapLinkCount)}</div>`;
-      }
-      const neighborRows = selectedLinks.length ? `
-        <table class="neighbor-table">
-          <thead>
-            <tr>
-              <th>${tr('neighbor')}</th>
-              <th>${tr('lastSeen')}</th>
-              <th>${tr('signal')}</th>
-              <th>${tr('distance')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${selectedLinks.map((link) => {
-              const distance = neighborDistanceKm(node, link);
-              const activeClass = link.target_identity_hex === selectedNeighborId ? ' class="active"' : '';
-              return `
-                <tr${activeClass}>
-                  <td><button type="button" data-neighbor="${link.target_identity_hex}">${link.target_name}</button></td>
-                  <td>${typeof link.last_heard_seconds === 'number' ? humanizeSeconds(link.last_heard_seconds) : timeAgo(link.collected_at)}</td>
-                  <td>${lineSignalMetric(link).label}</td>
-                  <td>${distance === null ? '-' : `${distance.toFixed(1)} km`}</td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
-      ` : `<div class="empty-note">${tr('emptyNoNeighborLinks')}</div>`;
-      return `
-        <div class="node-expand">
-          <div class="expand-head">
-            <strong>${tr('inspection')}</strong>
-            <button type="button" class="ghost-button" data-clear-selection="1">${tr('clearFocus')}</button>
-          </div>
-          <div class="detail-grid">
-            <div class="detail-cell"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
-            <div class="detail-cell"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
-            <div class="detail-cell"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
-            <div class="detail-cell"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>
-            <div class="detail-cell"><strong>${tr('lastSuccessfulProbe')}</strong>${formatWhen(node.last_successful_probe_at)}</div>
-            <div class="detail-cell"><strong>${tr('lastProbeResult')}</strong>${describeProbeResult(node)}</div>
-            <div class="detail-cell"><strong>${tr('lastProbeAttempt')}</strong>${formatWhen(node.last_probe_at)}</div>
-          </div>
-          ${mapWarningHtml}
-          <div>
-            <div class="expand-head"><strong>${tr('directNeighbors')}</strong><span class="node-state-tag">${selectedLinks.length}</span></div>
-            ${neighborRows}
-          </div>
-          ${renderSignalChart(node, selectedLink, historyRows)}
-        </div>
-      `;
+      if (!selectedSourceId) return [];
+      return ((state.management?.map_links) || [])
+        .filter((link) => link.source_identity_hex === selectedSourceId)
+        .sort((left, right) => ((right.snr ?? -999) - (left.snr ?? -999)));
+    }
+
+    function getSelectedMapLinks(state) {
+      return getSelectedLinks(state)
+        .filter((link) => isFiniteCoordinate(link.source_latitude, link.source_longitude))
+        .filter((link) => isFiniteCoordinate(link.target_latitude, link.target_longitude));
+    }
+
+    function selectedNeighborIds(state) {
+      return new Set(getSelectedLinks(state).map((link) => link.target_identity_hex));
+    }
+
+    function nodeStateLabel(node) {
+      const state = nodeState(node);
+      if (state === 'ok') return tr('statusData');
+      if (state === 'missing') return tr('statusNoData');
+      return tr('statusInactive');
+    }
+
+    function compareIsoTimesDesc(leftValue, rightValue) {
+      const leftTime = leftValue ? new Date(leftValue).getTime() : 0;
+      const rightTime = rightValue ? new Date(rightValue).getTime() : 0;
+      return rightTime - leftTime;
+    }
+
+    function compareNodeNames(left, right) {
+      return (left.name || left.hash_prefix_hex).localeCompare(right.name || right.hash_prefix_hex);
+    }
+
+    function sortNodes(nodes) {
+      return nodes.slice().sort((left, right) => {
+        const rankDiff = nodeStateRank(left) - nodeStateRank(right);
+        if (rankDiff !== 0) return rankDiff;
+
+        if (nodeSortMode === 'alphabetical') {
+          const nameDiff = compareNodeNames(left, right);
+          if (nameDiff !== 0) return nameDiff;
+          return compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+        }
+
+        if (nodeSortMode === 'last_data') {
+          const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
+          if (dataDiff !== 0) return dataDiff;
+          const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+          if (advertDiff !== 0) return advertDiff;
+          return compareNodeNames(left, right);
+        }
+
+        const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
+        if (advertDiff !== 0) return advertDiff;
+        const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
         if (dataDiff !== 0) return dataDiff;
         return compareNodeNames(left, right);
       });
