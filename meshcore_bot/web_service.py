@@ -264,6 +264,14 @@ INDEX_HTML = """<!doctype html>
     .filter-toggle {
       margin-bottom: 8px;
     }
+    .analysis-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: 100%;
+    }
+    .analysis-tabs .segmented-button {
+      width: 100%;
+    }
     .segmented-button {
       border: 0;
       border-radius: 12px;
@@ -2539,32 +2547,30 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderPrimaryTabs() {
-      const isMobile = isPortraitMobileView();
-      if (isMobile) {
-        return `
-          <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
-            <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
-            <button type="button" class="segmented-button${currentPanel === 'new' ? ' active' : ''}" data-panel="new">${tr('panelNew')}</button>
-            <button type="button" class="segmented-button${isAnalysisPanel() ? ' active' : ''}" data-panel="connectivity">${tr('panelAnalysis')}</button>
-          </div>
-        `;
-      }
+      const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';
       return `
         <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
           <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
           <button type="button" class="segmented-button${currentPanel === 'new' ? ' active' : ''}" data-panel="new">${tr('panelNew')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
+          <button type="button" class="segmented-button${isAnalysisPanel() ? ' active' : ''}" data-panel="${primaryAnalysisPanel}">${tr('panelAnalysis')}</button>
         </div>
       `;
     }
 
     function renderAnalysisTabs() {
-      if (!isPortraitMobileView() || !isAnalysisPanel()) return '';
+      if (!isAnalysisPanel()) return '';
       const selectedNode = latestState ? selectedConnectivityNode(latestState) : null;
       const canInspectOwnData = !selectedNode || hasOwnNeighborData(selectedNode);
+      if (!isPortraitMobileView()) {
+        return `
+          <div class="secondary-toggle analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
+            <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
+            <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
+          </div>
+        `;
+      }
       return `
-        <div class="secondary-toggle mobile-analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
+        <div class="secondary-toggle analysis-tabs mobile-analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
           <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'out' ? ' active' : ''}" data-mobile-analysis="out"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisWidze')}</button>
           <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'in' ? ' active' : ''}" data-mobile-analysis="in">${tr('mobileAnalysisWidza')}</button>
           <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'mutual' ? ' active' : ''}" data-mobile-analysis="mutual"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisMutual')}</button>
@@ -3203,7 +3209,6 @@ INDEX_HTML = """<!doctype html>
           </div>
           <div class=\"detail-grid\">
             <div class=\"detail-cell\"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
-            <div class=\"detail-cell\"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>

@@ -2472,6 +2472,8 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'data-node-search="1"' in INDEX_HTML
     assert 'mapNodePositionMissing' in INDEX_HTML
     assert 'mapNeighborPositionsMissing' in INDEX_HTML
+    assert "const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';" in INDEX_HTML
+    assert 'class="secondary-toggle analysis-tabs"' in INDEX_HTML
 
 
 def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:
