@@ -2244,23 +2244,8 @@ INDEX_HTML = """<!doctype html>
         }
       }
       return null;
-      const primaryAgeLabel = currentPanel === 'new' ? tr('firstSeenLabel') : tr('lastAdvertLabel');
-      const primaryAgeValue = currentPanel === 'new' ? node.first_seen_at : node.last_advert_at;
-      return `
-        <div class="node-row${node.identity_hex === selectedSourceId ? ' active' : ''}">
-          <button type="button" class="node-row-button" data-node="${node.identity_hex}">
-            <span class="status-dot" style="background:${nodeColor(node)}"></span>
-            <span class="node-main">
-              <span class="node-name">${node.name || node.hash_prefix_hex}</span>
-              <span class="node-age">${primaryAgeLabel}: ${formatShortWhen(primaryAgeValue)}</span>
-              ${currentPanel === 'new' ? `<span class="node-age">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>` : ''}
-              <span class="node-age">${tr('lastDataLabel')}: ${formatShortWhen(node.last_data_at)}</span>
-            </span>
-            <span class="node-state-tag">${nodeStateLabel(node)}</span>
-          </button>
-          ${node.identity_hex === selectedSourceId && (currentPanel === 'map' || currentPanel === 'new') ? renderExpandedNode(node, state) : ''}
-        </div>
-      `;
+    }
+
     function getSelectedNode(state) {
       return (state.nodes || []).find((node) => node.identity_hex === selectedSourceId) || null;
     }
