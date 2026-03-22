@@ -2364,9 +2364,11 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
 
     source_identity = LocalIdentity.generate()
     target_identity = LocalIdentity.generate()
+    source_observed_at = datetime(2026, 3, 14, 10, 0, tzinfo=UTC).isoformat()
+    target_observed_at = datetime(2026, 3, 14, 10, 1, tzinfo=UTC).isoformat()
     source_repeater_id = database.upsert_repeater_from_advert(
         endpoint_name="test-endpoint",
-        observed_at=datetime(2026, 3, 14, 10, 0, tzinfo=UTC).isoformat(),
+        observed_at=source_observed_at,
         public_key=source_identity.public_key,
         advert_name="Source RPT",
         advert_lat=53.43,
@@ -2378,7 +2380,7 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
     )
     database.upsert_repeater_from_advert(
         endpoint_name="test-endpoint",
-        observed_at=datetime(2026, 3, 14, 10, 1, tzinfo=UTC).isoformat(),
+        observed_at=target_observed_at,
         public_key=target_identity.public_key,
         advert_name="Target RPT",
         advert_lat=53.45,
@@ -2442,8 +2444,10 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
     nodes = database.list_repeaters_for_web()
     source_node = next(item for item in nodes if item["identity_hex"] == source_identity.public_key.hex().upper())
     target_node = next(item for item in nodes if item["identity_hex"] == target_identity.public_key.hex().upper())
+    assert source_node["first_seen_at"] == source_observed_at
     assert source_node["data_fetch_ok"] == 1
     assert source_node["last_probe_status"] == "failed"
+    assert target_node["first_seen_at"] == target_observed_at
     assert target_node["data_fetch_ok"] == 0
 
     links = database.latest_repeater_neighbor_links(limit_repeaters=16)

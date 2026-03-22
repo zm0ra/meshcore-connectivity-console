@@ -1477,6 +1477,7 @@ INDEX_HTML = """<!doctype html>
         legendDashed: 'stare dane',
         legendArrow: 'kierunek',
         summaryKnown: 'znane',
+        summaryNew: 'nowe 24h',
         summaryWithData: 'z danymi',
         summaryPending: 'oczekujące',
         summaryInactive: 'nieaktywne',
@@ -1526,6 +1527,8 @@ INDEX_HTML = """<!doctype html>
         inspection: 'Inspekcja',
         clearFocus: 'Wyczyść fokus',
         role: 'Rola',
+        firstSeen: 'Pierwszy advert',
+        firstSeenLabel: 'pierwszy advert',
         lastAdvert: 'Ostatni advert',
         lastData: 'Ostatnie dane',
         lastSuccessfulProbe: 'Ostatnie udane pobranie',
@@ -1547,6 +1550,7 @@ INDEX_HTML = """<!doctype html>
         viewList: 'Lista',
         viewLabel: 'Widok',
         panelMap: 'Mapa',
+        panelNew: 'Nowe',
         panelConnectivity: 'Łączność',
         panelRoute: 'Trasa',
         panelAnalysis: 'Analiza',
@@ -1607,10 +1611,14 @@ INDEX_HTML = """<!doctype html>
         sheetCollapse: 'Zwin',
         toolbarMapTitle: 'Repeaters',
         toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
+        toolbarNewTitle: 'Nowe repeatery',
+        toolbarNewSubtitle: 'RPT pierwszy raz widziane w ostatnich 24 godzinach.',
         toolbarConnectivityTitle: 'Łączność',
         toolbarConnectivitySubtitle: 'Kto widzi kogo.',
         toolbarRouteTitle: 'Trasa',
         toolbarRouteSubtitle: 'Ustaw A i B.',
+        newRepeaters: 'Nowe repeatery 24h',
+        emptyNoNewRepeaters: 'Brak zupełnie nowych repeaterów z ostatnich 24 godzin.',
         routeTapTarget: 'Wybierz z mapy A albo B.',
         routeTapTargetSource: 'Kliknij mapę, aby ustawić A.',
         routeTapTargetTarget: 'Kliknij mapę, aby ustawić B.',
@@ -1638,6 +1646,7 @@ INDEX_HTML = """<!doctype html>
         legendDashed: 'stale data',
         legendArrow: 'direction',
         summaryKnown: 'known',
+        summaryNew: 'new 24h',
         summaryWithData: 'with data',
         summaryPending: 'pending',
         summaryInactive: 'inactive',
@@ -1687,6 +1696,8 @@ INDEX_HTML = """<!doctype html>
         inspection: 'Inspection',
         clearFocus: 'Clear focus',
         role: 'Role',
+        firstSeen: 'First advert',
+        firstSeenLabel: 'first advert',
         lastAdvert: 'Last advert',
         lastData: 'Last data',
         lastSuccessfulProbe: 'Last successful fetch',
@@ -1708,6 +1719,7 @@ INDEX_HTML = """<!doctype html>
         viewList: 'List',
         viewLabel: 'View',
         panelMap: 'Map',
+        panelNew: 'New',
         panelConnectivity: 'Connectivity',
         panelRoute: 'Route',
         panelAnalysis: 'Analysis',
@@ -1768,10 +1780,14 @@ INDEX_HTML = """<!doctype html>
         sheetCollapse: 'Collapse',
         toolbarMapTitle: 'Repeaters',
         toolbarMapSubtitle: 'Pick a node on the map or from the list.',
+        toolbarNewTitle: 'New repeaters',
+        toolbarNewSubtitle: 'RPT nodes first seen within the last 24 hours.',
         toolbarConnectivityTitle: 'Connectivity',
         toolbarConnectivitySubtitle: 'Who sees whom.',
         toolbarRouteTitle: 'Route',
         toolbarRouteSubtitle: 'Set A and B.',
+        newRepeaters: 'New repeaters 24h',
+        emptyNoNewRepeaters: 'No completely new repeaters were first seen in the last 24 hours.',
         routeTapTarget: 'Pick A or B from the map.',
         routeTapTargetSource: 'Click the map to set A.',
         routeTapTargetTarget: 'Click the map to set B.',
@@ -1897,7 +1913,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function setPanel(panel) {
-      if (!['map', 'connectivity', 'route'].includes(panel)) return;
+      if (!['map', 'new', 'connectivity', 'route'].includes(panel)) return;
       currentPanel = panel;
       if (panel === 'route' && !routeSourceId && selectedSourceId) {
         routeSourceId = selectedSourceId;
@@ -2001,6 +2017,15 @@ INDEX_HTML = """<!doctype html>
       return Date.now() - new Date(node.last_advert_at).getTime() > ACTIVE_THRESHOLD_MS;
     }
 
+    function isNewRepeater(node) {
+      if (!node?.first_seen_at) return false;
+      return Date.now() - new Date(node.first_seen_at).getTime() <= ACTIVE_THRESHOLD_MS;
+    }
+
+    function newRepeaterNodes(state) {
+      return (state.nodes || []).filter((node) => isNewRepeater(node));
+    }
+
     function nodeState(node) {
       if (isInactive(node)) return 'inactive';
       return node.data_fetch_ok ? 'ok' : 'missing';
@@ -2048,12 +2073,16 @@ INDEX_HTML = """<!doctype html>
     }
 
     function relevantNodes(state) {
+      if (currentPanel === 'new') {
+        return newRepeaterNodes(state);
+      }
       const nodes = state.nodes || [];
       if (showArchived) return nodes;
       return nodes.filter((node) => !isInactive(node));
     }
 
     function archivedNodeCount(state) {
+      if (currentPanel === 'new') return 0;
       return (state.nodes || []).filter((node) => isInactive(node)).length;
     }
 
@@ -2215,19 +2244,23 @@ INDEX_HTML = """<!doctype html>
         }
       }
       return null;
-    }
-
-    function buildRouteResult(state, sourceId, targetId) {
-      const data = connectivityData(state);
-      const freshEdges = data.edges.filter((edge) => !edge.stale);
-      const freshPath = routePath(freshEdges, sourceId, targetId);
-      const path = freshPath || routePath(data.edges, sourceId, targetId);
-      if (!path) {
-        return { path: null, usesStale: false };
-      }
-      return { path, usesStale: !freshPath };
-    }
-
+      const primaryAgeLabel = currentPanel === 'new' ? tr('firstSeenLabel') : tr('lastAdvertLabel');
+      const primaryAgeValue = currentPanel === 'new' ? node.first_seen_at : node.last_advert_at;
+      return `
+        <div class="node-row${node.identity_hex === selectedSourceId ? ' active' : ''}">
+          <button type="button" class="node-row-button" data-node="${node.identity_hex}">
+            <span class="status-dot" style="background:${nodeColor(node)}"></span>
+            <span class="node-main">
+              <span class="node-name">${node.name || node.hash_prefix_hex}</span>
+              <span class="node-age">${primaryAgeLabel}: ${formatShortWhen(primaryAgeValue)}</span>
+              ${currentPanel === 'new' ? `<span class="node-age">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>` : ''}
+              <span class="node-age">${tr('lastDataLabel')}: ${formatShortWhen(node.last_data_at)}</span>
+            </span>
+            <span class="node-state-tag">${nodeStateLabel(node)}</span>
+          </button>
+          ${node.identity_hex === selectedSourceId && (currentPanel === 'map' || currentPanel === 'new') ? renderExpandedNode(node, state) : ''}
+        </div>
+      `;
     function getSelectedNode(state) {
       return (state.nodes || []).find((node) => node.identity_hex === selectedSourceId) || null;
     }
@@ -2427,7 +2460,7 @@ INDEX_HTML = """<!doctype html>
     function renderSummary(state) {
       const nodes = relevantNodes(state);
       const html = [
-        { label: tr('summaryKnown'), value: nodes.length },
+        { label: currentPanel === 'new' ? tr('summaryNew') : tr('summaryKnown'), value: nodes.length },
         { label: tr('summaryWithData'), value: nodes.filter((node) => !isInactive(node) && node.data_fetch_ok).length },
         { label: tr('summaryPending'), value: nodes.filter((node) => !isInactive(node) && !node.data_fetch_ok).length },
         { label: tr('summaryInactive'), value: nodes.filter((node) => isInactive(node)).length },
@@ -2441,6 +2474,7 @@ INDEX_HTML = """<!doctype html>
         return `
           <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
             <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
+            <button type="button" class="segmented-button${currentPanel === 'new' ? ' active' : ''}" data-panel="new">${tr('panelNew')}</button>
             <button type="button" class="segmented-button${isAnalysisPanel() ? ' active' : ''}" data-panel="connectivity">${tr('panelAnalysis')}</button>
           </div>
         `;
@@ -2448,6 +2482,7 @@ INDEX_HTML = """<!doctype html>
       return `
         <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
           <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'new' ? ' active' : ''}" data-panel="new">${tr('panelNew')}</button>
           <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
           <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
         </div>
@@ -3098,6 +3133,8 @@ INDEX_HTML = """<!doctype html>
           </div>
           <div class=\"detail-grid\">
             <div class=\"detail-cell\"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
+            <div class=\"detail-cell\"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
+            <div class=\"detail-cell\"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastSuccessfulProbe')}</strong>${formatWhen(node.last_successful_probe_at)}</div>
@@ -3114,18 +3151,21 @@ INDEX_HTML = """<!doctype html>
     }
 
     function rowHtml(node, state) {
+      const primaryAgeLabel = currentPanel === 'new' ? tr('firstSeenLabel') : tr('lastAdvertLabel');
+      const primaryAgeValue = currentPanel === 'new' ? node.first_seen_at : node.last_advert_at;
       return `
         <div class=\"node-row${node.identity_hex === selectedSourceId ? ' active' : ''}\">
           <button type=\"button\" class=\"node-row-button\" data-node=\"${node.identity_hex}\">
             <span class=\"status-dot\" style=\"background:${nodeColor(node)}\"></span>
             <span class=\"node-main\">
               <span class=\"node-name\">${node.name || node.hash_prefix_hex}</span>
-              <span class=\"node-age\">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>
+              <span class=\"node-age\">${primaryAgeLabel}: ${formatShortWhen(primaryAgeValue)}</span>
+              ${currentPanel === 'new' ? `<span class=\"node-age\">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>` : ''}
               <span class=\"node-age\">${tr('lastDataLabel')}: ${formatShortWhen(node.last_data_at)}</span>
             </span>
             <span class=\"node-state-tag\">${nodeStateLabel(node)}</span>
           </button>
-          ${node.identity_hex === selectedSourceId && currentPanel === 'map' ? renderExpandedNode(node, state) : ''}
+          ${node.identity_hex === selectedSourceId && (currentPanel === 'map' || currentPanel === 'new') ? renderExpandedNode(node, state) : ''}
         </div>
       `;
     }
@@ -3137,11 +3177,15 @@ INDEX_HTML = """<!doctype html>
       const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
       const panelTitle = currentPanel === 'connectivity'
         ? tr('toolbarConnectivityTitle')
+        : currentPanel === 'new'
+          ? tr('toolbarNewTitle')
         : currentPanel === 'route'
           ? tr('toolbarRouteTitle')
           : tr('toolbarMapTitle');
       const panelSubtitle = currentPanel === 'connectivity'
         ? tr('toolbarConnectivitySubtitle')
+        : currentPanel === 'new'
+          ? tr('toolbarNewSubtitle')
         : currentPanel === 'route'
           ? tr('toolbarRouteSubtitle')
           : tr('toolbarMapSubtitle');
@@ -3159,7 +3203,9 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
-      const archivedHtml = `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
+      const archivedHtml = currentPanel === 'new'
+        ? ''
+        : `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
       const metaHtml = `${sortHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       html += `
@@ -3185,6 +3231,13 @@ INDEX_HTML = """<!doctype html>
         html += renderConnectivityPanel(state);
       } else if (currentPanel === 'route') {
         html += renderRoutePanel(state);
+      } else if (currentPanel === 'new') {
+        if (selectedNode) {
+          html += `<div class="section-heading">${tr('selectedRepeater')}</div>`;
+          html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
+        }
+        html += `<div class="section-heading">${tr('newRepeaters')}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${tr('emptyNoNewRepeaters')}</div>`}</div>`;
       } else {
         if (isPortraitMobileView()) {
           html += renderMobileMapPanel(state);

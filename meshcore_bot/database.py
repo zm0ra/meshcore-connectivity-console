@@ -1327,6 +1327,7 @@ class BotDatabase:
                        'Repeater' AS role,
                        r.last_lat AS latitude,
                        r.last_lon AS longitude,
+                      r.first_seen_at,
                        r.last_seen_at AS last_advert_at,
                        r.last_probe_status,
                        r.last_probe_at,
