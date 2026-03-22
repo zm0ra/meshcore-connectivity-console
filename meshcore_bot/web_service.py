@@ -320,6 +320,25 @@ INDEX_HTML = """<!doctype html>
       font: inherit;
       font-size: 0.76rem;
     }
+    .toolbar-search {
+      position: relative;
+      min-width: min(280px, 100%);
+      flex: 1 1 220px;
+    }
+    .toolbar-search-input {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--ink);
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 0.78rem;
+    }
+    .toolbar-search-input::placeholder {
+      color: var(--muted);
+    }
     .lang-toggle {
       display: inline-flex;
       align-items: center;
@@ -526,6 +545,16 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.74rem;
       line-height: 1.3;
       padding: 4px 0 2px;
+    }
+    .map-warning-note {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(207, 170, 56, 0.32);
+      border-radius: 12px;
+      background: rgba(207, 170, 56, 0.12);
+      color: #6d5313;
+      font-size: 0.76rem;
+      line-height: 1.4;
     }
     .panel-stack {
       display: grid;
@@ -1269,6 +1298,10 @@ INDEX_HTML = """<!doctype html>
         flex-direction: column;
         align-items: stretch;
       }
+      .toolbar-search {
+        min-width: 0;
+        width: 100%;
+      }
       .toolbar-head {
         align-items: stretch;
       }
@@ -1501,8 +1534,8 @@ INDEX_HTML = """<!doctype html>
         connectivityStateMutual: (count) => `${count} relacji wzajemnych.`,
         connectivityStateNoOwnData: 'Brak własnych danych sąsiedztwa. Dostępne tylko relacje inbound.',
         connectivityStateNoVisible: 'Brak relacji dla bieżącego widoku.',
-        routeStateIdle: 'Wybierz A i B, aby porównać obie strony niezależnie.',
-        routeStateReady: 'Wyniki A->B i B->A są liczone oddzielnie.',
+        routeStateIdle: 'Ustaw A i B. Wynik pokażemy od razu w obu kierunkach, jeśli istnieją.',
+        routeStateReady: 'Pokazujemy oba kierunki niezależnie, jeśli istnieją.',
         routeStateSameNode: 'A i B muszą wskazywać różne punkty.',
         routeResultsTitle: 'Wynik trasy',
         statusData: 'dane',
@@ -1524,6 +1557,7 @@ INDEX_HTML = """<!doctype html>
         emptySelectNeighbor: 'Wybierz wiersz sąsiada, aby obejrzeć historię sygnału.',
         emptyNoNeighborLinks: 'Dla tego repeatera nie ma jeszcze zapisanych połączeń sąsiedzkich.',
         emptyNoOtherRepeaters: 'Brak innych repeaterów.',
+        emptyNoSearchResults: 'Brak repeaterów pasujących do filtra.',
         inspection: 'Inspekcja',
         clearFocus: 'Wyczyść fokus',
         role: 'Rola',
@@ -1535,6 +1569,8 @@ INDEX_HTML = """<!doctype html>
         lastProbeResult: 'Wynik ostatniej próby',
         lastProbeAttempt: 'Ostatnia próba',
         directNeighbors: 'Bezpośredni sąsiedzi',
+        mapNodePositionMissing: 'Mapa nie narysuje połączeń od tego repeatera, bo nie ma on poprawnej pozycji GPS.',
+        mapNeighborPositionsMissing: (count) => `Mapa pomija ${count} połącze${count === 1 ? 'nie' : count < 5 ? 'nia' : 'ń'} do sąsiadów bez poprawnej pozycji GPS.`,
         neighbor: 'Sąsiad',
         lastSeen: 'Ostatnio widziany',
         signal: 'Sygnał',
@@ -1543,6 +1579,8 @@ INDEX_HTML = """<!doctype html>
         otherRepeaters: 'Pozostałe repeatery',
         repeaters: 'Repeatery',
         sortLabel: 'Sortowanie',
+        searchLabel: 'Szukaj repeatera',
+        searchPlaceholder: 'nazwa, prefix, hex',
         sortLastAdvert: 'ostatni advert',
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
@@ -1610,13 +1648,13 @@ INDEX_HTML = """<!doctype html>
         sheetExpand: 'Rozwin',
         sheetCollapse: 'Zwin',
         toolbarMapTitle: 'Repeaters',
-        toolbarMapSubtitle: 'Wybierz punkt na mapie lub z listy.',
+        toolbarMapSubtitle: 'Kliknij repeater na mapie, aby zobaczyć jego bezpośrednich sąsiadów.',
         toolbarNewTitle: 'Nowe repeatery',
         toolbarNewSubtitle: 'RPT pierwszy raz widziane w ostatnich 24 godzinach.',
         toolbarConnectivityTitle: 'Łączność',
         toolbarConnectivitySubtitle: 'Kto widzi kogo.',
         toolbarRouteTitle: 'Trasa',
-        toolbarRouteSubtitle: 'Ustaw A i B.',
+        toolbarRouteSubtitle: 'Ustaw A i B. Wynik pokazujemy od razu w obu kierunkach.',
         newRepeaters: 'Nowe repeatery 24h',
         emptyNoNewRepeaters: 'Brak zupełnie nowych repeaterów z ostatnich 24 godzin.',
         routeTapTarget: 'Wybierz z mapy A albo B.',
@@ -1670,8 +1708,8 @@ INDEX_HTML = """<!doctype html>
         connectivityStateMutual: (count) => `${count} mutual relations.`,
         connectivityStateNoOwnData: 'No own neighbor snapshot. Only inbound relations are available.',
         connectivityStateNoVisible: 'No relations match the current view.',
-        routeStateIdle: 'Select A and B to compare both directions independently.',
-        routeStateReady: 'A->B and B->A are calculated separately.',
+        routeStateIdle: 'Set A and B. We will show both directions immediately when available.',
+        routeStateReady: 'Both directions are shown independently when available.',
         routeStateSameNode: 'A and B must point to different nodes.',
         routeResultsTitle: 'Route result',
         statusData: 'data',
@@ -1693,6 +1731,7 @@ INDEX_HTML = """<!doctype html>
         emptySelectNeighbor: 'Select a neighbor row to inspect signal history.',
         emptyNoNeighborLinks: 'No stored neighbor links are available yet for this repeater.',
         emptyNoOtherRepeaters: 'No other repeaters available.',
+        emptyNoSearchResults: 'No repeaters match the current filter.',
         inspection: 'Inspection',
         clearFocus: 'Clear focus',
         role: 'Role',
@@ -1704,6 +1743,8 @@ INDEX_HTML = """<!doctype html>
         lastProbeResult: 'Last probe result',
         lastProbeAttempt: 'Last probe attempt',
         directNeighbors: 'Direct neighbors',
+        mapNodePositionMissing: 'The map cannot draw links from this repeater because it has no valid GPS position.',
+        mapNeighborPositionsMissing: (count) => `The map skips ${count} link${count === 1 ? '' : 's'} to neighbors without a valid GPS position.`,
         neighbor: 'Neighbor',
         lastSeen: 'Last seen',
         signal: 'Signal',
@@ -1712,6 +1753,8 @@ INDEX_HTML = """<!doctype html>
         otherRepeaters: 'Other repeaters',
         repeaters: 'Repeaters',
         sortLabel: 'Sort',
+        searchLabel: 'Find repeater',
+        searchPlaceholder: 'name, prefix, hex',
         sortLastAdvert: 'last advert',
         sortLastData: 'last data fetch',
         sortAlphabetical: 'alphabetical',
@@ -1779,13 +1822,13 @@ INDEX_HTML = """<!doctype html>
         sheetExpand: 'Expand',
         sheetCollapse: 'Collapse',
         toolbarMapTitle: 'Repeaters',
-        toolbarMapSubtitle: 'Pick a node on the map or from the list.',
+        toolbarMapSubtitle: 'Click a repeater on the map to inspect its direct neighbors.',
         toolbarNewTitle: 'New repeaters',
         toolbarNewSubtitle: 'RPT nodes first seen within the last 24 hours.',
         toolbarConnectivityTitle: 'Connectivity',
         toolbarConnectivitySubtitle: 'Who sees whom.',
         toolbarRouteTitle: 'Route',
-        toolbarRouteSubtitle: 'Set A and B.',
+        toolbarRouteSubtitle: 'Set A and B. Results are shown in both directions when available.',
         newRepeaters: 'New repeaters 24h',
         emptyNoNewRepeaters: 'No completely new repeaters were first seen in the last 24 hours.',
         routeTapTarget: 'Pick A or B from the map.',
@@ -1818,6 +1861,7 @@ INDEX_HTML = """<!doctype html>
     let selectedNeighborId = null;
     let hoveredNodeId = null;
     let nodeSortMode = 'last_advert';
+    let nodeSearchQuery = '';
     let currentLanguage = localStorage.getItem('meshcoreDashboardLanguage') || 'pl';
     let currentPanel = localStorage.getItem('meshcoreDashboardPanel') || 'map';
     let connectivityDirection = localStorage.getItem('meshcoreDashboardConnectivityDirection') || 'out';
@@ -1841,6 +1885,21 @@ INDEX_HTML = """<!doctype html>
     function trFormat(key, value) {
       const entry = tr(key);
       return typeof entry === 'function' ? entry(value) : entry;
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+    }
+
+    function nodeMatchesSearch(node) {
+      const query = normalizeSearchText(nodeSearchQuery);
+      if (!query) return true;
+      const haystack = normalizeSearchText(`${node.name || ''} ${node.hash_prefix_hex || ''} ${node.identity_hex || ''}`);
+      return haystack.includes(query);
     }
 
     function isSidebarInteractionActive() {
@@ -2262,64 +2321,83 @@ INDEX_HTML = """<!doctype html>
     }
 
     function getSelectedLinks(state) {
-      if (!selectedSourceId) return [];
-      return ((state.management?.map_links) || [])
-        .filter((link) => link.source_identity_hex === selectedSourceId)
-        .sort((left, right) => ((right.snr ?? -999) - (left.snr ?? -999)));
-    }
-
-    function getSelectedMapLinks(state) {
-      return getSelectedLinks(state)
-        .filter((link) => isFiniteCoordinate(link.source_latitude, link.source_longitude))
-        .filter((link) => isFiniteCoordinate(link.target_latitude, link.target_longitude));
-    }
-
-    function selectedNeighborIds(state) {
-      return new Set(getSelectedLinks(state).map((link) => link.target_identity_hex));
-    }
-
-    function nodeStateLabel(node) {
-      const state = nodeState(node);
-      if (state === 'ok') return tr('statusData');
-      if (state === 'missing') return tr('statusNoData');
-      return tr('statusInactive');
-    }
-
-    function compareIsoTimesDesc(leftValue, rightValue) {
-      const leftTime = leftValue ? new Date(leftValue).getTime() : 0;
-      const rightTime = rightValue ? new Date(rightValue).getTime() : 0;
-      return rightTime - leftTime;
-    }
-
-    function compareNodeNames(left, right) {
-      return (left.name || left.hash_prefix_hex).localeCompare(right.name || right.hash_prefix_hex);
-    }
-
-    function sortNodes(nodes) {
-      return nodes.slice().sort((left, right) => {
-        const rankDiff = nodeStateRank(left) - nodeStateRank(right);
-        if (rankDiff !== 0) return rankDiff;
-
-        if (nodeSortMode === 'alphabetical') {
-          const nameDiff = compareNodeNames(left, right);
-          if (nameDiff !== 0) return nameDiff;
-          return compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
-        }
-
-        if (nodeSortMode === 'last_data') {
-          const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
-          if (dataDiff !== 0) return dataDiff;
-          const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
-          if (advertDiff !== 0) return advertDiff;
-          return compareNodeNames(left, right);
-        }
-
-        const advertDiff = compareIsoTimesDesc(left.last_advert_at, right.last_advert_at);
-        if (advertDiff !== 0) return advertDiff;
-        const dataDiff = compareIsoTimesDesc(left.last_data_at, right.last_data_at);
+      const drawableLinks = getSelectedMapLinks(state);
+      const hiddenMapLinkCount = Math.max(0, selectedLinks.length - drawableLinks.length);
+      if (!selectedLinks.length || (selectedNeighborId && !selectedLinks.some((link) => link.target_identity_hex === selectedNeighborId))) {
+        selectedNeighborId = null;
+      }
+      const selectedLink = selectedLinks.find((link) => link.target_identity_hex === selectedNeighborId) || null;
+      const historyRows = selectedHistoryRows(state, node, selectedNeighborId);
+      let mapWarningHtml = '';
+      if (selectedLinks.length && !isFiniteCoordinate(node.latitude, node.longitude)) {
+        mapWarningHtml = `<div class="map-warning-note">${tr('mapNodePositionMissing')}</div>`;
+      } else if (hiddenMapLinkCount > 0) {
+        mapWarningHtml = `<div class="map-warning-note">${trFormat('mapNeighborPositionsMissing', hiddenMapLinkCount)}</div>`;
+      }
+      const neighborRows = selectedLinks.length ? `
+        <table class="neighbor-table">
+          <thead>
+            <tr>
+              <th>${tr('neighbor')}</th>
+              <th>${tr('lastSeen')}</th>
+              <th>${tr('signal')}</th>
+              <th>${tr('distance')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${selectedLinks.map((link) => {
+              const distance = neighborDistanceKm(node, link);
+              const activeClass = link.target_identity_hex === selectedNeighborId ? ' class="active"' : '';
+              return `
+                <tr${activeClass}>
+                  <td><button type="button" data-neighbor="${link.target_identity_hex}">${link.target_name}</button></td>
+                  <td>${typeof link.last_heard_seconds === 'number' ? humanizeSeconds(link.last_heard_seconds) : timeAgo(link.collected_at)}</td>
+                  <td>${lineSignalMetric(link).label}</td>
+                  <td>${distance === null ? '-' : `${distance.toFixed(1)} km`}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      ` : `<div class="empty-note">${tr('emptyNoNeighborLinks')}</div>`;
+      return `
+        <div class="node-expand">
+          <div class="expand-head">
+            <strong>${tr('inspection')}</strong>
+            <button type="button" class="ghost-button" data-clear-selection="1">${tr('clearFocus')}</button>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-cell"><strong>${tr('role')}</strong>${node.role || tr('roleDefault')}</div>
+            <div class="detail-cell"><strong>${tr('firstSeen')}</strong>${formatWhen(node.first_seen_at)}</div>
+            <div class="detail-cell"><strong>${tr('lastAdvert')}</strong>${formatWhen(node.last_advert_at)}</div>
+            <div class="detail-cell"><strong>${tr('lastData')}</strong>${formatWhen(node.last_data_at)}</div>
+            <div class="detail-cell"><strong>${tr('lastSuccessfulProbe')}</strong>${formatWhen(node.last_successful_probe_at)}</div>
+            <div class="detail-cell"><strong>${tr('lastProbeResult')}</strong>${describeProbeResult(node)}</div>
+            <div class="detail-cell"><strong>${tr('lastProbeAttempt')}</strong>${formatWhen(node.last_probe_at)}</div>
+          </div>
+          ${mapWarningHtml}
+          <div>
+            <div class="expand-head"><strong>${tr('directNeighbors')}</strong><span class="node-state-tag">${selectedLinks.length}</span></div>
+            ${neighborRows}
+          </div>
+          ${renderSignalChart(node, selectedLink, historyRows)}
+        </div>
+      `;
         if (dataDiff !== 0) return dataDiff;
         return compareNodeNames(left, right);
       });
+    }
+
+    function listNodes(state) {
+      const nodes = sortNodes(relevantNodes(state));
+      if (currentPanel === 'connectivity' || currentPanel === 'route') return nodes;
+      const filtered = nodes.filter((node) => nodeMatchesSearch(node));
+      if (!selectedSourceId) return filtered;
+      const selectedNode = nodes.find((node) => node.identity_hex === selectedSourceId);
+      if (!selectedNode || filtered.some((node) => node.identity_hex === selectedNode.identity_hex)) {
+        return filtered;
+      }
+      return [selectedNode].concat(filtered);
     }
 
     function overlayInsets(basePadding) {
@@ -2375,7 +2453,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function fitSelectedRepeater(selectedNode, visibleNodes) {
-      if (!selectedNode || !isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) return;
+      if (!selectedNode || !isFiniteCoordinate(selectedNode.latitude, selectedNode.longitude)) {
+        if (visibleNodes.length) fitNodeCollection(visibleNodes, selectedSourceId);
+        return;
+      }
       const bounds = [[selectedNode.latitude, selectedNode.longitude]];
       for (const node of visibleNodes) {
         if (node.identity_hex === selectedSourceId) continue;
@@ -3168,8 +3249,9 @@ INDEX_HTML = """<!doctype html>
 
     function renderNodeSections(state) {
       const container = document.getElementById('node-sections');
-      const nodes = sortNodes(relevantNodes(state));
-      const selectedNode = selectedSourceId ? nodes.find((node) => node.identity_hex === selectedSourceId) : null;
+      const allNodes = sortNodes(relevantNodes(state));
+      const nodes = listNodes(state);
+      const selectedNode = selectedSourceId ? allNodes.find((node) => node.identity_hex === selectedSourceId) : null;
       const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
       const panelTitle = currentPanel === 'connectivity'
         ? tr('toolbarConnectivityTitle')
@@ -3199,10 +3281,18 @@ INDEX_HTML = """<!doctype html>
             </div>
           `
         : '';
+      const searchHtml = currentPanel === 'map' || currentPanel === 'new'
+        ? `
+            <div class="toolbar-meta-group toolbar-search">
+              <label for="node-search">${tr('searchLabel')}</label>
+              <input id="node-search" class="toolbar-search-input" type="search" data-node-search="1" placeholder="${tr('searchPlaceholder')}" />
+            </div>
+          `
+        : '';
       const archivedHtml = currentPanel === 'new'
         ? ''
         : `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
-      const metaHtml = `${sortHtml}`;
+      const metaHtml = `${searchHtml}${sortHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       html += `
         <div class="list-toolbar">
@@ -3233,7 +3323,7 @@ INDEX_HTML = """<!doctype html>
           html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
         }
         html += `<div class="section-heading">${tr('newRepeaters')}</div>`;
-        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${tr('emptyNoNewRepeaters')}</div>`}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${nodeSearchQuery ? tr('emptyNoSearchResults') : tr('emptyNoNewRepeaters')}</div>`}</div>`;
       } else {
         if (isPortraitMobileView()) {
           html += renderMobileMapPanel(state);
@@ -3261,6 +3351,13 @@ INDEX_HTML = """<!doctype html>
           for (const button of container.querySelectorAll('[data-toggle-archived]')) {
             button.addEventListener('click', () => setShowArchived(!showArchived));
           }
+          for (const input of container.querySelectorAll('[data-node-search]')) {
+            input.value = nodeSearchQuery;
+            input.addEventListener('input', () => {
+              nodeSearchQuery = input.value || '';
+              render(latestState);
+            });
+          }
           for (const button of container.querySelectorAll('[data-mobile-peer]')) {
             button.addEventListener('click', () => {
               selectedNeighborId = selectedNeighborId === button.dataset.mobilePeer ? null : button.dataset.mobilePeer;
@@ -3278,7 +3375,7 @@ INDEX_HTML = """<!doctype html>
           html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
         }
         html += `<div class="section-heading">${selectedNode ? tr('otherRepeaters') : tr('repeaters')}</div>`;
-        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${tr('emptyNoOtherRepeaters')}</div>`}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${nodeSearchQuery ? tr('emptyNoSearchResults') : tr('emptyNoOtherRepeaters')}</div>`}</div>`;
       }
       container.innerHTML = html;
       for (const button of container.querySelectorAll('[data-node]')) {
@@ -3305,6 +3402,13 @@ INDEX_HTML = """<!doctype html>
       for (const select of container.querySelectorAll('[data-sort-mode]')) {
         select.addEventListener('change', () => {
           nodeSortMode = select.value;
+          render(latestState);
+        });
+      }
+      for (const input of container.querySelectorAll('[data-node-search]')) {
+        input.value = nodeSearchQuery;
+        input.addEventListener('input', () => {
+          nodeSearchQuery = input.value || '';
           render(latestState);
         });
       }
@@ -3376,7 +3480,7 @@ INDEX_HTML = """<!doctype html>
       const sourceNode = getSelectedNode(state);
       const nodes = selectedSourceId
         ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
-        : allMapNodes;
+        : (nodeSearchQuery ? allMapNodes.filter((node) => nodeMatchesSearch(node)) : allMapNodes);
       const bounds = [];
       for (const node of nodes) {
         const selected = node.identity_hex === selectedSourceId;

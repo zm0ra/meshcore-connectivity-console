@@ -45,6 +45,7 @@ from meshcore_bot.repeater_protocol import (
 )
 from meshcore_bot.tcp_client import MeshcoreTCPClient
 from meshcore_bot.tcp_client import ReceivedPacket
+from meshcore_bot.web_service import INDEX_HTML
 
 
 class FakeTCPClient:
@@ -2464,6 +2465,13 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
     assert source_history[0]["target_identity_hex"] == target_identity.public_key.hex().upper()
     assert source_history[0]["snr"] == 9.5
     assert source_history[1]["snr"] == 4.0
+
+
+def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> None:
+    assert 'function buildRouteResult(state, sourceId, targetId)' in INDEX_HTML
+    assert 'data-node-search="1"' in INDEX_HTML
+    assert 'mapNodePositionMissing' in INDEX_HTML
+    assert 'mapNeighborPositionsMissing' in INDEX_HTML
 
 
 def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:
