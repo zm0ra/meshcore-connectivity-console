@@ -812,6 +812,81 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       font-size: 0.74rem;
     }
+    .route-destination-list {
+      display: grid;
+      gap: 6px;
+    }
+    .route-destination-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+    .route-destination-item.active {
+      border-color: rgba(207, 170, 56, 0.28);
+      box-shadow: inset 0 0 0 1px rgba(207, 170, 56, 0.18), var(--shadow-soft);
+    }
+    .route-destination-main {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .route-destination-main strong {
+      display: block;
+      font-size: 0.8rem;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .route-destination-main span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.68rem;
+      line-height: 1.18;
+    }
+    .route-destination-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(44, 113, 209, 0.1);
+      color: var(--blue);
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .route-destination-item.active .route-destination-action {
+      background: rgba(207, 170, 56, 0.16);
+      color: #9c7b13;
+    }
+    .route-destination-empty {
+      padding: 10px 12px;
+      border: 1px dashed rgba(21, 33, 42, 0.14);
+      border-radius: 12px;
+      background: rgba(21, 33, 42, 0.03);
+    }
+    .route-destination-empty strong {
+      display: block;
+      font-size: 0.8rem;
+      line-height: 1.2;
+    }
+    .route-destination-empty span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.7rem;
+      line-height: 1.2;
+    }
     .route-endpoint {
       display: grid;
       grid-template-columns: 34px minmax(0, 1fr);
@@ -1546,6 +1621,13 @@ INDEX_HTML = """<!doctype html>
         routeStateReady: 'Pokazujemy oba kierunki niezależnie, jeśli istnieją.',
         routeStateSameNode: 'A i B muszą wskazywać różne punkty.',
         routeResultsTitle: 'Wynik trasy',
+        routeReachabilityTitle: 'Mozliwe destynacje z A',
+        routeReachabilityIdle: 'Ustaw A, a pokażemy dokad da sie dojsc jednokierunkowo.',
+        routeReachabilitySummary: (count) => `Z A da sie dojsc do ${count} destynacji.`,
+        routeReachabilityEmpty: 'Z wybranego A nie ma jeszcze zadnej znanej destynacji jednokierunkowej.',
+        routeReachabilityFreshShort: 'swieze',
+        routeReachabilityStaleShort: 'stare',
+        routeReachabilityAction: 'Ustaw jako B',
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1720,6 +1802,13 @@ INDEX_HTML = """<!doctype html>
         routeStateReady: 'Both directions are shown independently when available.',
         routeStateSameNode: 'A and B must point to different nodes.',
         routeResultsTitle: 'Route result',
+        routeReachabilityTitle: 'Reachable destinations from A',
+        routeReachabilityIdle: 'Set A and we will show which destinations are reachable one-way.',
+        routeReachabilitySummary: (count) => `${count} reachable destination${count === 1 ? '' : 's'} from A.`,
+        routeReachabilityEmpty: 'No known one-way destinations are reachable from the selected A yet.',
+        routeReachabilityFreshShort: 'fresh',
+        routeReachabilityStaleShort: 'stale',
+        routeReachabilityAction: 'Set as B',
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -2324,6 +2413,40 @@ INDEX_HTML = """<!doctype html>
       return { path, usesStale: !freshPath };
     }
 
+    function buildRouteReachability(state, sourceId) {
+      const data = connectivityData(state);
+      if (!sourceId) {
+        return { destinations: [], highlightIds: new Set(), treeEdges: [] };
+      }
+      const destinations = [];
+      const highlightIds = new Set([sourceId]);
+      const treeEdges = new Map();
+      for (const node of data.nodes) {
+        const targetId = node.identity_hex;
+        if (!targetId || targetId === sourceId) continue;
+        const routeResult = buildRouteResult(state, sourceId, targetId);
+        if (!routeResult.path) continue;
+        highlightIds.add(targetId);
+        destinations.push({
+          identityHex: targetId,
+          name: node.name || node.hash_prefix_hex || targetId.slice(0, 8),
+          hopCount: Math.max(0, routeResult.path.length - 1),
+          usesStale: routeResult.usesStale,
+        });
+        for (let index = 0; index < routeResult.path.length - 1; index += 1) {
+          const edgeSourceId = routeResult.path[index];
+          const edgeTargetId = routeResult.path[index + 1];
+          const edgeKey = `${edgeSourceId}:${edgeTargetId}`;
+          const previous = treeEdges.get(edgeKey);
+          if (!previous || (previous.usesStale && !routeResult.usesStale)) {
+            treeEdges.set(edgeKey, { sourceId: edgeSourceId, targetId: edgeTargetId, usesStale: routeResult.usesStale });
+          }
+        }
+      }
+      destinations.sort((left, right) => (left.hopCount - right.hopCount) || (Number(left.usesStale) - Number(right.usesStale)) || left.name.localeCompare(right.name));
+      return { destinations, highlightIds, treeEdges: [...treeEdges.values()] };
+    }
+
     function getSelectedNode(state) {
       return (state.nodes || []).find((node) => node.identity_hex === selectedSourceId) || null;
     }
@@ -2526,6 +2649,10 @@ INDEX_HTML = """<!doctype html>
       const data = connectivityData(state);
       const ids = new Set([routeSourceId, routeTargetId].filter(Boolean));
       if (!ids.size) return;
+      if (routeSourceId) {
+        const reachability = buildRouteReachability(state, routeSourceId);
+        for (const destination of reachability.destinations) ids.add(destination.identityHex);
+      }
       if (routeSourceId && routeTargetId && routeSourceId !== routeTargetId) {
         const forward = buildRouteResult(state, routeSourceId, routeTargetId);
         const backward = buildRouteResult(state, routeTargetId, routeSourceId);
@@ -2828,18 +2955,42 @@ INDEX_HTML = """<!doctype html>
       `;
     }
 
+    function renderRouteReachabilitySection(state) {
+      if (!routeSourceId) {
+        return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', tr('routeReachabilityIdle'))}</div>`;
+      }
+      const reachability = buildRouteReachability(state, routeSourceId);
+      const freshCount = reachability.destinations.filter((destination) => !destination.usesStale).length;
+      const staleCount = reachability.destinations.length - freshCount;
+      if (!reachability.destinations.length) {
+        return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', tr('routeReachabilityEmpty'), [{ value: 0, label: tr('routeReachabilityFreshShort') }, { value: 0, label: tr('routeReachabilityStaleShort') }], true)}<div class="route-destination-empty"><strong>${tr('routeReachabilityEmpty')}</strong><span>${tr('routePickHint')}</span></div></div>`;
+      }
+      const destinationHtml = reachability.destinations.map((destination) => `
+        <button type="button" class="route-destination-item${routeTargetId === destination.identityHex ? ' active' : ''}" data-route-destination="${destination.identityHex}">
+          <span class="route-destination-main">
+            <strong>${destination.name}</strong>
+            <span>${destination.hopCount} ${tr('routeHopCount')}${destination.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span>
+          </span>
+          <span class="route-destination-action">${routeTargetId === destination.identityHex ? tr('routeSelectedB') : tr('routeReachabilityAction')}</span>
+        </button>
+      `).join('');
+      return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', trFormat('routeReachabilitySummary', reachability.destinations.length), [{ value: freshCount, label: tr('routeReachabilityFreshShort') }, { value: staleCount, label: tr('routeReachabilityStaleShort') }])}<div class="route-destination-list">${destinationHtml}</div></div>`;
+    }
+
     function renderRoutePanel(state) {
       const data = connectivityData(state);
       const options = data.nodes.map((node) => `<option value="${node.identity_hex}">${node.name}</option>`).join('');
-      let body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
+      let body = renderRouteReachabilitySection(state);
       if (routeSourceId && routeTargetId) {
         if (routeSourceId === routeTargetId) {
-          body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateSameNode'), [], true)}</div>`;
+          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateSameNode'), [], true)}</div>`;
         } else {
           const forward = buildRouteResult(state, routeSourceId, routeTargetId);
           const backward = buildRouteResult(state, routeTargetId, routeSourceId);
-          body = `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
+          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
         }
+      } else if (!routeSourceId && !routeTargetId) {
+        body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
       }
       const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
       const targetName = data.nodeIndex.get(routeTargetId)?.name || '-';
@@ -3437,6 +3588,14 @@ INDEX_HTML = """<!doctype html>
           render(latestState);
         });
       }
+      for (const button of container.querySelectorAll('[data-route-destination]')) {
+        button.addEventListener('click', () => {
+          routeActiveEndpoint = 'target';
+          routeTargetId = button.dataset.routeDestination || null;
+          if (latestState) focusRouteSelection(latestState);
+          render(latestState);
+        });
+      }
       for (const button of container.querySelectorAll('[data-clear-selection]')) {
         button.addEventListener('click', clearSelection);
       }
@@ -3686,7 +3845,9 @@ INDEX_HTML = """<!doctype html>
       linkLabelsLayer.clearLayers();
       const data = connectivityData(state);
       const allMapNodes = deriveMapNodes(data.nodes);
-      const highlightedIds = new Set([routeSourceId, routeTargetId].filter(Boolean));
+      const reachability = routeSourceId ? buildRouteReachability(state, routeSourceId) : null;
+      const highlightedIds = new Set(reachability?.highlightIds || []);
+      for (const identityHex of [routeSourceId, routeTargetId].filter(Boolean)) highlightedIds.add(identityHex);
       const forward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
       const backward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeTargetId, routeSourceId) : null;
       const pathIds = new Set(forward?.path || []);
@@ -3701,6 +3862,26 @@ INDEX_HTML = """<!doctype html>
         const targetNode = data.nodeIndex.get(routeTargetId);
         drawFocusHalo(targetNode, '#cfaa38', '#cfaa38', 16, 12);
       }
+      const drawReachabilityTree = (reachabilityResult) => {
+        if (!reachabilityResult) return;
+        for (const edge of reachabilityResult.treeEdges) {
+          const sourceNode = data.nodeIndex.get(edge.sourceId);
+          const targetNode = data.nodeIndex.get(edge.targetId);
+          if (!sourceNode || !targetNode) continue;
+          if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+          const color = edge.usesStale ? 'rgba(156, 123, 19, 0.42)' : 'rgba(44, 113, 209, 0.34)';
+          L.polyline([
+            [sourceNode.latitude, sourceNode.longitude],
+            [targetNode.latitude, targetNode.longitude],
+          ], {
+            color,
+            weight: 2,
+            opacity: 0.9,
+            dashArray: edge.usesStale ? '6 6' : null,
+          }).addTo(linksLayer);
+          addDirectionalArrow(sourceNode, targetNode, color, 0.56);
+        }
+      };
       const drawRoute = (routeResult, color, dashArray = null) => {
         if (!routeResult?.path) return;
         for (let index = 0; index < routeResult.path.length - 1; index += 1) {
@@ -3720,9 +3901,10 @@ INDEX_HTML = """<!doctype html>
           addDirectionalArrow(sourceNode, targetNode, color, 0.54);
         }
       };
+      drawReachabilityTree(reachability);
       drawRoute(forward, '#2c71d1');
       drawRoute(backward, '#cfaa38');
-      const labelNodes = routeSourceId && routeTargetId
+      const labelNodes = routeSourceId
         ? allMapNodes.filter((node) => highlightedIds.has(node.identity_hex))
         : allMapNodes;
       renderLabels(labelNodes, highlightedIds);

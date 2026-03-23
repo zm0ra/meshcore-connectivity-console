@@ -2469,7 +2469,10 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
 
 def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> None:
     assert 'function buildRouteResult(state, sourceId, targetId)' in INDEX_HTML
+    assert 'function buildRouteReachability(state, sourceId)' in INDEX_HTML
     assert 'data-node-search="1"' in INDEX_HTML
+    assert 'data-route-destination=' in INDEX_HTML
+    assert 'routeReachabilityTitle' in INDEX_HTML
     assert 'mapNodePositionMissing' in INDEX_HTML
     assert 'mapNeighborPositionsMissing' in INDEX_HTML
     assert "const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';" in INDEX_HTML
