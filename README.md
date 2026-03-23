@@ -63,7 +63,7 @@ The runtime uses three transport paths:
 - `5001` for direct console access when available
 - `5003` for an optional console mirror
 
-`5002` stays the primary packet path. The console mirror is auxiliary.
+`5002` stays the primary packet path. Local console harvest prefers `5001`. The console mirror is auxiliary and only used as a fallback if no direct console port is configured.
 
 The Compose stack starts these services:
 
@@ -119,6 +119,8 @@ console_mirror_port = 5003
 enabled = true
 local_node_name = "RPT_WEST_LOCAL"
 ```
+
+For command-based local harvest, `console_port` is preferred. Keep `console_mirror_port` only for auxiliary read-only mirror access.
 
 The example values are fake. Replace them with your own environment.
 

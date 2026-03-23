@@ -73,7 +73,9 @@ console_probe_timeout_secs = 1.0
 name = "RPT_Okolna"
 raw_host = "192.0.2.10"
 raw_port = 5002
+# Used for command-based local harvest.
 console_port = 5001
+# Optional auxiliary mirror, not the preferred command port.
 console_mirror_port = 5003
 enabled = true
 # local_node_name = "SZN_EXAMPLE_OKOLNA"
@@ -82,7 +84,9 @@ enabled = true
 name = "RPT_Przesocin"
 raw_host = "192.0.2.11"
 raw_port = 5002
+# Used for command-based local harvest.
 console_port = 5001
+# Optional auxiliary mirror, not the preferred command port.
 console_mirror_port = 5003
 enabled = true
 # local_node_name = "SZN_EXAMPLE_PRZESOCIN"

@@ -170,7 +170,7 @@ def build_local_console_test_app_config(tmp_path) -> AppConfig:
     )
 
 
-def test_endpoint_console_probe_target_prefers_console_mirror() -> None:
+def test_endpoint_console_probe_target_prefers_console_port() -> None:
     endpoint = EndpointConfig(
         name="RPT_Przesocin",
         raw_host="172.30.252.58",
@@ -181,7 +181,7 @@ def test_endpoint_console_probe_target_prefers_console_mirror() -> None:
         console_mirror_port=5003,
     )
 
-    assert endpoint.console_probe_target() == ("172.30.252.58", 5003)
+    assert endpoint.console_probe_target() == ("172.30.252.58", 5001)
 
 
 def test_endpoint_console_probe_target_falls_back_to_console_port() -> None:
@@ -194,6 +194,20 @@ def test_endpoint_console_probe_target_falls_back_to_console_port() -> None:
     )
 
     assert endpoint.console_probe_target() == ("172.30.105.24", 5001)
+
+
+def test_endpoint_console_probe_target_falls_back_to_console_mirror() -> None:
+    endpoint = EndpointConfig(
+        name="RPT_Okolna",
+        raw_host="172.30.105.24",
+        raw_port=5002,
+        enabled=True,
+        console_port=None,
+        console_mirror_host="172.30.105.99",
+        console_mirror_port=5003,
+    )
+
+    assert endpoint.console_probe_target() == ("172.30.105.99", 5003)
 
 
 def test_hashtag_channel_secret_is_deterministic() -> None:

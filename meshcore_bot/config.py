@@ -95,10 +95,10 @@ class EndpointConfig:
     console_mirror_port: int | None = None
 
     def console_probe_target(self) -> tuple[str, int] | None:
-        if self.console_mirror_port is not None:
-            return self.console_mirror_host or self.raw_host, int(self.console_mirror_port)
         if self.console_port is not None:
             return self.raw_host, int(self.console_port)
+        if self.console_mirror_port is not None:
+            return self.console_mirror_host or self.raw_host, int(self.console_mirror_port)
         return None
 
 
