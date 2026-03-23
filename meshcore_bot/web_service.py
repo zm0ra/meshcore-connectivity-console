@@ -936,6 +936,30 @@ INDEX_HTML = """<!doctype html>
       line-height: 1.15;
       word-break: break-word;
     }
+    .route-endpoint-clear {
+      grid-column: 2;
+      justify-self: start;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 4px;
+      padding: 3px 8px;
+      border: 1px solid rgba(21, 33, 42, 0.1);
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.04);
+      color: var(--muted);
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      font: inherit;
+    }
+    .route-endpoint-clear:hover {
+      color: var(--ink);
+      border-color: rgba(21, 33, 42, 0.16);
+      background: rgba(21, 33, 42, 0.06);
+    }
     .field-stack {
       display: grid;
       gap: 5px;
@@ -1628,6 +1652,7 @@ INDEX_HTML = """<!doctype html>
         routeReachabilityFreshShort: 'swieze',
         routeReachabilityStaleShort: 'stare',
         routeReachabilityAction: 'Ustaw jako B',
+        routeClearTarget: 'Usun B',
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1809,6 +1834,7 @@ INDEX_HTML = """<!doctype html>
         routeReachabilityFreshShort: 'fresh',
         routeReachabilityStaleShort: 'stale',
         routeReachabilityAction: 'Set as B',
+        routeClearTarget: 'Clear B',
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -2956,6 +2982,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderRouteReachabilitySection(state) {
+      if (routeTargetId) {
+        return '';
+      }
       if (!routeSourceId) {
         return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', tr('routeReachabilityIdle'))}</div>`;
       }
@@ -3006,6 +3035,7 @@ INDEX_HTML = """<!doctype html>
               <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
                 <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
                 <strong class="route-endpoint-name">${routeTargetId ? targetName : tr('routeUnset')}</strong>
+                ${routeTargetId ? `<span class="route-endpoint-clear" role="button" tabindex="0" data-route-clear-target="1">${tr('routeClearTarget')}</span>` : ''}
               </button>
             </div>
             <div class="route-controls">
@@ -3596,6 +3626,24 @@ INDEX_HTML = """<!doctype html>
           render(latestState);
         });
       }
+      for (const button of container.querySelectorAll('[data-route-clear-target]')) {
+        const clearTarget = () => {
+          routeActiveEndpoint = 'target';
+          routeTargetId = null;
+          if (latestState) focusRouteSelection(latestState);
+          render(latestState);
+        };
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          clearTarget();
+        });
+        button.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          event.stopPropagation();
+          clearTarget();
+        });
+      }
       for (const button of container.querySelectorAll('[data-clear-selection]')) {
         button.addEventListener('click', clearSelection);
       }
@@ -3845,7 +3893,7 @@ INDEX_HTML = """<!doctype html>
       linkLabelsLayer.clearLayers();
       const data = connectivityData(state);
       const allMapNodes = deriveMapNodes(data.nodes);
-      const reachability = routeSourceId ? buildRouteReachability(state, routeSourceId) : null;
+      const reachability = routeSourceId && !routeTargetId ? buildRouteReachability(state, routeSourceId) : null;
       const highlightedIds = new Set(reachability?.highlightIds || []);
       for (const identityHex of [routeSourceId, routeTargetId].filter(Boolean)) highlightedIds.add(identityHex);
       const forward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
