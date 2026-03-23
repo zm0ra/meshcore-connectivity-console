@@ -887,6 +887,55 @@ INDEX_HTML = """<!doctype html>
       font-size: 0.7rem;
       line-height: 1.2;
     }
+    .route-hint-shell {
+      display: grid;
+      gap: 8px;
+    }
+    .route-hint-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .route-hint-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.06);
+      color: #41505c;
+      font-size: 0.67rem;
+      font-weight: 700;
+    }
+    .route-hint-path {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .route-hint-step {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(44, 113, 209, 0.1);
+      color: #173b61;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .route-hint-step.uncertain {
+      background: rgba(207, 170, 56, 0.16);
+      color: #7a5600;
+    }
+    .route-hint-arrow {
+      color: #7d8992;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .route-hint-note {
+      color: #55636f;
+      font-size: 0.76rem;
+      line-height: 1.35;
+    }
     .route-endpoint {
       display: grid;
       grid-template-columns: 34px minmax(0, 1fr);
@@ -1653,6 +1702,21 @@ INDEX_HTML = """<!doctype html>
         routeReachabilityStaleShort: 'stare',
         routeReachabilityAction: 'Ustaw jako B',
         routeClearTarget: 'Usun B',
+        routeProbePathTitle: 'Ostatnia znana sciezka probe do B',
+        routeProbePathSaved: 'z udanego probe',
+        routeProbePathAdvert: 'z advertu',
+        routeProbePathNoStored: 'Brak zapisanej bezposredniej sciezki do B.',
+        routeProbePathFallback: 'Ostatni probe mogl przejsc floodem albo odpowiedz nie zwrocila ponownie uzywalnej sciezki.',
+        routeProbePathObserved: 'zapisano',
+        routeProbePathSource: 'zrodlo',
+        routeProbePathEndpoint: 'endpoint',
+        routeProbePathBot: 'BOT',
+        routeProbePathTarget: 'B',
+        routeProbePathUnknownHop: (prefix) => `hop ${prefix}`,
+        routeProbePathAmbiguousHop: (prefix, count) => `${prefix} (${count} mozliwe)`,
+        routeHistoricalRoute: 'historyczna trasa',
+        routeHistoricalLinks: 'historyczne linki',
+        routeHistoryFallback: 'Biezace linki nie daja przejscia, ale w historii jest starsza trasa.',
         statusData: 'dane',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
@@ -1835,6 +1899,21 @@ INDEX_HTML = """<!doctype html>
         routeReachabilityStaleShort: 'stale',
         routeReachabilityAction: 'Set as B',
         routeClearTarget: 'Clear B',
+        routeProbePathTitle: 'Last known probe path to B',
+        routeProbePathSaved: 'from successful probe',
+        routeProbePathAdvert: 'from advert',
+        routeProbePathNoStored: 'No reusable direct path to B is stored yet.',
+        routeProbePathFallback: 'The latest fetch may have used flood routing or the response did not return a reusable path.',
+        routeProbePathObserved: 'stored',
+        routeProbePathSource: 'source',
+        routeProbePathEndpoint: 'endpoint',
+        routeProbePathBot: 'BOT',
+        routeProbePathTarget: 'B',
+        routeProbePathUnknownHop: (prefix) => `hop ${prefix}`,
+        routeProbePathAmbiguousHop: (prefix, count) => `${prefix} (${count} matches)`,
+        routeHistoricalRoute: 'historical route',
+        routeHistoricalLinks: 'historical links',
+        routeHistoryFallback: 'Current links no longer provide a route, but an older route still exists in history.',
         statusData: 'data',
         statusNoData: 'no data',
         statusInactive: 'inactive',
@@ -2308,6 +2387,25 @@ INDEX_HTML = """<!doctype html>
         pairSet.add(`${edge.source_identity_hex}|${edge.target_identity_hex}`);
         edges.push(edge);
       }
+      const historicalEdges = [];
+      const historicalPairSet = new Set();
+      for (const link of (state.management?.historical_links || [])) {
+        if (!nodeIndex.has(link.source_identity_hex) || !nodeIndex.has(link.target_identity_hex)) continue;
+        if (link.source_identity_hex === link.target_identity_hex) continue;
+        const pairKey = `${link.source_identity_hex}|${link.target_identity_hex}`;
+        if (pairSet.has(pairKey) || historicalPairSet.has(pairKey)) continue;
+        const ageSeconds = typeof link.last_heard_seconds === 'number'
+          ? link.last_heard_seconds
+          : Math.max(0, Math.floor((Date.now() - new Date(link.collected_at).getTime()) / 1000));
+        historicalEdges.push({
+          ...link,
+          age_seconds: ageSeconds,
+          stale: true,
+          historical: true,
+          mutual: false,
+        });
+        historicalPairSet.add(pairKey);
+      }
       for (const edge of edges) {
         edge.mutual = pairSet.has(`${edge.target_identity_hex}|${edge.source_identity_hex}`);
       }
@@ -2326,12 +2424,14 @@ INDEX_HTML = """<!doctype html>
         nodes,
         nodeIndex,
         edges,
+        historicalEdges,
         relationMap,
         summary: {
           directed: edges.length,
           mutual: edges.filter((edge) => edge.mutual).length / 2,
           oneWay: edges.filter((edge) => !edge.mutual).length,
           stale: edges.filter((edge) => edge.stale).length,
+          historical: historicalEdges.length,
         },
       };
     }
@@ -2439,6 +2539,12 @@ INDEX_HTML = """<!doctype html>
       return { path, usesStale: !freshPath };
     }
 
+    function buildHistoricalRouteResult(state, sourceId, targetId) {
+      const data = connectivityData(state);
+      const path = routePath(data.historicalEdges, sourceId, targetId);
+      return { path, usesHistorical: Boolean(path) };
+    }
+
     function buildRouteReachability(state, sourceId) {
       const data = connectivityData(state);
       if (!sourceId) {
@@ -2475,6 +2581,42 @@ INDEX_HTML = """<!doctype html>
 
     function getSelectedNode(state) {
       return (state.nodes || []).find((node) => node.identity_hex === selectedSourceId) || null;
+    }
+
+    function routeHintForNode(state, identityHex) {
+      if (!identityHex) return null;
+      return (state.management?.route_hints || {})[identityHex] || null;
+    }
+
+    function decodeHintPath(state, targetId, pathRow) {
+      const targetNode = (state.nodes || []).find((node) => node.identity_hex === targetId) || null;
+      const normalizedHex = String(pathRow?.path_hex || '').trim().toUpperCase();
+      const pathLen = Number(pathRow?.path_len || 0);
+      const prefixes = [];
+      for (let index = 0; index < normalizedHex.length; index += 2) {
+        const prefixHex = normalizedHex.slice(index, index + 2);
+        if (prefixHex.length === 2) prefixes.push(prefixHex);
+      }
+      const steps = prefixes.slice(0, pathLen || prefixes.length).map((prefixHex) => {
+        const matches = (state.nodes || []).filter((node) => String(node.identity_hex || '').startsWith(prefixHex));
+        if (matches.length === 1) {
+          return {
+            kind: 'resolved',
+            label: matches[0].name || matches[0].hash_prefix_hex || prefixHex,
+          };
+        }
+        if (matches.length > 1) {
+          return {
+            kind: 'ambiguous',
+            label: tr('routeProbePathAmbiguousHop')(prefixHex, matches.length),
+          };
+        }
+        return {
+          kind: 'unknown',
+          label: trFormat('routeProbePathUnknownHop', prefixHex),
+        };
+      });
+      return { steps, targetNode };
     }
 
     function getSelectedLinks(state) {
@@ -2962,9 +3104,24 @@ INDEX_HTML = """<!doctype html>
       `;
     }
 
-    function routeSummaryCard(title, routeResult, data) {
+    function routeSummaryCard(title, routeResult, data, historicalRouteResult = null) {
       const directionClass = title === tr('routeForward') ? 'forward' : 'backward';
       if (!routeResult.path) {
+        if (historicalRouteResult?.path) {
+          const historicalHtml = historicalRouteResult.path.map((identityHex) => {
+            const node = data.nodeIndex.get(identityHex);
+            const name = node?.name || identityHex.slice(0, 8);
+            return `<div class="route-hop-row"><span class="route-step">${name}</span></div>`;
+          }).join('');
+          return `
+            <div class="route-card">
+              <div class="route-card-head"><strong>${title}</strong><span class="route-direction-chip ${directionClass}">${title}</span></div>
+              <div class="route-status-row"><span class="route-status-badge no">${tr('routeHistoricalRoute')}</span><span class="route-meta">${Math.max(0, historicalRouteResult.path.length - 1)} ${tr('routeHopCount')}, ${tr('routeHistoricalLinks')}</span></div>
+              <div class="route-empty"><strong>${tr('routeHistoryFallback')}</strong></div>
+              <div class="route-path">${historicalHtml}</div>
+            </div>
+          `;
+        }
         return `<div class="route-card"><div class="route-card-head"><strong>${title}</strong><span class="route-direction-chip ${directionClass}">${title}</span></div><div class="route-status-row"><span class="route-status-badge no">${tr('routeStatusNo')}</span></div><div class="route-empty"><strong>${tr('routeNoPath')}</strong><span>${tr('routePickHint')}</span></div></div>`;
       }
       const pathHtml = routeResult.path.map((identityHex, index) => {
@@ -2977,6 +3134,57 @@ INDEX_HTML = """<!doctype html>
           <div class="route-card-head"><strong>${title}</strong><span class="route-direction-chip ${directionClass}">${title}</span></div>
           <div class="route-status-row"><span class="route-status-badge ok">${tr('routeStatusYes')}</span><span class="route-meta">${Math.max(0, routeResult.path.length - 1)} ${tr('routeHopCount')}${routeResult.usesStale ? `, ${tr('routeUsesStale')}` : `, ${tr('routeFreshOnly')}`}</span></div>
           <div class="route-path">${pathHtml}</div>
+        </div>
+      `;
+    }
+
+    function renderRouteProbePathSection(state) {
+      if (!routeTargetId) {
+        return '';
+      }
+      const hint = routeHintForNode(state, routeTargetId);
+      const savedPath = hint?.latest_saved_path || null;
+      const advertPath = hint?.latest_advert_path || null;
+      const chosenPath = savedPath || advertPath;
+      const latestProbeRun = hint?.latest_probe_run || null;
+      if (!chosenPath) {
+        const message = latestProbeRun?.result === 'success'
+          ? `${tr('routeProbePathNoStored')} ${tr('routeProbePathFallback')}`
+          : tr('routeProbePathNoStored');
+        const metrics = latestProbeRun?.endpoint_name
+          ? [{ value: latestProbeRun.endpoint_name, label: tr('routeProbePathEndpoint') }]
+          : [];
+        return `<div class="panel-section">${renderAnswerStrip(tr('routeProbePathTitle'), '', message, metrics, true)}</div>`;
+      }
+      const decoded = decodeHintPath(state, routeTargetId, chosenPath);
+      const pathSteps = [
+        `<span class="route-hint-step">${tr('routeProbePathBot')}</span>`,
+        ...decoded.steps.map((step) => `<span class="route-hint-arrow">&rarr;</span><span class="route-hint-step${step.kind === 'resolved' ? '' : ' uncertain'}">${step.label}</span>`),
+        `<span class="route-hint-arrow">&rarr;</span><span class="route-hint-step">${decoded.targetNode?.name || tr('routeProbePathTarget')}</span>`,
+      ].join('');
+      const chips = [
+        `<span class="route-hint-chip">${savedPath ? tr('routeProbePathSaved') : tr('routeProbePathAdvert')}</span>`,
+      ];
+      if (chosenPath.source) {
+        chips.push(`<span class="route-hint-chip">${tr('routeProbePathSource')}: ${chosenPath.source}</span>`);
+      }
+      if (chosenPath.endpoint_name) {
+        chips.push(`<span class="route-hint-chip">${tr('routeProbePathEndpoint')}: ${chosenPath.endpoint_name}</span>`);
+      }
+      if (chosenPath.observed_at) {
+        chips.push(`<span class="route-hint-chip">${tr('routeProbePathObserved')}: ${formatShortWhen(chosenPath.observed_at)}</span>`);
+      }
+      const note = latestProbeRun?.result === 'success' && advertPath && !savedPath
+        ? tr('routeProbePathFallback')
+        : '';
+      return `
+        <div class="panel-section">
+          ${renderAnswerStrip(tr('routeProbePathTitle'), '', savedPath ? tr('routeProbePathSaved') : tr('routeProbePathAdvert'), [{ value: Number(chosenPath.path_len || 0), label: tr('routeHopCount') }])}
+          <div class="route-hint-shell">
+            <div class="route-hint-meta">${chips.join('')}</div>
+            <div class="route-hint-path">${pathSteps}</div>
+            ${note ? `<div class="route-hint-note">${note}</div>` : ''}
+          </div>
         </div>
       `;
     }
@@ -3016,11 +3224,14 @@ INDEX_HTML = """<!doctype html>
         } else {
           const forward = buildRouteResult(state, routeSourceId, routeTargetId);
           const backward = buildRouteResult(state, routeTargetId, routeSourceId);
-          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data)}${routeSummaryCard(tr('routeBackward'), backward, data)}</div></div>`;
+          const historicalForward = forward.path ? null : buildHistoricalRouteResult(state, routeSourceId, routeTargetId);
+          const historicalBackward = backward.path ? null : buildHistoricalRouteResult(state, routeTargetId, routeSourceId);
+          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : historicalForward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : historicalBackward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data, historicalForward)}${routeSummaryCard(tr('routeBackward'), backward, data, historicalBackward)}</div></div>`;
         }
       } else if (!routeSourceId && !routeTargetId) {
         body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
       }
+      body += renderRouteProbePathSection(state);
       const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
       const targetName = data.nodeIndex.get(routeTargetId)?.name || '-';
       return `
@@ -3898,8 +4109,16 @@ INDEX_HTML = """<!doctype html>
       for (const identityHex of [routeSourceId, routeTargetId].filter(Boolean)) highlightedIds.add(identityHex);
       const forward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
       const backward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId ? buildRouteResult(state, routeTargetId, routeSourceId) : null;
+      const historicalForward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId && !forward?.path
+        ? buildHistoricalRouteResult(state, routeSourceId, routeTargetId)
+        : null;
+      const historicalBackward = routeSourceId && routeTargetId && routeSourceId !== routeTargetId && !backward?.path
+        ? buildHistoricalRouteResult(state, routeTargetId, routeSourceId)
+        : null;
       const pathIds = new Set(forward?.path || []);
       for (const identityHex of (backward?.path || [])) pathIds.add(identityHex);
+      for (const identityHex of (historicalForward?.path || [])) pathIds.add(identityHex);
+      for (const identityHex of (historicalBackward?.path || [])) pathIds.add(identityHex);
       for (const identityHex of pathIds) highlightedIds.add(identityHex);
       const bounds = drawMapNodes(allMapNodes, routeSourceId, highlightedIds);
       if (routeSourceId) {
@@ -3949,9 +4168,33 @@ INDEX_HTML = """<!doctype html>
           addDirectionalArrow(sourceNode, targetNode, color, 0.54);
         }
       };
+      const drawHistoricalContext = (focusIds) => {
+        for (const edge of data.historicalEdges) {
+          if (!focusIds.has(edge.source_identity_hex) && !focusIds.has(edge.target_identity_hex)) continue;
+          const sourceNode = data.nodeIndex.get(edge.source_identity_hex);
+          const targetNode = data.nodeIndex.get(edge.target_identity_hex);
+          if (!sourceNode || !targetNode) continue;
+          if (!isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude) || !isFiniteCoordinate(targetNode.latitude, targetNode.longitude)) continue;
+          L.polyline([
+            [sourceNode.latitude, sourceNode.longitude],
+            [targetNode.latitude, targetNode.longitude],
+          ], {
+            color: 'rgba(122, 97, 0, 0.55)',
+            weight: 2,
+            opacity: 0.86,
+            dashArray: '6 8',
+          }).addTo(linksLayer);
+          addDirectionalArrow(sourceNode, targetNode, 'rgba(122, 97, 0, 0.55)', 0.48);
+        }
+      };
       drawReachabilityTree(reachability);
+      if (routeSourceId && !routeTargetId) {
+        drawHistoricalContext(new Set([routeSourceId]));
+      }
       drawRoute(forward, '#2c71d1');
       drawRoute(backward, '#cfaa38');
+      drawRoute(historicalForward, 'rgba(44, 113, 209, 0.72)', '7 7');
+      drawRoute(historicalBackward, 'rgba(207, 170, 56, 0.78)', '7 7');
       const labelNodes = routeSourceId
         ? allMapNodes.filter((node) => highlightedIds.has(node.identity_hex))
         : allMapNodes;
@@ -4035,6 +4278,8 @@ def create_app(database: BotDatabase) -> FastAPI:
                 "management": {
                     "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
                     "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
+                  "route_hints": database.repeater_route_hints(limit_repeaters=128),
+                  "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
                 },
             }
         )

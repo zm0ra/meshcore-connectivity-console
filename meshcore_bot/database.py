@@ -1455,6 +1455,192 @@ class BotDatabase:
             bucket.append(dict(row))
         return history
 
+    def repeater_route_hints(self, limit_repeaters: int = 128) -> dict[str, dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                WITH scoped_repeaters AS (
+                    SELECT r.id, r.pubkey_hex AS identity_hex
+                    FROM repeaters r
+                    ORDER BY r.last_seen_at DESC, r.id DESC
+                    LIMIT ?
+                ),
+                latest_saved_paths AS (
+                    SELECT rp.repeater_id,
+                           rp.out_path_len,
+                           rp.out_path_hex,
+                           rp.observed_at,
+                           rp.source
+                    FROM repeater_paths rp
+                    JOIN (
+                        SELECT repeater_id, MAX(id) AS max_id
+                        FROM repeater_paths
+                        WHERE repeater_id IN (SELECT id FROM scoped_repeaters)
+                        GROUP BY repeater_id
+                    ) latest ON latest.max_id = rp.id
+                ),
+                latest_advert_paths AS (
+                    SELECT ra.repeater_id,
+                           ra.path_len,
+                           ra.path_hex,
+                           ra.observed_at,
+                           ra.endpoint_name
+                    FROM repeater_adverts ra
+                    JOIN (
+                        SELECT repeater_id, MAX(id) AS max_id
+                        FROM repeater_adverts
+                        WHERE repeater_id IN (SELECT id FROM scoped_repeaters)
+                          AND path_len IS NOT NULL AND path_len > 0
+                          AND path_hex IS NOT NULL AND path_hex != ''
+                        GROUP BY repeater_id
+                    ) latest ON latest.max_id = ra.id
+                ),
+                latest_probe_runs AS (
+                    SELECT pr.repeater_id,
+                           pr.endpoint_name,
+                           pr.started_at,
+                           pr.finished_at,
+                           pr.result,
+                           pr.error_message
+                    FROM repeater_probe_runs pr
+                    JOIN (
+                        SELECT repeater_id, MAX(id) AS max_id
+                        FROM repeater_probe_runs
+                        WHERE repeater_id IN (SELECT id FROM scoped_repeaters)
+                        GROUP BY repeater_id
+                    ) latest ON latest.max_id = pr.id
+                )
+                SELECT sr.identity_hex,
+                       sp.out_path_len AS saved_path_len,
+                       sp.out_path_hex AS saved_path_hex,
+                       sp.observed_at AS saved_observed_at,
+                       sp.source AS saved_source,
+                       ap.path_len AS advert_path_len,
+                       ap.path_hex AS advert_path_hex,
+                       ap.observed_at AS advert_observed_at,
+                       ap.endpoint_name AS advert_endpoint_name,
+                       pr.endpoint_name AS latest_probe_endpoint_name,
+                       pr.started_at AS latest_probe_started_at,
+                       pr.finished_at AS latest_probe_finished_at,
+                       pr.result AS latest_probe_result,
+                       pr.error_message AS latest_probe_error_message
+                FROM scoped_repeaters sr
+                LEFT JOIN latest_saved_paths sp ON sp.repeater_id = sr.id
+                LEFT JOIN latest_advert_paths ap ON ap.repeater_id = sr.id
+                LEFT JOIN latest_probe_runs pr ON pr.repeater_id = sr.id
+                """,
+                (limit_repeaters,),
+            ).fetchall()
+
+        route_hints: dict[str, dict[str, object]] = {}
+        for row in rows:
+            identity_hex = str(row["identity_hex"])
+            route_hints[identity_hex] = {
+                "latest_saved_path": {
+                    "path_len": row["saved_path_len"],
+                    "path_hex": row["saved_path_hex"],
+                    "observed_at": row["saved_observed_at"],
+                    "source": row["saved_source"],
+                }
+                if row["saved_path_hex"]
+                else None,
+                "latest_advert_path": {
+                    "path_len": row["advert_path_len"],
+                    "path_hex": row["advert_path_hex"],
+                    "observed_at": row["advert_observed_at"],
+                    "endpoint_name": row["advert_endpoint_name"],
+                }
+                if row["advert_path_hex"]
+                else None,
+                "latest_probe_run": {
+                    "endpoint_name": row["latest_probe_endpoint_name"],
+                    "started_at": row["latest_probe_started_at"],
+                    "finished_at": row["latest_probe_finished_at"],
+                    "result": row["latest_probe_result"],
+                    "error_message": row["latest_probe_error_message"],
+                }
+                if row["latest_probe_result"] or row["latest_probe_finished_at"] or row["latest_probe_started_at"]
+                else None,
+            }
+        return route_hints
+
+    def repeater_historical_neighbor_links(self, limit_repeaters: int = 128) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                WITH scoped_repeaters AS (
+                    SELECT r.id,
+                           r.pubkey_hex,
+                           COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                           r.last_lat,
+                           r.last_lon
+                    FROM repeaters r
+                    ORDER BY r.last_seen_at DESC, r.id DESC
+                    LIMIT ?
+                ),
+                historical_pairs AS (
+                    SELECT pr.repeater_id,
+                           ns.neighbour_pubkey_prefix_hex,
+                           MAX(ns.id) AS latest_snapshot_id,
+                           COUNT(*) AS sample_count
+                    FROM repeater_neighbour_snapshots ns
+                    JOIN repeater_probe_runs pr ON pr.id = ns.probe_run_id
+                    WHERE pr.repeater_id IN (SELECT id FROM scoped_repeaters)
+                    GROUP BY pr.repeater_id, ns.neighbour_pubkey_prefix_hex
+                )
+                SELECT src.pubkey_hex AS source_identity_hex,
+                       SUBSTR(src.pubkey_hex, 1, 8) AS source_hash_prefix_hex,
+                       src.name AS source_name,
+                       src.last_lat AS source_latitude,
+                       src.last_lon AS source_longitude,
+                       ns.observed_at AS collected_at,
+                       ns.heard_seconds_ago AS last_heard_seconds,
+                       ns.snr,
+                       ns.neighbour_pubkey_prefix_hex AS target_hash_prefix_hex,
+                       hp.sample_count,
+                       COALESCE(
+                           (
+                               SELECT t.pubkey_hex
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_identity_hex,
+                       COALESCE(
+                           (
+                               SELECT COALESCE(NULLIF(TRIM(t.last_name_from_advert), ''), SUBSTR(t.pubkey_hex, 1, 8))
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_name,
+                       (
+                           SELECT t.last_lat
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS target_latitude,
+                       (
+                           SELECT t.last_lon
+                           FROM repeaters t
+                           WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                           ORDER BY t.last_seen_at DESC, t.id DESC
+                           LIMIT 1
+                       ) AS target_longitude
+                FROM historical_pairs hp
+                JOIN repeater_neighbour_snapshots ns ON ns.id = hp.latest_snapshot_id
+                JOIN scoped_repeaters src ON src.id = hp.repeater_id
+                ORDER BY ns.observed_at DESC, src.pubkey_hex ASC, target_identity_hex ASC
+                """,
+                (limit_repeaters,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def latest_repeater_signal_by_name(self, name: str) -> dict[str, object] | None:
         normalized_name = name.strip()
         if not normalized_name:

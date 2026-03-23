@@ -2379,7 +2379,7 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
         path_hex="35",
         raw_packet_hex="00",
     )
-    database.upsert_repeater_from_advert(
+    target_repeater_id = database.upsert_repeater_from_advert(
         endpoint_name="test-endpoint",
         observed_at=target_observed_at,
         public_key=target_identity.public_key,
@@ -2466,13 +2466,34 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
     assert source_history[0]["snr"] == 9.5
     assert source_history[1]["snr"] == 4.0
 
+    database.save_repeater_path(
+        repeater_id=target_repeater_id,
+        encoded_path_len=2,
+        path_hex=f"{source_identity.public_key.hex().upper()[:2]}{target_identity.public_key.hex().upper()[:2]}",
+        source="response_path",
+    )
+
+    route_hints = database.repeater_route_hints(limit_repeaters=16)
+    target_hint = route_hints[target_identity.public_key.hex().upper()]
+    assert target_hint["latest_saved_path"]["path_len"] == 2
+    assert target_hint["latest_saved_path"]["source"] == "response_path"
+
+    historical_links = database.repeater_historical_neighbor_links(limit_repeaters=16)
+    historical_link = next(item for item in historical_links if item["source_identity_hex"] == source_identity.public_key.hex().upper())
+    assert historical_link["target_identity_hex"] == target_identity.public_key.hex().upper()
+    assert historical_link["sample_count"] == 2
+
 
 def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> None:
     assert 'function buildRouteResult(state, sourceId, targetId)' in INDEX_HTML
+    assert 'function buildHistoricalRouteResult(state, sourceId, targetId)' in INDEX_HTML
     assert 'function buildRouteReachability(state, sourceId)' in INDEX_HTML
+    assert 'function renderRouteProbePathSection(state)' in INDEX_HTML
     assert 'data-node-search="1"' in INDEX_HTML
     assert 'data-route-destination=' in INDEX_HTML
     assert 'routeReachabilityTitle' in INDEX_HTML
+    assert 'routeProbePathTitle' in INDEX_HTML
+    assert 'routeHistoricalRoute' in INDEX_HTML
     assert 'mapNodePositionMissing' in INDEX_HTML
     assert 'mapNeighborPositionsMissing' in INDEX_HTML
     assert "const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';" in INDEX_HTML
