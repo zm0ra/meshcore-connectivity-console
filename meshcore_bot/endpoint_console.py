@@ -117,8 +117,27 @@ async def run_console_command(host: str, port: int, command: str, *, timeout: fl
 async def _drain_console_banner(reader: asyncio.StreamReader, *, timeout: float) -> None:
     if timeout <= 0:
         return
-    with contextlib.suppress(Exception):
-        await asyncio.wait_for(reader.read(4096), timeout=timeout)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    chunks: list[bytes] = []
+    prompt_seen = False
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            read_timeout = min(remaining, PROMPT_IDLE_GRACE_SECS if prompt_seen else remaining)
+            data = await asyncio.wait_for(reader.read(4096), timeout=read_timeout)
+        except asyncio.TimeoutError:
+            break
+        except Exception:
+            break
+        if not data:
+            break
+        chunks.append(data)
+        joined = b"".join(chunks).replace(b"\r", b"")
+        if b"\n>" in joined or joined.rstrip().endswith(b">"):
+            prompt_seen = True
 
 
 async def _read_console_reply(reader: asyncio.StreamReader, *, timeout: float) -> str:

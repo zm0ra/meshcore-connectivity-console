@@ -318,6 +318,35 @@ def test_run_console_command_waits_for_payload_after_prompt() -> None:
     asyncio.run(scenario())
 
 
+def test_run_console_command_drains_split_banner_prompt_before_command_reply() -> None:
+    async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.write(b"MeshCore repeater console\r\n")
+        await writer.drain()
+        await asyncio.sleep(0.05)
+        writer.write(b"> ")
+        await writer.drain()
+        await reader.readline()
+        writer.write(b"get")
+        await writer.drain()
+        await asyncio.sleep(0.15)
+        writer.write(b" name\r\nSZN_BKO_DIR_KOLOB_RPT\r\n> ")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    async def scenario() -> None:
+        server = await asyncio.start_server(handle_client, host="127.0.0.1", port=0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            reply = await run_console_command("127.0.0.1", port, "get name", timeout=1.0)
+        finally:
+            server.close()
+            await server.wait_closed()
+        assert reply == "SZN_BKO_DIR_KOLOB_RPT"
+
+    asyncio.run(scenario())
+
+
 def test_parse_neighbours_response() -> None:
     payload = struct.pack("<IHH", 99, 2, 2)
     payload += bytes.fromhex("A1B2C3D4") + struct.pack("<Ib", 15, 8)
