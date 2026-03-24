@@ -1759,7 +1759,7 @@ INDEX_HTML = """<!doctype html>
         repeaters: 'Repeatery',
         sortLabel: 'Sortowanie',
         searchLabel: 'Szukaj repeatera',
-        searchPlaceholder: 'nazwa, prefix, hex',
+        searchPlaceholder: 'nazwa, prefix, hex (min. 3 znaki)',
         sortLastAdvert: 'ostatni advert',
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
@@ -1956,7 +1956,7 @@ INDEX_HTML = """<!doctype html>
         repeaters: 'Repeaters',
         sortLabel: 'Sort',
         searchLabel: 'Find repeater',
-        searchPlaceholder: 'name, prefix, hex',
+        searchPlaceholder: 'name, prefix, hex (min. 3 chars)',
         sortLastAdvert: 'last advert',
         sortLastData: 'last data fetch',
         sortAlphabetical: 'alphabetical',
@@ -2075,6 +2075,7 @@ INDEX_HTML = """<!doctype html>
     let hasFitBounds = false;
     let pendingRefreshState = null;
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
+    const MIN_NODE_SEARCH_QUERY_LENGTH = 3;
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -2097,8 +2098,17 @@ INDEX_HTML = """<!doctype html>
         .trim();
     }
 
-    function nodeMatchesSearch(node) {
+    function effectiveNodeSearchQuery() {
       const query = normalizeSearchText(nodeSearchQuery);
+      return query.length >= MIN_NODE_SEARCH_QUERY_LENGTH ? query : '';
+    }
+
+    function hasActiveNodeSearchQuery() {
+      return Boolean(effectiveNodeSearchQuery());
+    }
+
+    function nodeMatchesSearch(node) {
+      const query = effectiveNodeSearchQuery();
       if (!query) return true;
       const haystack = normalizeSearchText(`${node.name || ''} ${node.hash_prefix_hex || ''} ${node.identity_hex || ''}`);
       return haystack.includes(query);
@@ -3713,7 +3723,7 @@ INDEX_HTML = """<!doctype html>
           html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
         }
         html += `<div class="section-heading">${tr('newRepeaters')}</div>`;
-        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${nodeSearchQuery ? tr('emptyNoSearchResults') : tr('emptyNoNewRepeaters')}</div>`}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${hasActiveNodeSearchQuery() ? tr('emptyNoSearchResults') : tr('emptyNoNewRepeaters')}</div>`}</div>`;
       } else {
         if (isPortraitMobileView()) {
           html += renderMobileMapPanel(state);
@@ -3765,7 +3775,7 @@ INDEX_HTML = """<!doctype html>
           html += `<div class="node-list">${rowHtml(selectedNode, state)}</div>`;
         }
         html += `<div class="section-heading">${selectedNode ? tr('otherRepeaters') : tr('repeaters')}</div>`;
-        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${nodeSearchQuery ? tr('emptyNoSearchResults') : tr('emptyNoOtherRepeaters')}</div>`}</div>`;
+        html += `<div class="node-list">${others.length ? others.map((node) => rowHtml(node, state)).join('') : `<div class="empty-note">${hasActiveNodeSearchQuery() ? tr('emptyNoSearchResults') : tr('emptyNoOtherRepeaters')}</div>`}</div>`;
       }
       container.innerHTML = html;
       for (const button of container.querySelectorAll('[data-node]')) {
@@ -3896,7 +3906,7 @@ INDEX_HTML = """<!doctype html>
       const sourceNode = getSelectedNode(state);
       const nodes = selectedSourceId
         ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
-        : (nodeSearchQuery ? allMapNodes.filter((node) => nodeMatchesSearch(node)) : allMapNodes);
+        : (hasActiveNodeSearchQuery() ? allMapNodes.filter((node) => nodeMatchesSearch(node)) : allMapNodes);
       const bounds = [];
       for (const node of nodes) {
         const selected = node.identity_hex === selectedSourceId;
