@@ -90,6 +90,15 @@ Logs:
 docker compose logs --tail 100 bridge-gateway neighbours-worker bot-worker web
 ```
 
+Update helper:
+
+```bash
+./update-stack.sh
+```
+
+It runs `git pull --ff-only` and only calls `docker compose up -d --build` when the checked-out commit actually changed.
+Use `./update-stack.sh --force` if you want to rebuild anyway.
+
 The web UI listens on `8080` by default.
 
 ## Configuration
