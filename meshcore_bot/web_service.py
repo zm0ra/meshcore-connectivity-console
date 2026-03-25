@@ -2236,7 +2236,9 @@ INDEX_HTML = """<!doctype html>
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
     let pendingMapClearSelectionKey = null;
     let pendingMapClearExpiresAt = 0;
+    let restoreDoubleClickZoomTimer = null;
     const BLANK_MAP_CLEAR_WINDOW_MS = 900;
+    const DOUBLE_CLICK_ZOOM_RESTORE_MS = 260;
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
 
     function strings() {
@@ -3591,6 +3593,18 @@ INDEX_HTML = """<!doctype html>
       return shouldClear;
     }
 
+    function suppressUpcomingDoubleClickZoom() {
+      if (!map.doubleClickZoom.enabled()) return;
+      map.doubleClickZoom.disable();
+      if (restoreDoubleClickZoomTimer !== null) {
+        window.clearTimeout(restoreDoubleClickZoomTimer);
+      }
+      restoreDoubleClickZoomTimer = window.setTimeout(() => {
+        map.doubleClickZoom.enable();
+        restoreDoubleClickZoomTimer = null;
+      }, DOUBLE_CLICK_ZOOM_RESTORE_MS);
+    }
+
     function selectNode(identityHex) {
       resetPendingMapClear();
       if (selectedSourceId === identityHex) {
@@ -4529,6 +4543,7 @@ INDEX_HTML = """<!doctype html>
     map.on('click', () => {
       hoveredNodeId = null;
       if (armBlankMapClear()) {
+        suppressUpcomingDoubleClickZoom();
         clearSelection();
         return;
       }
