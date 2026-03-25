@@ -254,7 +254,7 @@ INDEX_HTML = """<!doctype html>
     }
     .primary-toggle {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 6px;
       padding: 6px;
       border-radius: 16px;
@@ -326,7 +326,7 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       padding: 8px 10px;
       font: inherit;
-      font-size: 0.76rem;
+      font-size: 0.82rem;
     }
     .toolbar-search {
       position: relative;
@@ -342,7 +342,7 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       padding: 8px 12px;
       font: inherit;
-      font-size: 0.78rem;
+      font-size: 0.86rem;
     }
     .toolbar-search-input::placeholder {
       color: var(--muted);
@@ -376,7 +376,7 @@ INDEX_HTML = """<!doctype html>
     .section-heading {
       margin: 10px 2px 6px;
       color: var(--muted);
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
@@ -424,7 +424,7 @@ INDEX_HTML = """<!doctype html>
     }
     .node-name {
       display: block;
-      font-size: 0.84rem;
+      font-size: 0.92rem;
       line-height: 1.2;
       white-space: nowrap;
       overflow: hidden;
@@ -434,12 +434,12 @@ INDEX_HTML = """<!doctype html>
       display: block;
       margin-top: 2px;
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size: 0.77rem;
       line-height: 1.1;
     }
     .node-state-tag {
       color: var(--muted);
-      font-size: 0.68rem;
+      font-size: 0.74rem;
       white-space: nowrap;
     }
     .node-expand {
@@ -457,7 +457,7 @@ INDEX_HTML = """<!doctype html>
       border-radius: 10px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.84);
-      font-size: 0.73rem;
+      font-size: 0.78rem;
       color: var(--muted);
       line-height: 1.22;
     }
@@ -690,7 +690,7 @@ INDEX_HTML = """<!doctype html>
     }
     .answer-state {
       color: var(--ink);
-      font-size: 0.79rem;
+      font-size: 0.84rem;
       line-height: 1.28;
     }
     .answer-state.muted {
@@ -754,12 +754,12 @@ INDEX_HTML = """<!doctype html>
       gap: 2px;
     }
     .relation-main strong {
-      font-size: 0.78rem;
+      font-size: 0.84rem;
       line-height: 1.2;
     }
     .relation-main span {
       color: var(--muted);
-      font-size: 0.68rem;
+      font-size: 0.74rem;
       line-height: 1.18;
     }
     .relation-badges {
@@ -778,9 +778,45 @@ INDEX_HTML = """<!doctype html>
       min-width: 58px;
       padding: 3px 8px;
       border-radius: 999px;
-      font-size: 0.67rem;
+      font-size: 0.72rem;
       font-weight: 600;
       line-height: 1.2;
+    }
+    .panel-details {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.88);
+      overflow: hidden;
+    }
+    .panel-details summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      list-style: none;
+      padding: 12px 14px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .panel-details summary::-webkit-details-marker {
+      display: none;
+    }
+    .panel-details summary::after {
+      content: '+';
+      color: var(--muted);
+      font-size: 0.96rem;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .panel-details[open] summary::after {
+      content: '-';
+    }
+    .panel-details-body {
+      padding: 0 14px 14px;
+      display: grid;
+      gap: 10px;
     }
     .direction-chip {
       background: rgba(46, 139, 87, 0.12);
@@ -801,6 +837,10 @@ INDEX_HTML = """<!doctype html>
       grid-template-columns: 1fr;
       gap: 8px;
       align-items: stretch;
+    }
+    .route-endpoint-stack {
+      display: grid;
+      gap: 8px;
     }
     .route-picker-note {
       color: var(--muted);
@@ -981,23 +1021,25 @@ INDEX_HTML = """<!doctype html>
     .route-endpoint-name {
       grid-column: 2;
       display: block;
-      font-size: 0.9rem;
+      font-size: 0.96rem;
       line-height: 1.15;
       word-break: break-word;
     }
+    .route-actions {
+      display: flex;
+      justify-content: flex-start;
+    }
     .route-endpoint-clear {
-      grid-column: 2;
-      justify-self: start;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-top: 4px;
-      padding: 3px 8px;
+      min-height: 34px;
+      padding: 5px 10px;
       border: 1px solid rgba(21, 33, 42, 0.1);
       border-radius: 999px;
       background: rgba(21, 33, 42, 0.04);
       color: var(--muted);
-      font-size: 0.67rem;
+      font-size: 0.72rem;
       font-weight: 700;
       letter-spacing: 0.04em;
       text-transform: uppercase;
@@ -1015,7 +1057,7 @@ INDEX_HTML = """<!doctype html>
     }
     .field-stack label {
       color: var(--muted);
-      font-size: 0.68rem;
+      font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
@@ -1027,7 +1069,7 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       padding: 8px 10px;
       font: inherit;
-      font-size: 0.78rem;
+      font-size: 0.84rem;
     }
     .route-status-row {
       display: flex;
@@ -1668,99 +1710,101 @@ INDEX_HTML = """<!doctype html>
         summaryKnown: 'znane',
         summaryNew: 'nowe 24h',
         summaryWithData: 'z danymi',
-        summaryPending: 'oczekujące',
+        summaryPending: 'bez danych',
         summaryInactive: 'nieaktywne',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
-        answerSelectedRepeater: 'Wybrany repeater',
-        mobileMapTitle: 'Mapa relacji',
-        mobileMapEmpty: 'Wybierz repeater, aby pokazać relacje na mapie.',
+        answerSelectedRepeater: 'Wybrany punkt',
+        mobileMapTitle: 'Połączenia na mapie',
+        mobileMapEmpty: 'Wybierz punkt, aby pokazać relacje na mapie.',
         mobileMapVisible: 'widoczne',
         mobileMapListTitle: 'Najbliższe relacje',
         mobileMapNoRows: 'Brak relacji dla tego trybu.',
-        mobileMapPickRepeater: 'Wybierz repeater i tryb kierunku.',
+        mobileMapPickRepeater: 'Wybierz punkt i kierunek relacji.',
         mobileMapDirectionOut: 'Na mapie: Widzę',
         mobileMapDirectionIn: 'Na mapie: Mnie widzą',
         mobileAnalysisWidze: 'Widzę',
         mobileAnalysisWidza: 'Mnie widzą',
-        mobileAnalysisMutual: '2-way',
+        mobileAnalysisMutual: 'Obie strony',
         mobileAnalysisRoute: 'Trasa',
         connectivityStateOut: (count) => `${count} bezpośrednich relacji wychodzących.`,
-        connectivityStateIn: (count) => `${count} repeaterów widzi ten punkt.`,
+        connectivityStateIn: (count) => `${count} punktów widzi ten punkt.`,
         connectivityStateMutual: (count) => `${count} relacji wzajemnych.`,
-        connectivityStateNoOwnData: 'Brak własnych danych sąsiedztwa. Dostępne tylko relacje inbound.',
+        connectivityStateNoOwnData: 'Ten punkt nie ma jeszcze własnych danych sąsiedztwa. Możemy pokazać tylko kto go widzi.',
         connectivityStateNoVisible: 'Brak relacji dla bieżącego widoku.',
-        routeStateIdle: 'Ustaw A i B. Wynik pokażemy od razu w obu kierunkach, jeśli istnieją.',
+        routeStateIdle: 'Wybierz start i cel. Wynik pokażemy od razu w obu kierunkach.',
+        routeStatePickTarget: 'Wybierz cel, a pokażemy wynik trasy i oba kierunki.',
+        routeStatePickSource: 'Wybierz start, aby policzyć trasę do wybranego celu.',
         routeStateReady: 'Pokazujemy oba kierunki niezależnie, jeśli istnieją.',
         routeStateSameNode: 'A i B muszą wskazywać różne punkty.',
         routeResultsTitle: 'Wynik trasy',
-        routeReachabilityTitle: 'Mozliwe destynacje z A',
-        routeReachabilityIdle: 'Ustaw A, a pokażemy dokad da sie dojsc jednokierunkowo.',
-        routeReachabilitySummary: (count) => `Z A da sie dojsc do ${count} destynacji.`,
-        routeReachabilityEmpty: 'Z wybranego A nie ma jeszcze zadnej znanej destynacji jednokierunkowej.',
-        routeReachabilityFreshShort: 'swieze',
+        routeReachabilityTitle: 'Sugestie celów z A',
+        routeReachabilityIdle: 'Wybierz punkt startowy, a pokażemy dokąd można dojść.',
+        routeReachabilitySummary: (count) => `Z A można dojść do ${count} punktów.`,
+        routeReachabilityEmpty: 'Dla wybranego startu nie ma jeszcze znanych celów osiągalnych jednokierunkowo.',
+        routeReachabilityFreshShort: 'świeże',
         routeReachabilityStaleShort: 'stare',
-        routeReachabilityAction: 'Ustaw jako B',
-        routeClearTarget: 'Usun B',
-        routeProbePathTitle: 'Ostatnia znana sciezka probe do B',
-        routeProbePathSaved: 'z udanego probe',
-        routeProbePathAdvert: 'z advertu',
-        routeProbePathNoStored: 'Brak zapisanej bezposredniej sciezki do B.',
-        routeProbePathFallback: 'Ostatni probe mogl przejsc floodem albo odpowiedz nie zwrocila ponownie uzywalnej sciezki.',
+        routeReachabilityAction: 'Ustaw jako cel',
+        routeClearTarget: 'Usuń cel',
+        routeProbePathTitle: 'Zapamiętana ścieżka do celu',
+        routeProbePathSaved: 'z ostatniego udanego pobrania',
+        routeProbePathAdvert: 'z ostatniego ogłoszenia',
+        routeProbePathNoStored: 'Brak zapamiętanej bezpośredniej ścieżki do tego celu.',
+        routeProbePathFallback: 'Ostatnie pobranie mogło przejść trasą rozgłoszeniową albo odpowiedź nie zwróciła ścieżki do ponownego użycia.',
         routeProbePathObserved: 'zapisano',
-        routeProbePathSource: 'zrodlo',
-        routeProbePathEndpoint: 'endpoint',
+        routeProbePathSource: 'źródło',
+        routeProbePathEndpoint: 'cel',
         routeProbePathBot: 'BOT',
         routeProbePathTarget: 'B',
         routeProbePathUnknownHop: (prefix) => `hop ${prefix}`,
-        routeProbePathAmbiguousHop: (prefix, count) => `${prefix} (${count} mozliwe)`,
+        routeProbePathAmbiguousHop: (prefix, count) => `${prefix} (${count} możliwe)`,
         routeHistoricalRoute: 'historyczna trasa',
         routeHistoricalLinks: 'historyczne linki',
-        routeHistoryFallback: 'Biezace linki nie daja przejscia, ale w historii jest starsza trasa.',
-        statusData: 'dane',
+        routeHistoryFallback: 'Bieżące linki nie dają przejścia, ale w historii jest starsza trasa.',
+        statusData: 'gotowe',
         statusNoData: 'brak danych',
         statusInactive: 'nieaktywny',
         probeFailedAfterData: 'nieudane po zapisaniu danych',
         probeDataSaved: 'dane zapisane',
-        probePending: 'oczekuje',
+        probePending: 'czeka na dane',
         signalMissing: 'sygnał: b/d',
         distanceMissing: 'dyst: -',
         distancePrefix: 'dyst',
-        lastAdvertLabel: 'ostatni advert',
-        lastDataLabel: 'ostatnie pobranie',
+        lastAdvertLabel: 'ostatnio widziany',
+        lastDataLabel: 'dane sąsiedztwa',
         chartHistory: 'historia',
         chartLatest: 'ostatnio',
         chartSNRHistory: 'historia SNR',
         chartNow: 'teraz',
-        emptySelectRepeater: 'Wybierz repeater, aby obejrzeć jego bezpośrednich sąsiadów.',
-        emptySelectNeighbor: 'Wybierz wiersz sąsiada, aby obejrzeć historię sygnału.',
-        emptyNoNeighborLinks: 'Dla tego repeatera nie ma jeszcze zapisanych połączeń sąsiedzkich.',
-        emptyNoOtherRepeaters: 'Brak innych repeaterów.',
-        emptyNoSearchResults: 'Brak repeaterów pasujących do filtra.',
-        inspection: 'Inspekcja',
-        clearFocus: 'Wyczyść fokus',
+        emptySelectRepeater: 'Wybierz punkt, aby zobaczyć jego bezpośrednie połączenia.',
+        emptySelectNeighbor: 'Wybierz sąsiada, aby zobaczyć historię sygnału.',
+        emptyNoNeighborLinks: 'Dla tego punktu nie ma jeszcze zapisanych połączeń sąsiedzkich.',
+        emptyNoOtherRepeaters: 'Brak innych punktów.',
+        emptyNoSearchResults: 'Brak punktów pasujących do filtra.',
+        inspection: 'Szczegóły punktu',
+        clearFocus: 'Wyczyść wybór',
         role: 'Rola',
-        firstSeen: 'Pierwszy advert',
-        firstSeenLabel: 'pierwszy advert',
-        lastAdvert: 'Ostatni advert',
-        lastData: 'Ostatnie dane',
+        firstSeen: 'Pierwsze wykrycie',
+        firstSeenLabel: 'pierwsze wykrycie',
+        lastAdvert: 'Ostatnio widziany',
+        lastData: 'Dane sąsiedztwa',
         lastSuccessfulProbe: 'Ostatnie udane pobranie',
         lastProbeResult: 'Wynik ostatniej próby',
         lastProbeAttempt: 'Ostatnia próba',
-        directNeighbors: 'Bezpośredni sąsiedzi',
-        mapNodePositionMissing: 'Mapa nie narysuje połączeń od tego repeatera, bo nie ma on poprawnej pozycji GPS.',
+        directNeighbors: 'Bezpośrednie połączenia',
+        mapNodePositionMissing: 'Mapa nie narysuje połączeń od tego punktu, bo nie ma on poprawnej pozycji GPS.',
         mapNeighborPositionsMissing: (count) => `Mapa pomija ${count} połącze${count === 1 ? 'nie' : count < 5 ? 'nia' : 'ń'} do sąsiadów bez poprawnej pozycji GPS.`,
         neighbor: 'Sąsiad',
         lastSeen: 'Ostatnio widziany',
         signal: 'Sygnał',
         distance: 'Dystans',
-        selectedRepeater: 'Wybrany repeater',
-        otherRepeaters: 'Pozostałe repeatery',
-        repeaters: 'Repeatery',
+        selectedRepeater: 'Wybrany punkt',
+        otherRepeaters: 'Pozostałe punkty',
+        repeaters: 'Punkty',
         sortLabel: 'Sortowanie',
-        searchLabel: 'Szukaj repeatera',
-        searchPlaceholder: 'nazwa, prefix, hex (min. 3 znaki)',
-        sortLastAdvert: 'ostatni advert',
+        searchLabel: 'Szukaj punktu',
+        searchPlaceholder: 'nazwa, prefix, hex (min. 2 znaki)',
+        sortLastAdvert: 'ostatnio widziany',
         sortLastData: 'ostatnie dane',
         sortAlphabetical: 'alfabetycznie',
         viewMap: 'Mapa',
@@ -1769,34 +1813,34 @@ INDEX_HTML = """<!doctype html>
         panelMap: 'Mapa',
         panelNew: 'Nowe',
         panelConnectivity: 'Łączność',
-        panelRoute: 'Trasa',
+        panelRoute: 'Trasy',
         panelAnalysis: 'Analiza',
-        focusRepeater: 'Fokus',
+        focusRepeater: 'Wybór',
         relationModeOut: 'Widzę',
         relationModeIn: 'Mnie widzą',
-        relationModeMutual: '2-way',
+        relationModeMutual: 'Obie strony',
         relationFilterAll: 'Wszystkie',
-        relationFilterTwoWay: '2-way',
-        relationFilterOut: 'Out',
-        relationFilterIn: 'In',
-        relationDirectOut: 'bezposrednio widze',
-        relationDirectIn: 'bezposrednio widza',
+        relationFilterTwoWay: 'Obie strony',
+        relationFilterOut: 'Widzę',
+        relationFilterIn: 'Mnie widzą',
+        relationDirectOut: 'bezpośrednio widzę',
+        relationDirectIn: 'bezpośrednio widzą',
         relationNodeSees: (name) => `${name} widzi`,
         relationNodeSeenBy: (name) => `${name} widziany przez`,
-        relationNodeMutual: (name) => `${name} 2-way`,
-        connectivityHint: 'Wybierz repeater.',
-        connectivitySelect: 'Repeater',
+        relationNodeMutual: (name) => `${name} w obie strony`,
+        connectivityHint: 'Wybierz punkt.',
+        connectivitySelect: 'Punkt',
         connectivityVisible: 'Widoczne relacje',
         connectivityCountShort: 'rel.',
         connectivityNoRows: 'Brak relacji dla wybranego widoku.',
         connectivitySummaryTitle: 'Podsumowanie',
         connectivityVisibleTitle: 'Widoczne relacje',
         connectivityFilterHint: 'W warstwie porównania pokazuj tylko jeden typ.',
-        connectivitySummaryOut: 'widze',
-        connectivitySummaryIn: 'widza',
+        connectivitySummaryOut: 'widzę',
+        connectivitySummaryIn: 'widzą',
         connectivitySummaryMutual: 'wzajemne',
-        connectivitySummaryOneWay: '1-way',
-        connectivityTablePeer: 'Repeater',
+        connectivitySummaryOneWay: 'jednokierunkowe',
+        connectivityTablePeer: 'Punkt',
         connectivityTableType: 'Typ',
         connectivityTableOut: 'A->B',
         connectivityTableIn: 'B->A',
@@ -1804,42 +1848,42 @@ INDEX_HTML = """<!doctype html>
         connectivityTableSignal: 'SNR',
         relationTypeOut: 'ode mnie',
         relationTypeIn: 'do mnie',
-        relationTypeMutual: '2-way',
+        relationTypeMutual: 'obie strony',
         staleShort: 'stare',
         routeSource: 'Start',
         routeTarget: 'Cel',
-        routeSwap: 'Zamien',
+        routeSwap: 'Zamień',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Wybierz z mapy',
+        routePickHint: 'Wybierz na mapie',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeUnset: 'nie ustawiono',
-        routeStatusYes: 'trasa jest',
+        routeStatusYes: 'trasa dostępna',
         routeStatusNo: 'brak trasy',
         routeNoSelection: 'Ustaw A i B.',
-        routeSameNode: 'Start i cel musza byc rozne.',
+        routeSameNode: 'Start i cel muszą być różne.',
         routeNoPath: 'Brak trasy.',
-        routeHopCount: 'hopow',
-        routeUsesStale: 'uzyto starych linkow',
-        routeFreshOnly: 'swieze linki',
+        routeHopCount: 'hopów',
+        routeUsesStale: 'użyto starych linków',
+        routeFreshOnly: 'świeże linki',
         languageLabel: 'Język',
-        sheetExpand: 'Rozwin',
+        sheetExpand: 'Rozwiń',
         sheetCollapse: 'Zwin',
-        toolbarMapTitle: 'Repeaters',
-        toolbarMapSubtitle: 'Kliknij repeater na mapie, aby zobaczyć jego bezpośrednich sąsiadów.',
-        toolbarNewTitle: 'Nowe repeatery',
-        toolbarNewSubtitle: 'RPT pierwszy raz widziane w ostatnich 24 godzinach.',
+        toolbarMapTitle: 'Mapa sieci',
+        toolbarMapSubtitle: 'Wybierz punkt z mapy lub listy, aby zobaczyć jego bezpośrednie połączenia.',
+        toolbarNewTitle: 'Nowe punkty',
+        toolbarNewSubtitle: 'Punkty wykryte po raz pierwszy w ostatnich 24 godzinach.',
         toolbarConnectivityTitle: 'Łączność',
-        toolbarConnectivitySubtitle: 'Kto widzi kogo.',
-        toolbarRouteTitle: 'Trasa',
-        toolbarRouteSubtitle: 'Ustaw A i B. Wynik pokazujemy od razu w obu kierunkach.',
-        newRepeaters: 'Nowe repeatery 24h',
-        emptyNoNewRepeaters: 'Brak zupełnie nowych repeaterów z ostatnich 24 godzin.',
-        routeTapTarget: 'Wybierz z mapy A albo B.',
-        routeTapTargetSource: 'Kliknij mapę, aby ustawić A.',
-        routeTapTargetTarget: 'Kliknij mapę, aby ustawić B.',
-        routeTapTargetReady: 'Kliknij mapę, aby zmienić A albo B.',
+        toolbarConnectivitySubtitle: 'Sprawdź, kto widzi wybrany punkt i kogo widzi on.',
+        toolbarRouteTitle: 'Trasy',
+        toolbarRouteSubtitle: 'Wybierz start i cel. Najpierw pokażemy wynik, potem szczegóły.',
+        newRepeaters: 'Nowe punkty 24h',
+        emptyNoNewRepeaters: 'Brak nowych punktów wykrytych w ostatnich 24 godzinach.',
+        routeTapTarget: 'Wybierz na mapie start albo cel.',
+        routeTapTargetSource: 'Kliknij punkt na mapie, aby ustawić start.',
+        routeTapTargetTarget: 'Kliknij punkt na mapie, aby ustawić cel.',
+        routeTapTargetReady: 'Kliknij punkt na mapie, aby zmienić start albo cel.',
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
@@ -1865,48 +1909,50 @@ INDEX_HTML = """<!doctype html>
         summaryKnown: 'known',
         summaryNew: 'new 24h',
         summaryWithData: 'with data',
-        summaryPending: 'pending',
+        summaryPending: 'no data',
         summaryInactive: 'inactive',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
-        answerSelectedRepeater: 'Selected repeater',
-        mobileMapTitle: 'Relation map',
-        mobileMapEmpty: 'Select a repeater to show relations on the map.',
+        answerSelectedRepeater: 'Selected node',
+        mobileMapTitle: 'Links on map',
+        mobileMapEmpty: 'Select a node to show relations on the map.',
         mobileMapVisible: 'visible',
         mobileMapListTitle: 'Closest relations',
         mobileMapNoRows: 'No relations for this mode.',
-        mobileMapPickRepeater: 'Select a repeater and direction mode.',
+        mobileMapPickRepeater: 'Select a node and relation direction.',
         mobileMapDirectionOut: 'Map: Out',
         mobileMapDirectionIn: 'Map: Seen by',
         mobileAnalysisWidze: 'Out',
         mobileAnalysisWidza: 'Seen by',
-        mobileAnalysisMutual: '2-way',
+        mobileAnalysisMutual: 'Mutual',
         mobileAnalysisRoute: 'Route',
         connectivityStateOut: (count) => `${count} direct outgoing relations.`,
-        connectivityStateIn: (count) => `${count} repeaters can see this node.`,
+        connectivityStateIn: (count) => `${count} nodes can see this node.`,
         connectivityStateMutual: (count) => `${count} mutual relations.`,
-        connectivityStateNoOwnData: 'No own neighbor snapshot. Only inbound relations are available.',
+        connectivityStateNoOwnData: 'This node has no own neighbor snapshot yet. We can only show who can see it.',
         connectivityStateNoVisible: 'No relations match the current view.',
-        routeStateIdle: 'Set A and B. We will show both directions immediately when available.',
+        routeStateIdle: 'Set source and target. We will show both directions immediately.',
+        routeStatePickTarget: 'Pick a target to calculate both directions.',
+        routeStatePickSource: 'Pick a source to calculate the route to the selected target.',
         routeStateReady: 'Both directions are shown independently when available.',
         routeStateSameNode: 'A and B must point to different nodes.',
         routeResultsTitle: 'Route result',
-        routeReachabilityTitle: 'Reachable destinations from A',
-        routeReachabilityIdle: 'Set A and we will show which destinations are reachable one-way.',
+        routeReachabilityTitle: 'Suggested targets from A',
+        routeReachabilityIdle: 'Set a source and we will show which targets are reachable one-way.',
         routeReachabilitySummary: (count) => `${count} reachable destination${count === 1 ? '' : 's'} from A.`,
         routeReachabilityEmpty: 'No known one-way destinations are reachable from the selected A yet.',
         routeReachabilityFreshShort: 'fresh',
         routeReachabilityStaleShort: 'stale',
-        routeReachabilityAction: 'Set as B',
-        routeClearTarget: 'Clear B',
-        routeProbePathTitle: 'Last known probe path to B',
-        routeProbePathSaved: 'from successful probe',
-        routeProbePathAdvert: 'from advert',
-        routeProbePathNoStored: 'No reusable direct path to B is stored yet.',
+        routeReachabilityAction: 'Set as target',
+        routeClearTarget: 'Clear target',
+        routeProbePathTitle: 'Remembered path to target',
+        routeProbePathSaved: 'from successful fetch',
+        routeProbePathAdvert: 'from latest advert',
+        routeProbePathNoStored: 'No remembered direct path to this target is stored yet.',
         routeProbePathFallback: 'The latest fetch may have used flood routing or the response did not return a reusable path.',
         routeProbePathObserved: 'stored',
         routeProbePathSource: 'source',
-        routeProbePathEndpoint: 'endpoint',
+        routeProbePathEndpoint: 'target',
         routeProbePathBot: 'BOT',
         routeProbePathTarget: 'B',
         routeProbePathUnknownHop: (prefix) => `hop ${prefix}`,
@@ -1914,50 +1960,50 @@ INDEX_HTML = """<!doctype html>
         routeHistoricalRoute: 'historical route',
         routeHistoricalLinks: 'historical links',
         routeHistoryFallback: 'Current links no longer provide a route, but an older route still exists in history.',
-        statusData: 'data',
+        statusData: 'ready',
         statusNoData: 'no data',
         statusInactive: 'inactive',
         probeFailedAfterData: 'failed after data snapshot',
         probeDataSaved: 'data saved',
-        probePending: 'pending',
+        probePending: 'waiting for data',
         signalMissing: 'signal: n/a',
         distanceMissing: 'dist: -',
         distancePrefix: 'dist',
-        lastAdvertLabel: 'last advert',
-        lastDataLabel: 'last data fetch',
+        lastAdvertLabel: 'last seen',
+        lastDataLabel: 'neighbor data',
         chartHistory: 'history',
         chartLatest: 'latest',
         chartSNRHistory: 'SNR history',
         chartNow: 'now',
-        emptySelectRepeater: 'Select a repeater to inspect its direct neighbors.',
+        emptySelectRepeater: 'Select a node to inspect its direct links.',
         emptySelectNeighbor: 'Select a neighbor row to inspect signal history.',
-        emptyNoNeighborLinks: 'No stored neighbor links are available yet for this repeater.',
-        emptyNoOtherRepeaters: 'No other repeaters available.',
-        emptyNoSearchResults: 'No repeaters match the current filter.',
-        inspection: 'Inspection',
-        clearFocus: 'Clear focus',
+        emptyNoNeighborLinks: 'No stored neighbor links are available yet for this node.',
+        emptyNoOtherRepeaters: 'No other nodes available.',
+        emptyNoSearchResults: 'No nodes match the current filter.',
+        inspection: 'Node details',
+        clearFocus: 'Clear selection',
         role: 'Role',
-        firstSeen: 'First advert',
-        firstSeenLabel: 'first advert',
-        lastAdvert: 'Last advert',
-        lastData: 'Last data',
+        firstSeen: 'First seen',
+        firstSeenLabel: 'first seen',
+        lastAdvert: 'Last seen',
+        lastData: 'Neighbor data',
         lastSuccessfulProbe: 'Last successful fetch',
         lastProbeResult: 'Last probe result',
         lastProbeAttempt: 'Last probe attempt',
-        directNeighbors: 'Direct neighbors',
-        mapNodePositionMissing: 'The map cannot draw links from this repeater because it has no valid GPS position.',
+        directNeighbors: 'Direct links',
+        mapNodePositionMissing: 'The map cannot draw links from this node because it has no valid GPS position.',
         mapNeighborPositionsMissing: (count) => `The map skips ${count} link${count === 1 ? '' : 's'} to neighbors without a valid GPS position.`,
         neighbor: 'Neighbor',
         lastSeen: 'Last seen',
         signal: 'Signal',
         distance: 'Distance',
-        selectedRepeater: 'Selected repeater',
-        otherRepeaters: 'Other repeaters',
-        repeaters: 'Repeaters',
+        selectedRepeater: 'Selected node',
+        otherRepeaters: 'Other nodes',
+        repeaters: 'Nodes',
         sortLabel: 'Sort',
-        searchLabel: 'Find repeater',
-        searchPlaceholder: 'name, prefix, hex (min. 3 chars)',
-        sortLastAdvert: 'last advert',
+        searchLabel: 'Find node',
+        searchPlaceholder: 'name, prefix, hex (min. 2 chars)',
+        sortLastAdvert: 'last seen',
         sortLastData: 'last data fetch',
         sortAlphabetical: 'alphabetical',
         viewMap: 'Map',
@@ -1966,23 +2012,23 @@ INDEX_HTML = """<!doctype html>
         panelMap: 'Map',
         panelNew: 'New',
         panelConnectivity: 'Connectivity',
-        panelRoute: 'Route',
+        panelRoute: 'Routes',
         panelAnalysis: 'Analysis',
         focusRepeater: 'Focus',
         relationModeOut: 'Out',
         relationModeIn: 'Seen by',
-        relationModeMutual: '2-way',
+        relationModeMutual: 'Mutual',
         relationFilterAll: 'All',
-        relationFilterTwoWay: '2-way',
+        relationFilterTwoWay: 'Mutual',
         relationFilterOut: 'Out',
         relationFilterIn: 'In',
         relationDirectOut: 'directly seen',
         relationDirectIn: 'directly seeing me',
         relationNodeSees: (name) => `${name} sees`,
         relationNodeSeenBy: (name) => `${name} seen by`,
-        relationNodeMutual: (name) => `${name} 2-way`,
-        connectivityHint: 'Select a repeater.',
-        connectivitySelect: 'Repeater',
+        relationNodeMutual: (name) => `${name} mutual`,
+        connectivityHint: 'Select a node.',
+        connectivitySelect: 'Node',
         connectivityVisible: 'Visible relations',
         connectivityCountShort: 'rel.',
         connectivityNoRows: 'No relations match the current view.',
@@ -1993,7 +2039,7 @@ INDEX_HTML = """<!doctype html>
         connectivitySummaryIn: 'incoming',
         connectivitySummaryMutual: 'mutual',
         connectivitySummaryOneWay: 'one-way',
-        connectivityTablePeer: 'Repeater',
+        connectivityTablePeer: 'Node',
         connectivityTableType: 'Type',
         connectivityTableOut: 'A->B',
         connectivityTableIn: 'B->A',
@@ -2001,18 +2047,18 @@ INDEX_HTML = """<!doctype html>
         connectivityTableSignal: 'SNR',
         relationTypeOut: 'from me',
         relationTypeIn: 'to me',
-        relationTypeMutual: '2-way',
+        relationTypeMutual: 'mutual',
         staleShort: 'stale',
         routeSource: 'Source',
         routeTarget: 'Target',
         routeSwap: 'Swap',
         routeForward: 'A->B',
         routeBackward: 'B->A',
-        routePickHint: 'Pick from map',
+        routePickHint: 'Pick on map',
         routeSelectedA: 'A',
         routeSelectedB: 'B',
         routeUnset: 'not set',
-        routeStatusYes: 'route found',
+        routeStatusYes: 'route available',
         routeStatusNo: 'no route',
         routeNoSelection: 'Set A and B.',
         routeSameNode: 'Source and target must be different.',
@@ -2023,20 +2069,20 @@ INDEX_HTML = """<!doctype html>
         languageLabel: 'Language',
         sheetExpand: 'Expand',
         sheetCollapse: 'Collapse',
-        toolbarMapTitle: 'Repeaters',
-        toolbarMapSubtitle: 'Click a repeater on the map to inspect its direct neighbors.',
-        toolbarNewTitle: 'New repeaters',
-        toolbarNewSubtitle: 'RPT nodes first seen within the last 24 hours.',
+        toolbarMapTitle: 'Network map',
+        toolbarMapSubtitle: 'Select a node on the map or from the list to inspect direct links.',
+        toolbarNewTitle: 'New nodes',
+        toolbarNewSubtitle: 'Nodes first seen within the last 24 hours.',
         toolbarConnectivityTitle: 'Connectivity',
-        toolbarConnectivitySubtitle: 'Who sees whom.',
-        toolbarRouteTitle: 'Route',
-        toolbarRouteSubtitle: 'Set A and B. Results are shown in both directions when available.',
-        newRepeaters: 'New repeaters 24h',
-        emptyNoNewRepeaters: 'No completely new repeaters were first seen in the last 24 hours.',
-        routeTapTarget: 'Pick A or B from the map.',
-        routeTapTargetSource: 'Click the map to set A.',
-        routeTapTargetTarget: 'Click the map to set B.',
-        routeTapTargetReady: 'Click the map to change A or B.',
+        toolbarConnectivitySubtitle: 'Check who can see the selected node and who it can see.',
+        toolbarRouteTitle: 'Routes',
+        toolbarRouteSubtitle: 'Pick source and target. We show the answer first, then the details.',
+        newRepeaters: 'New nodes 24h',
+        emptyNoNewRepeaters: 'No completely new nodes were first seen in the last 24 hours.',
+        routeTapTarget: 'Pick source or target on the map.',
+        routeTapTargetSource: 'Click a node on the map to set the source.',
+        routeTapTargetTarget: 'Click a node on the map to set the target.',
+        routeTapTargetReady: 'Click a node on the map to change source or target.',
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
@@ -2075,7 +2121,7 @@ INDEX_HTML = """<!doctype html>
     let hasFitBounds = false;
     let pendingRefreshState = null;
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
-    const MIN_NODE_SEARCH_QUERY_LENGTH = 3;
+    const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -2164,10 +2210,6 @@ INDEX_HTML = """<!doctype html>
 
     function isPortraitMobileView() {
       return window.matchMedia('(max-width: 860px) and (orientation: portrait)').matches;
-    }
-
-    function isAnalysisPanel() {
-      return currentPanel === 'connectivity' || currentPanel === 'route';
     }
 
     function applyMobileView() {
@@ -2852,46 +2894,18 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderPrimaryTabs() {
-      const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';
       return `
         <div class="primary-toggle" role="group" aria-label="${tr('viewLabel')}">
           <button type="button" class="segmented-button${currentPanel === 'map' ? ' active' : ''}" data-panel="map">${tr('panelMap')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
+          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
           <button type="button" class="segmented-button${currentPanel === 'new' ? ' active' : ''}" data-panel="new">${tr('panelNew')}</button>
-          <button type="button" class="segmented-button${isAnalysisPanel() ? ' active' : ''}" data-panel="${primaryAnalysisPanel}">${tr('panelAnalysis')}</button>
         </div>
       `;
     }
 
     function renderAnalysisTabs() {
-      if (!isAnalysisPanel()) return '';
-      const selectedNode = latestState ? selectedConnectivityNode(latestState) : null;
-      const canInspectOwnData = !selectedNode || hasOwnNeighborData(selectedNode);
-      if (!isPortraitMobileView()) {
-        return `
-          <div class="secondary-toggle analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
-            <button type="button" class="segmented-button${currentPanel === 'connectivity' ? ' active' : ''}" data-panel="connectivity">${tr('panelConnectivity')}</button>
-            <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-panel="route">${tr('panelRoute')}</button>
-          </div>
-        `;
-      }
-      return `
-        <div class="secondary-toggle analysis-tabs mobile-analysis-tabs" role="group" aria-label="${tr('panelAnalysis')}">
-          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'out' ? ' active' : ''}" data-mobile-analysis="out"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisWidze')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'in' ? ' active' : ''}" data-mobile-analysis="in">${tr('mobileAnalysisWidza')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'connectivity' && connectivityDirection === 'mutual' ? ' active' : ''}" data-mobile-analysis="mutual"${canInspectOwnData ? '' : ' disabled'}>${tr('mobileAnalysisMutual')}</button>
-          <button type="button" class="segmented-button${currentPanel === 'route' ? ' active' : ''}" data-mobile-analysis="route">${tr('mobileAnalysisRoute')}</button>
-        </div>
-      `;
-    }
-
-    function setMobileAnalysisMode(mode) {
-      if (mode === 'route') {
-        setPanel('route');
-        return;
-      }
-      currentPanel = 'connectivity';
-      localStorage.setItem('meshcoreDashboardPanel', currentPanel);
-      setConnectivityDirection(mode);
+      return '';
     }
 
     function relationTypeLabel(type) {
@@ -2926,6 +2940,15 @@ INDEX_HTML = """<!doctype html>
           </div>
           ${metrics.length ? `<div class="answer-metrics">${metrics.map((metric) => `<span class="answer-stat"><strong>${metric.value}</strong><span>${metric.label}</span></span>`).join('')}</div>` : ''}
         </div>
+      `;
+    }
+
+    function renderExpandablePanel(title, body, open = false) {
+      return `
+        <details class="panel-details"${open ? ' open' : ''}>
+          <summary>${title}</summary>
+          <div class="panel-details-body">${body}</div>
+        </details>
       `;
     }
 
@@ -3164,7 +3187,7 @@ INDEX_HTML = """<!doctype html>
         const metrics = latestProbeRun?.endpoint_name
           ? [{ value: latestProbeRun.endpoint_name, label: tr('routeProbePathEndpoint') }]
           : [];
-        return `<div class="panel-section">${renderAnswerStrip(tr('routeProbePathTitle'), '', message, metrics, true)}</div>`;
+        return `<div class="panel-section">${renderExpandablePanel(tr('routeProbePathTitle'), renderAnswerStrip(tr('routeProbePathTitle'), '', message, metrics, true))}</div>`;
       }
       const decoded = decodeHintPath(state, routeTargetId, chosenPath);
       const pathSteps = [
@@ -3189,12 +3212,15 @@ INDEX_HTML = """<!doctype html>
         : '';
       return `
         <div class="panel-section">
-          ${renderAnswerStrip(tr('routeProbePathTitle'), '', savedPath ? tr('routeProbePathSaved') : tr('routeProbePathAdvert'), [{ value: Number(chosenPath.path_len || 0), label: tr('routeHopCount') }])}
-          <div class="route-hint-shell">
-            <div class="route-hint-meta">${chips.join('')}</div>
-            <div class="route-hint-path">${pathSteps}</div>
-            ${note ? `<div class="route-hint-note">${note}</div>` : ''}
-          </div>
+          ${renderExpandablePanel(
+            tr('routeProbePathTitle'),
+            `${renderAnswerStrip(tr('routeProbePathTitle'), '', savedPath ? tr('routeProbePathSaved') : tr('routeProbePathAdvert'), [{ value: Number(chosenPath.path_len || 0), label: tr('routeHopCount') }])}
+            <div class="route-hint-shell">
+              <div class="route-hint-meta">${chips.join('')}</div>
+              <div class="route-hint-path">${pathSteps}</div>
+              ${note ? `<div class="route-hint-note">${note}</div>` : ''}
+            </div>`
+          )}
         </div>
       `;
     }
@@ -3210,7 +3236,11 @@ INDEX_HTML = """<!doctype html>
       const freshCount = reachability.destinations.filter((destination) => !destination.usesStale).length;
       const staleCount = reachability.destinations.length - freshCount;
       if (!reachability.destinations.length) {
-        return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', tr('routeReachabilityEmpty'), [{ value: 0, label: tr('routeReachabilityFreshShort') }, { value: 0, label: tr('routeReachabilityStaleShort') }], true)}<div class="route-destination-empty"><strong>${tr('routeReachabilityEmpty')}</strong><span>${tr('routePickHint')}</span></div></div>`;
+        return `<div class="panel-section">${renderExpandablePanel(
+          tr('routeReachabilityTitle'),
+          `${renderAnswerStrip(tr('routeReachabilityTitle'), '', tr('routeReachabilityEmpty'), [{ value: 0, label: tr('routeReachabilityFreshShort') }, { value: 0, label: tr('routeReachabilityStaleShort') }], true)}
+          <div class="route-destination-empty"><strong>${tr('routeReachabilityEmpty')}</strong><span>${tr('routePickHint')}</span></div>`
+        )}</div>`;
       }
       const destinationHtml = reachability.destinations.map((destination) => `
         <button type="button" class="route-destination-item${routeTargetId === destination.identityHex ? ' active' : ''}" data-route-destination="${destination.identityHex}">
@@ -3221,13 +3251,17 @@ INDEX_HTML = """<!doctype html>
           <span class="route-destination-action">${routeTargetId === destination.identityHex ? tr('routeSelectedB') : tr('routeReachabilityAction')}</span>
         </button>
       `).join('');
-      return `<div class="panel-section">${renderAnswerStrip(tr('routeReachabilityTitle'), '', trFormat('routeReachabilitySummary', reachability.destinations.length), [{ value: freshCount, label: tr('routeReachabilityFreshShort') }, { value: staleCount, label: tr('routeReachabilityStaleShort') }])}<div class="route-destination-list">${destinationHtml}</div></div>`;
+      return `<div class="panel-section">${renderExpandablePanel(
+        tr('routeReachabilityTitle'),
+        `${renderAnswerStrip(tr('routeReachabilityTitle'), '', trFormat('routeReachabilitySummary', reachability.destinations.length), [{ value: freshCount, label: tr('routeReachabilityFreshShort') }, { value: staleCount, label: tr('routeReachabilityStaleShort') }])}
+        <div class="route-destination-list">${destinationHtml}</div>`
+      )}</div>`;
     }
 
     function renderRoutePanel(state) {
       const data = connectivityData(state);
       const options = data.nodes.map((node) => `<option value="${node.identity_hex}">${node.name}</option>`).join('');
-      let body = renderRouteReachabilitySection(state);
+      let body = '';
       if (routeSourceId && routeTargetId) {
         if (routeSourceId === routeTargetId) {
           body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateSameNode'), [], true)}</div>`;
@@ -3236,11 +3270,16 @@ INDEX_HTML = """<!doctype html>
           const backward = buildRouteResult(state, routeTargetId, routeSourceId);
           const historicalForward = forward.path ? null : buildHistoricalRouteResult(state, routeSourceId, routeTargetId);
           const historicalBackward = backward.path ? null : buildHistoricalRouteResult(state, routeTargetId, routeSourceId);
-          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? 'OK' : historicalForward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeForward') }, { value: backward.path ? 'OK' : historicalBackward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data, historicalForward)}${routeSummaryCard(tr('routeBackward'), backward, data, historicalBackward)}</div></div>`;
+          body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateReady'), [{ value: forward.path ? tr('routeStatusYes') : historicalForward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeForward') }, { value: backward.path ? tr('routeStatusYes') : historicalBackward?.path ? tr('routeHistoricalRoute') : '-', label: tr('routeBackward') }])}<div class="route-result-grid">${routeSummaryCard(tr('routeForward'), forward, data, historicalForward)}${routeSummaryCard(tr('routeBackward'), backward, data, historicalBackward)}</div></div>`;
         }
+      } else if (routeSourceId) {
+        body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStatePickTarget'))}</div>`;
+      } else if (routeTargetId) {
+        body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStatePickSource'))}</div>`;
       } else if (!routeSourceId && !routeTargetId) {
         body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
       }
+      body += renderRouteReachabilitySection(state);
       body += renderRouteProbePathSection(state);
       const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
       const targetName = data.nodeIndex.get(routeTargetId)?.name || '-';
@@ -3253,11 +3292,13 @@ INDEX_HTML = """<!doctype html>
                 <span class="route-endpoint-label">${tr('routeSelectedA')}</span>
                 <strong class="route-endpoint-name">${routeSourceId ? sourceName : tr('routeUnset')}</strong>
               </button>
-              <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
-                <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
-                <strong class="route-endpoint-name">${routeTargetId ? targetName : tr('routeUnset')}</strong>
-                ${routeTargetId ? `<span class="route-endpoint-clear" role="button" tabindex="0" data-route-clear-target="1">${tr('routeClearTarget')}</span>` : ''}
-              </button>
+              <div class="route-endpoint-stack">
+                <button type="button" class="route-endpoint route-endpoint-target${routeActiveEndpoint === 'target' ? ' active' : ''}" data-route-active="target">
+                  <span class="route-endpoint-label">${tr('routeSelectedB')}</span>
+                  <strong class="route-endpoint-name">${routeTargetId ? targetName : tr('routeUnset')}</strong>
+                </button>
+                ${routeTargetId ? `<div class="route-actions"><button type="button" class="route-endpoint-clear" data-route-clear-target="1">${tr('routeClearTarget')}</button></div>` : ''}
+              </div>
             </div>
             <div class="route-controls">
               <div class="field-stack">
@@ -3734,9 +3775,6 @@ INDEX_HTML = """<!doctype html>
           for (const button of container.querySelectorAll('[data-panel]')) {
             button.addEventListener('click', () => setPanel(button.dataset.panel));
           }
-          for (const button of container.querySelectorAll('[data-mobile-analysis]')) {
-            button.addEventListener('click', () => setMobileAnalysisMode(button.dataset.mobileAnalysis));
-          }
           for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
             button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
           }
@@ -3783,9 +3821,6 @@ INDEX_HTML = """<!doctype html>
       }
       for (const button of container.querySelectorAll('[data-panel]')) {
         button.addEventListener('click', () => setPanel(button.dataset.panel));
-      }
-      for (const button of container.querySelectorAll('[data-mobile-analysis]')) {
-        button.addEventListener('click', () => setMobileAnalysisMode(button.dataset.mobileAnalysis));
       }
       for (const button of container.querySelectorAll('[data-connectivity-direction]')) {
         button.addEventListener('click', () => setConnectivityDirection(button.dataset.connectivityDirection));
@@ -3854,16 +3889,7 @@ INDEX_HTML = """<!doctype html>
           if (latestState) focusRouteSelection(latestState);
           render(latestState);
         };
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          clearTarget();
-        });
-        button.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          event.stopPropagation();
-          clearTarget();
-        });
+        button.addEventListener('click', clearTarget);
       }
       for (const button of container.querySelectorAll('[data-clear-selection]')) {
         button.addEventListener('click', clearSelection);
@@ -4239,7 +4265,7 @@ INDEX_HTML = """<!doctype html>
 
     map.on('click', () => {
       hoveredNodeId = null;
-      if (selectedSourceId) clearSelection();
+      if (latestState) renderMap(latestState);
     });
     map.on('zoomend', () => {
       if (latestState) renderMap(latestState);

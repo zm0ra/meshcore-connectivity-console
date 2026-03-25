@@ -2533,7 +2533,7 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'function buildRouteReachability(state, sourceId)' in INDEX_HTML
     assert 'function renderRouteProbePathSection(state)' in INDEX_HTML
     assert 'data-node-search="1"' in INDEX_HTML
-    assert 'const MIN_NODE_SEARCH_QUERY_LENGTH = 3;' in INDEX_HTML
+    assert 'const MIN_NODE_SEARCH_QUERY_LENGTH = 2;' in INDEX_HTML
     assert "function effectiveNodeSearchQuery()" in INDEX_HTML
     assert "function hasActiveNodeSearchQuery()" in INDEX_HTML
     assert 'data-route-destination=' in INDEX_HTML
@@ -2542,9 +2542,9 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'routeHistoricalRoute' in INDEX_HTML
     assert 'mapNodePositionMissing' in INDEX_HTML
     assert 'mapNeighborPositionsMissing' in INDEX_HTML
-    assert 'nazwa, prefix, hex (min. 3 znaki)' in INDEX_HTML
-    assert "const primaryAnalysisPanel = isAnalysisPanel() ? currentPanel : 'connectivity';" in INDEX_HTML
-    assert 'class="secondary-toggle analysis-tabs"' in INDEX_HTML
+    assert 'nazwa, prefix, hex (min. 2 znaki)' in INDEX_HTML
+    assert 'data-panel="connectivity"' in INDEX_HTML
+    assert 'data-panel="route"' in INDEX_HTML
 
 
 def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:

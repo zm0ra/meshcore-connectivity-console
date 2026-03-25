@@ -10,13 +10,13 @@ It is built for setups that already expose MeshCore through [meshcore-xiao-wifi-
 
 ![Dashboard overview](docs/screenshots/dashboard-overview-desktop.png)
 
-Main inventory view with access to the map, connectivity, and route analysis screens.
+Main overview with direct tabs for the map, connectivity, routes, and new nodes.
 
 ### Connectivity inspection
 
 ![Connectivity list](docs/screenshots/connectivity-list-desktop.png)
 
-Neighbour list and relation details for the selected repeater.
+Neighbour list and relation details for the selected node.
 
 ![Signal history](docs/screenshots/signal-history-desktop.png)
 
@@ -24,7 +24,7 @@ Signal history for a selected link.
 
 ![Outbound connectivity](docs/screenshots/connectivity-outbound-desktop.png)
 
-Outbound-focused map view showing what one repeater currently sees.
+Outbound-focused map view showing what one node currently sees.
 
 ![Connectivity comparison](docs/screenshots/connectivity-comparison-desktop.png)
 
@@ -40,11 +40,11 @@ Compact map-first mobile layout.
 
 Connectivity view adapted for smaller screens.
 
-### Route analysis
+### Routes
 
 ![Route analysis](docs/screenshots/route-analysis-desktop.png)
 
-Directional route analysis where `A -> B` and `B -> A` are shown separately.
+Directional route view where `A -> B` and `B -> A` are shown separately.
 
 ## What it does
 
@@ -408,4 +408,3 @@ python -m pip install -e .[dev]
 python -m pytest -q
 python -m pytest -q tests/test_repeater_protocol.py
 ```
-
