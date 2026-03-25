@@ -117,9 +117,50 @@ INDEX_HTML = """<!doctype html>
       color: var(--muted);
     }
     .summary-strip {
+      display: grid;
+      gap: 10px;
       padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 248, 0.72));
+    }
+    .summary-shell {
+      display: grid;
+      gap: 10px;
+    }
+    .summary-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .summary-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .summary-copy strong {
+      font-size: 0.95rem;
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+    }
+    .summary-copy span {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.3;
+    }
+    .summary-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(44, 113, 209, 0.12);
+      background: rgba(44, 113, 209, 0.1);
+      color: var(--ink);
+      font-size: 0.7rem;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: center;
     }
     .summary-grid {
       display: grid;
@@ -127,6 +168,9 @@ INDEX_HTML = """<!doctype html>
       gap: 6px;
     }
     .summary-card {
+      display: grid;
+      align-content: center;
+      min-height: 56px;
       padding: 10px 8px;
       border-radius: 12px;
       border: 1px solid var(--line);
@@ -1209,6 +1253,71 @@ INDEX_HTML = """<!doctype html>
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.95);
     }
+    .mobile-overview-card {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: var(--shadow-soft);
+    }
+    .mobile-overview-head {
+      display: grid;
+      gap: 6px;
+    }
+    .mobile-overview-copy {
+      display: grid;
+      gap: 3px;
+    }
+    .mobile-overview-copy strong {
+      font-size: 0.84rem;
+      line-height: 1.15;
+    }
+    .mobile-overview-copy span {
+      color: var(--muted);
+      font-size: 0.71rem;
+      line-height: 1.24;
+    }
+    .mobile-overview-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      min-height: 24px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(44, 113, 209, 0.1);
+      color: var(--ink);
+      font-size: 0.68rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .mobile-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .mobile-overview-metric {
+      padding: 8px 7px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(248, 250, 248, 0.92);
+      text-align: center;
+    }
+    .mobile-overview-metric strong {
+      display: block;
+      font-size: 0.81rem;
+      line-height: 1.1;
+    }
+    .mobile-overview-metric span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 0.65rem;
+      line-height: 1.2;
+    }
     .mobile-summary-head {
       display: flex;
       align-items: flex-start;
@@ -1457,6 +1566,10 @@ INDEX_HTML = """<!doctype html>
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 8px;
       }
+      .summary-head {
+        flex-direction: column;
+        align-items: flex-start;
+      }
       .summary-card {
         padding: 8px 4px;
       }
@@ -1679,7 +1792,7 @@ INDEX_HTML = """<!doctype html>
     <aside id=\"sidebar\" class=\"overlay\">
       <button id=\"sheet-toggle\" class=\"sheet-toggle\" type=\"button\" aria-expanded=\"false\"><span class=\"sheet-handle\"></span><span class=\"sheet-label\"></span></button>
       <section class=\"summary-strip\">
-        <div id=\"summary\" class=\"summary-grid\"></div>
+        <div id=\"summary\" class=\"summary-shell\"></div>
       </section>
       <section class=\"list-shell\">
         <div id=\"node-sections\"></div>
@@ -2121,6 +2234,9 @@ INDEX_HTML = """<!doctype html>
     let hasFitBounds = false;
     let pendingRefreshState = null;
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
+    let pendingMapClearSelectionKey = null;
+    let pendingMapClearExpiresAt = 0;
+    const BLANK_MAP_CLEAR_WINDOW_MS = 900;
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
 
     function strings() {
@@ -2227,6 +2343,7 @@ INDEX_HTML = """<!doctype html>
 
     function setPanel(panel) {
       if (!['map', 'new', 'connectivity', 'route'].includes(panel)) return;
+      resetPendingMapClear();
       currentPanel = panel;
       if (panel === 'route' && !routeSourceId && selectedSourceId) {
         routeSourceId = selectedSourceId;
@@ -2249,12 +2366,14 @@ INDEX_HTML = """<!doctype html>
       if ((direction === 'out' || direction === 'mutual') && node && !hasOwnNeighborData(node)) {
         return;
       }
+      resetPendingMapClear();
       connectivityDirection = direction;
       localStorage.setItem('meshcoreDashboardConnectivityDirection', direction);
       if (latestState) render(latestState);
     }
 
     function setShowArchived(value) {
+      resetPendingMapClear();
       showArchived = Boolean(value);
       localStorage.setItem('meshcoreDashboardShowArchived', showArchived ? 'true' : 'false');
       if (latestState) render(latestState);
@@ -2882,15 +3001,124 @@ INDEX_HTML = """<!doctype html>
       fitNodeCollection(data.nodes.filter((node) => ids.has(node.identity_hex)), routeSourceId || routeTargetId);
     }
 
-    function renderSummary(state) {
+    function currentPanelCopy() {
+      if (currentPanel === 'connectivity') {
+        return { title: tr('toolbarConnectivityTitle'), subtitle: tr('toolbarConnectivitySubtitle') };
+      }
+      if (currentPanel === 'new') {
+        return { title: tr('toolbarNewTitle'), subtitle: tr('toolbarNewSubtitle') };
+      }
+      if (currentPanel === 'route') {
+        return { title: tr('toolbarRouteTitle'), subtitle: tr('toolbarRouteSubtitle') };
+      }
+      return { title: tr('toolbarMapTitle'), subtitle: tr('toolbarMapSubtitle') };
+    }
+
+    function routeSummaryValue(routeResult, historicalRouteResult = null) {
+      if (routeResult?.path) return tr('routeStatusYes');
+      if (historicalRouteResult?.path) return tr('routeHistoricalRoute');
+      return tr('routeStatusNo');
+    }
+
+    function renderSummaryMetrics(cards, metricClass) {
+      return cards.map((item) => `
+        <div class="${metricClass}">
+          <strong>${item.value}</strong>
+          <span>${item.label}</span>
+        </div>
+      `).join('');
+    }
+
+    function buildPanelSummary(state) {
+      const panelCopy = currentPanelCopy();
       const nodes = relevantNodes(state);
-      const html = [
+      const data = connectivityData(state);
+      const selectedNode = selectedSourceId ? data.nodeIndex.get(selectedSourceId) || null : null;
+      const defaultCards = [
         { label: currentPanel === 'new' ? tr('summaryNew') : tr('summaryKnown'), value: nodes.length },
         { label: tr('summaryWithData'), value: nodes.filter((node) => !isInactive(node) && node.data_fetch_ok).length },
         { label: tr('summaryPending'), value: nodes.filter((node) => !isInactive(node) && !node.data_fetch_ok).length },
         { label: tr('summaryInactive'), value: nodes.filter((node) => isInactive(node)).length },
-      ].map((item) => `<div class=\"summary-card\"><strong>${item.value}</strong><span>${item.label}</span></div>`).join('');
-      document.getElementById('summary').innerHTML = html;
+      ];
+      if (currentPanel === 'connectivity') {
+        const node = selectedConnectivityNode(state);
+        if (!node) {
+          return { ...panelCopy, status: '', cards: defaultCards };
+        }
+        const relations = data.relationMap.get(node.identity_hex) || { outgoing: [], incoming: [] };
+        return {
+          title: panelCopy.title,
+          subtitle: `${tr('selectedRepeater')}: ${node.name}`,
+          status: connectivityModeLabel(node),
+          cards: [
+            { label: tr('connectivityVisible'), value: connectivityVisibleRows(state, node.identity_hex).length },
+            { label: tr('connectivitySummaryOut'), value: relations.outgoing.length },
+            { label: tr('connectivitySummaryIn'), value: relations.incoming.length },
+            { label: tr('connectivitySummaryMutual'), value: relationRows(state, node.identity_hex, '2way').length },
+          ],
+        };
+      }
+      if (currentPanel === 'route') {
+        const sourceNode = routeSourceId ? data.nodeIndex.get(routeSourceId) || null : null;
+        const targetNode = routeTargetId ? data.nodeIndex.get(routeTargetId) || null : null;
+        const hasRoutePair = Boolean(sourceNode && targetNode && routeSourceId !== routeTargetId);
+        const reachability = sourceNode ? buildRouteReachability(state, routeSourceId) : null;
+        const forward = hasRoutePair ? buildRouteResult(state, routeSourceId, routeTargetId) : null;
+        const backward = hasRoutePair ? buildRouteResult(state, routeTargetId, routeSourceId) : null;
+        const historicalForward = forward?.path || !hasRoutePair
+          ? null
+          : buildHistoricalRouteResult(state, routeSourceId, routeTargetId);
+        const historicalBackward = backward?.path || !hasRoutePair
+          ? null
+          : buildHistoricalRouteResult(state, routeTargetId, routeSourceId);
+        let subtitle = panelCopy.subtitle;
+        let status = '';
+        if (sourceNode && targetNode) {
+          subtitle = `${tr('routeSource')}: ${sourceNode.name} | ${tr('routeTarget')}: ${targetNode.name}`;
+          status = `${tr('routeForward')} / ${tr('routeBackward')}`;
+        } else if (sourceNode) {
+          subtitle = `${tr('routeSource')}: ${sourceNode.name}`;
+          status = tr('routeStatePickTarget');
+        } else if (targetNode) {
+          subtitle = `${tr('routeTarget')}: ${targetNode.name}`;
+          status = tr('routeStatePickSource');
+        }
+        return {
+          title: panelCopy.title,
+          subtitle,
+          status,
+          cards: [
+            { label: tr('routeSelectedA'), value: sourceNode ? tr('statusData') : '-' },
+            { label: tr('routeSelectedB'), value: targetNode ? tr('statusData') : '-' },
+            hasRoutePair
+              ? { label: tr('routeForward'), value: routeSummaryValue(forward, historicalForward) }
+              : { label: tr('routeReachabilityFreshShort'), value: reachability ? reachability.destinations.length : '-' },
+            hasRoutePair
+              ? { label: tr('routeBackward'), value: routeSummaryValue(backward, historicalBackward) }
+              : { label: tr('routeReachabilityStaleShort'), value: reachability ? reachability.destinations.filter((destination) => destination.usesStale).length : '-' },
+          ],
+        };
+      }
+      return {
+        title: panelCopy.title,
+        subtitle: selectedNode ? `${tr('selectedRepeater')}: ${selectedNode.name}` : panelCopy.subtitle,
+        status: selectedNode ? nodeStateLabel(selectedNode) : '',
+        cards: defaultCards,
+      };
+    }
+
+    function renderSummary(state) {
+      const summary = buildPanelSummary(state);
+      document.getElementById('summary').innerHTML = `
+        <div class="summary-head">
+          <div class="summary-copy">
+            <strong>${summary.title}</strong>
+            <span>${summary.subtitle}</span>
+          </div>
+          ${summary.status ? `<span class="summary-badge">${summary.status}</span>` : ''}
+        </div>
+        <div class="summary-grid">${renderSummaryMetrics(summary.cards, 'summary-card')}</div>
+      `;
     }
 
     function renderPrimaryTabs() {
@@ -2956,6 +3184,22 @@ INDEX_HTML = """<!doctype html>
       if (routeActiveEndpoint === 'source') return tr('routeTapTargetSource');
       if (routeActiveEndpoint === 'target') return tr('routeTapTargetTarget');
       return tr('routeTapTargetReady');
+    }
+
+    function renderMobileOverview(state) {
+      const summary = buildPanelSummary(state);
+      return `
+        <div class="mobile-overview-card">
+          <div class="mobile-overview-head">
+            <div class="mobile-overview-copy">
+              <strong>${summary.title}</strong>
+              <span>${summary.subtitle}</span>
+            </div>
+            ${summary.status ? `<span class="mobile-overview-status">${summary.status}</span>` : ''}
+          </div>
+          <div class="mobile-overview-grid">${renderSummaryMetrics(summary.cards, 'mobile-overview-metric')}</div>
+        </div>
+      `;
     }
 
     function connectivityVisibleRows(state, nodeId) {
@@ -3323,7 +3567,32 @@ INDEX_HTML = """<!doctype html>
       `;
     }
 
+    function activeMapSelectionKey() {
+      if (currentPanel === 'route') return null;
+      if (!selectedSourceId && !selectedNeighborId) return null;
+      return `${currentPanel}:${selectedSourceId || ''}:${selectedNeighborId || ''}`;
+    }
+
+    function resetPendingMapClear() {
+      pendingMapClearSelectionKey = null;
+      pendingMapClearExpiresAt = 0;
+    }
+
+    function armBlankMapClear() {
+      const selectionKey = activeMapSelectionKey();
+      if (!selectionKey) {
+        resetPendingMapClear();
+        return false;
+      }
+      const now = Date.now();
+      const shouldClear = pendingMapClearSelectionKey === selectionKey && pendingMapClearExpiresAt > now;
+      pendingMapClearSelectionKey = selectionKey;
+      pendingMapClearExpiresAt = now + BLANK_MAP_CLEAR_WINDOW_MS;
+      return shouldClear;
+    }
+
     function selectNode(identityHex) {
+      resetPendingMapClear();
       if (selectedSourceId === identityHex) {
         clearSelection();
         return;
@@ -3344,8 +3613,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function clearSelection() {
+      resetPendingMapClear();
       selectedSourceId = null;
       selectedNeighborId = null;
+      if (!latestState) return;
       render(latestState);
     }
 
@@ -3694,20 +3965,9 @@ INDEX_HTML = """<!doctype html>
       const nodes = listNodes(state);
       const selectedNode = selectedSourceId ? allNodes.find((node) => node.identity_hex === selectedSourceId) : null;
       const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
-      const panelTitle = currentPanel === 'connectivity'
-        ? tr('toolbarConnectivityTitle')
-        : currentPanel === 'new'
-          ? tr('toolbarNewTitle')
-        : currentPanel === 'route'
-          ? tr('toolbarRouteTitle')
-          : tr('toolbarMapTitle');
-      const panelSubtitle = currentPanel === 'connectivity'
-        ? tr('toolbarConnectivitySubtitle')
-        : currentPanel === 'new'
-          ? tr('toolbarNewSubtitle')
-        : currentPanel === 'route'
-          ? tr('toolbarRouteSubtitle')
-          : tr('toolbarMapSubtitle');
+      const panelCopy = currentPanelCopy();
+      const panelTitle = panelCopy.title;
+      const panelSubtitle = panelCopy.subtitle;
       const archivedCount = archivedNodeCount(state);
       let html = '';
       const sortHtml = currentPanel === 'map' && !isPortraitMobileView()
@@ -3754,6 +4014,9 @@ INDEX_HTML = """<!doctype html>
         </div>
       `;
       html += renderAnalysisTabs();
+      if (isPortraitMobileView()) {
+        html += renderMobileOverview(state);
+      }
       if (currentPanel === 'connectivity') {
         html += renderConnectivityPanel(state);
       } else if (currentPanel === 'route') {
@@ -4265,6 +4528,10 @@ INDEX_HTML = """<!doctype html>
 
     map.on('click', () => {
       hoveredNodeId = null;
+      if (armBlankMapClear()) {
+        clearSelection();
+        return;
+      }
       if (latestState) renderMap(latestState);
     });
     map.on('zoomend', () => {

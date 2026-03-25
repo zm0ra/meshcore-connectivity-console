@@ -2545,6 +2545,9 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'nazwa, prefix, hex (min. 2 znaki)' in INDEX_HTML
     assert 'data-panel="connectivity"' in INDEX_HTML
     assert 'data-panel="route"' in INDEX_HTML
+    assert 'function buildPanelSummary(state)' in INDEX_HTML
+    assert 'function renderMobileOverview(state)' in INDEX_HTML
+    assert 'function armBlankMapClear()' in INDEX_HTML
 
 
 def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:
