@@ -851,7 +851,13 @@ class BotDatabase:
                 JOIN repeaters r ON r.id = pj.repeater_id
                 WHERE pj.status = 'pending'
                     AND pj.scheduled_at <= ?
-                ORDER BY pj.scheduled_at ASC, pj.id ASC
+                ORDER BY CASE
+                           WHEN pj.reason = 'endpoint local console redirect' THEN 0
+                           WHEN pj.reason LIKE 'manual %' THEN 1
+                           ELSE 2
+                         END ASC,
+                         pj.scheduled_at ASC,
+                         pj.id ASC
                 LIMIT 1
                   """,
                   (started_at,),
@@ -1804,21 +1810,39 @@ class BotDatabase:
                            SELECT pj.scheduled_at
                            FROM probe_jobs pj
                            WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
-                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           ORDER BY CASE
+                                      WHEN pj.reason = 'endpoint local console redirect' THEN 0
+                                      WHEN pj.reason LIKE 'manual %' THEN 1
+                                      ELSE 2
+                                    END ASC,
+                                    pj.scheduled_at ASC,
+                                    pj.id ASC
                            LIMIT 1
                        ) AS next_probe_scheduled_at,
                        (
                            SELECT pj.reason
                            FROM probe_jobs pj
                            WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
-                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           ORDER BY CASE
+                                      WHEN pj.reason = 'endpoint local console redirect' THEN 0
+                                      WHEN pj.reason LIKE 'manual %' THEN 1
+                                      ELSE 2
+                                    END ASC,
+                                    pj.scheduled_at ASC,
+                                    pj.id ASC
                            LIMIT 1
                        ) AS next_probe_reason,
                        (
                            SELECT pj.status
                            FROM probe_jobs pj
                            WHERE pj.repeater_id = r.id AND pj.status IN ('pending', 'running')
-                           ORDER BY pj.scheduled_at ASC, pj.id ASC
+                           ORDER BY CASE
+                                      WHEN pj.reason = 'endpoint local console redirect' THEN 0
+                                      WHEN pj.reason LIKE 'manual %' THEN 1
+                                      ELSE 2
+                                    END ASC,
+                                    pj.scheduled_at ASC,
+                                    pj.id ASC
                            LIMIT 1
                        ) AS next_probe_status,
                        (

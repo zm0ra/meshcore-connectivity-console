@@ -8,6 +8,7 @@ import struct
 import time
 from datetime import UTC, datetime
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Callable, cast
 
 from .config import AppConfig, EndpointConfig
@@ -35,6 +36,10 @@ from .transport import PacketTransportClient
 
 class ProbeTimeoutError(TimeoutError):
     pass
+
+
+def probe_wakeup_socket_path(config: AppConfig) -> Path:
+    return config.storage.database_path.parent / "probe-wakeup.sock"
 
 
 def select_login_candidates(
@@ -201,6 +206,9 @@ class GuestProbeWorker:
         self._next_scheduled_reprobe_scan_monotonic = 0.0
         self._progress_callback = progress_callback
         self._local_console_resolver = LocalConsoleEndpointResolver(config, logger=self.logger)
+        self._wakeup_event = asyncio.Event()
+        self._wakeup_server: asyncio.AbstractServer | None = None
+        self._wakeup_socket_path = probe_wakeup_socket_path(config)
 
     def _progress(self, event: str, **payload: object) -> None:
         if self._progress_callback is None:
@@ -209,24 +217,79 @@ class GuestProbeWorker:
 
     async def run(self) -> None:
         self.database.initialize()
-        recovered = self.database.recover_interrupted_probe_work()
-        self._next_scheduled_reprobe_scan_monotonic = time.monotonic() + self.SCHEDULED_REPROBE_SCAN_INTERVAL_SECS
-        if recovered["jobs_interrupted"] or recovered["runs_interrupted"]:
-            self.logger.warning(
-                "marked interrupted probe work jobs=%s runs=%s",
-                recovered["jobs_interrupted"],
-                recovered["runs_interrupted"],
-            )
-        while not self._stop_event.is_set():
-            self._schedule_stale_reprobes_if_due()
-            job = self.database.claim_probe_job()
-            if job is None:
-                await asyncio.sleep(self.config.probe.poll_interval_secs)
-                continue
-            await self._run_job(job)
+        await self._start_wakeup_listener()
+        try:
+            recovered = self.database.recover_interrupted_probe_work()
+            self._next_scheduled_reprobe_scan_monotonic = time.monotonic() + self.SCHEDULED_REPROBE_SCAN_INTERVAL_SECS
+            if recovered["jobs_interrupted"] or recovered["runs_interrupted"]:
+                self.logger.warning(
+                    "marked interrupted probe work jobs=%s runs=%s",
+                    recovered["jobs_interrupted"],
+                    recovered["runs_interrupted"],
+                )
+            while not self._stop_event.is_set():
+                self._schedule_stale_reprobes_if_due()
+                job = self.database.claim_probe_job()
+                if job is None:
+                    await self._wait_for_next_job()
+                    continue
+                await self._run_job(job)
+        finally:
+            await self._stop_wakeup_listener()
 
     async def stop(self) -> None:
         self._stop_event.set()
+        self._wakeup_event.set()
+
+    async def _start_wakeup_listener(self) -> None:
+        self._wakeup_socket_path.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            self._wakeup_socket_path.unlink()
+        try:
+            self._wakeup_server = await asyncio.start_unix_server(
+                self._handle_wakeup_connection,
+                path=str(self._wakeup_socket_path),
+            )
+        except OSError as exc:
+            self.logger.warning("probe wakeup listener unavailable path=%s error=%s", self._wakeup_socket_path, exc)
+            self._wakeup_server = None
+
+    async def _stop_wakeup_listener(self) -> None:
+        if self._wakeup_server is not None:
+            self._wakeup_server.close()
+            await self._wakeup_server.wait_closed()
+            self._wakeup_server = None
+        with contextlib.suppress(FileNotFoundError):
+            self._wakeup_socket_path.unlink()
+
+    async def _handle_wakeup_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            await reader.read(64)
+        except Exception:
+            pass
+        self._wakeup_event.set()
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+
+    async def _wait_for_next_job(self) -> None:
+        timeout_secs = max(0.0, self.config.probe.poll_interval_secs)
+        if self._wakeup_event.is_set():
+            self._wakeup_event.clear()
+            return
+        if timeout_secs <= 0:
+            await asyncio.sleep(0)
+            return
+        try:
+            await asyncio.wait_for(self._wakeup_event.wait(), timeout=timeout_secs)
+        except TimeoutError:
+            pass
+        finally:
+            self._wakeup_event.clear()
 
     def _schedule_stale_reprobes_if_due(self) -> None:
         now_utc = datetime.now(tz=UTC)
@@ -1624,4 +1687,3 @@ class GuestProbeWorker:
 
     def _build_direct_transport(self, endpoint: EndpointConfig) -> PacketTransportClient:
         return MeshcoreTCPClient(endpoint.raw_host, endpoint.raw_port)
-

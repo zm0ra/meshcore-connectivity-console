@@ -1,9 +1,140 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+import asyncio
+from datetime import UTC, datetime, timedelta
 
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
+
+from .config import AppConfig
 from .database import BotDatabase
+from .probe_service import probe_wakeup_socket_path
+
+
+MANUAL_WEB_PROBE_REASON = "manual web fetch"
+MANUAL_WEB_PROBE_MAX_PER_WINDOW = 2
+MANUAL_WEB_PROBE_WINDOW_SECS = 3600.0
+MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS = 60.0
+
+
+class ProbeJobCreatePayload(BaseModel):
+    repeater_id: int
+
+
+def _enabled_endpoint_names(config: AppConfig) -> list[str]:
+    return [endpoint.name for endpoint in config.endpoints if endpoint.enabled]
+
+
+def _resolve_manual_probe_endpoint_name(
+    *,
+    config: AppConfig,
+    database: BotDatabase,
+    repeater_id: int,
+    repeater_name: str | None,
+) -> str | None:
+    normalized_repeater_name = str(repeater_name or "").strip()
+    if normalized_repeater_name:
+        for endpoint in config.endpoints:
+            if not endpoint.enabled:
+                continue
+            if str(endpoint.local_node_name or "").strip() == normalized_repeater_name:
+                return endpoint.name
+
+    enabled_names = _enabled_endpoint_names(config)
+    if not enabled_names:
+        return None
+
+    candidate_names = database.recommended_repeater_endpoint_names(
+        repeater_id=repeater_id,
+        endpoint_names=enabled_names,
+    )
+    for candidate_name in candidate_names:
+        if candidate_name in enabled_names:
+            return candidate_name
+
+    return enabled_names[0]
+
+
+def _active_probe_job_for_repeater(database: BotDatabase, *, repeater_id: int) -> dict[str, object] | None:
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=8)
+    active_jobs = [job for job in jobs if str(job.get("status") or "") in {"pending", "running"}]
+    if not active_jobs:
+        return None
+    active_jobs.sort(key=lambda job: (str(job.get("scheduled_at") or ""), int(job.get("id") or 0)))
+    return active_jobs[0]
+
+
+async def _notify_probe_worker(config: AppConfig) -> bool:
+    socket_path = probe_wakeup_socket_path(config)
+    try:
+        _, writer = await asyncio.open_unix_connection(str(socket_path))
+    except OSError:
+        return False
+    writer.write(b"wake\n")
+    try:
+        await writer.drain()
+    except OSError:
+        writer.close()
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        return False
+    return True
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _manual_probe_schedule_at(database: BotDatabase, *, config: AppConfig) -> str | None:
+    spacing_secs = max(
+        float(config.probe.advert_probe_min_interval_secs),
+        MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS,
+    )
+    if spacing_secs <= 0:
+        return None
+
+    latest_reference_at: datetime | None = None
+    for job in database.list_probe_jobs(limit=256):
+        reason = str(job.get("reason") or "")
+        if not reason.startswith("manual "):
+            continue
+        status = str(job.get("status") or "")
+        if status == "pending":
+            reference_at = _parse_iso_datetime(job.get("scheduled_at"))
+        elif status == "running":
+            reference_at = _parse_iso_datetime(job.get("started_at")) or _parse_iso_datetime(job.get("scheduled_at"))
+        else:
+            reference_at = (
+                _parse_iso_datetime(job.get("finished_at"))
+                or _parse_iso_datetime(job.get("started_at"))
+                or _parse_iso_datetime(job.get("scheduled_at"))
+            )
+        if reference_at is None:
+            continue
+        if latest_reference_at is None or reference_at > latest_reference_at:
+            latest_reference_at = reference_at
+
+    if latest_reference_at is None:
+        return None
+
+    scheduled_at = latest_reference_at + timedelta(seconds=spacing_secs)
+    now = datetime.now(tz=UTC)
+    if scheduled_at <= now:
+        return None
+    return scheduled_at.isoformat()
 
 
 INDEX_HTML = """<!doctype html>
@@ -531,6 +662,74 @@ INDEX_HTML = """<!doctype html>
       font: inherit;
       font-size: 0.7rem;
     }
+    .probe-queue-card {
+      display: grid;
+      gap: 8px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+    .probe-queue-controls {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .probe-submit-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--blue);
+      color: #fff;
+      font: inherit;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: var(--shadow-soft);
+    }
+    .probe-submit-button:disabled {
+      opacity: 0.58;
+      cursor: wait;
+      box-shadow: none;
+    }
+    .probe-note {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.28;
+    }
+    .probe-status-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(21, 33, 42, 0.05);
+      color: var(--muted);
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .probe-status-chip.pending,
+    .probe-status-chip.busy {
+      background: rgba(44, 113, 209, 0.12);
+      color: var(--blue);
+    }
+    .probe-status-chip.cooldown {
+      background: rgba(207, 170, 56, 0.16);
+      color: #8a6a0d;
+    }
+    .probe-status-chip.error {
+      background: rgba(198, 74, 61, 0.12);
+      color: var(--red);
+    }
     .neighbor-table {
       width: 100%;
       border-collapse: collapse;
@@ -611,6 +810,11 @@ INDEX_HTML = """<!doctype html>
     .panel-stack {
       display: grid;
       gap: 10px;
+    }
+    @media (max-width: 560px) {
+      .probe-submit-button {
+        width: 100%;
+      }
     }
     .panel-section {
       display: grid;
@@ -1896,6 +2100,21 @@ INDEX_HTML = """<!doctype html>
         emptyNoSearchResults: 'Brak punktów pasujących do filtra.',
         inspection: 'Szczegóły punktu',
         clearFocus: 'Wyczyść wybór',
+        probeQueueTitle: 'Pobierz dane',
+        probeQueueAction: 'Dodaj',
+        probeQueueBusy: 'Dodaję...',
+        probeQueueQueued: 'dodano',
+        probeQueuePending: 'czeka',
+        probeQueueRunning: 'trwa',
+        probeQueueCooldown: 'limit',
+        probeQueueError: 'błąd',
+        probeQueueHintQueuedNow: 'Dodano jako następne.',
+        probeQueueHintQueuedAt: (when) => `Dodano, nie wcześniej niż ${when}.`,
+        probeQueueHintPendingNow: 'Już czeka.',
+        probeQueueHintPendingAt: (when) => `Czeka, nie wcześniej niż ${when}.`,
+        probeQueueHintRunning: 'Pobranie trwa.',
+        probeQueueHintCooldown: 'Pominięto przez limit lub cooldown.',
+        probeQueueHintError: 'Nie udało się dodać.',
         role: 'Rola',
         firstSeen: 'Pierwsze wykrycie',
         firstSeenLabel: 'pierwsze wykrycie',
@@ -2095,6 +2314,21 @@ INDEX_HTML = """<!doctype html>
         emptyNoSearchResults: 'No nodes match the current filter.',
         inspection: 'Node details',
         clearFocus: 'Clear selection',
+        probeQueueTitle: 'Fetch data',
+        probeQueueAction: 'Queue',
+        probeQueueBusy: 'Queuing...',
+        probeQueueQueued: 'queued',
+        probeQueuePending: 'pending',
+        probeQueueRunning: 'running',
+        probeQueueCooldown: 'limit',
+        probeQueueError: 'error',
+        probeQueueHintQueuedNow: 'Queued as next.',
+        probeQueueHintQueuedAt: (when) => `Queued, not before ${when}.`,
+        probeQueueHintPendingNow: 'Already pending.',
+        probeQueueHintPendingAt: (when) => `Pending, not before ${when}.`,
+        probeQueueHintRunning: 'Fetch already running.',
+        probeQueueHintCooldown: 'Skipped by cooldown or queue limit.',
+        probeQueueHintError: 'Unable to queue the job.',
         role: 'Role',
         firstSeen: 'First seen',
         firstSeenLabel: 'first seen',
@@ -2237,6 +2471,8 @@ INDEX_HTML = """<!doctype html>
     let pendingMapClearSelectionKey = null;
     let pendingMapClearExpiresAt = 0;
     let restoreDoubleClickZoomTimer = null;
+    let probeQueueFeedback = null;
+    let probeQueueBusyNodeId = null;
     const BLANK_MAP_CLEAR_WINDOW_MS = 900;
     const DOUBLE_CLICK_ZOOM_RESTORE_MS = 260;
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
@@ -3634,6 +3870,47 @@ INDEX_HTML = """<!doctype html>
       render(latestState);
     }
 
+    async function queueProbeJob(repeaterId) {
+      if (!latestState) return;
+      const numericRepeaterId = Number(repeaterId);
+      if (!Number.isFinite(numericRepeaterId)) return;
+      const node = (latestState.nodes || []).find((item) => Number(item.id) === numericRepeaterId);
+      if (!node) return;
+
+      probeQueueBusyNodeId = node.identity_hex;
+      if (latestState) render(latestState);
+
+      try {
+        const response = await fetch('/api/probe-jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repeater_id: numericRepeaterId,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'queue failed');
+        }
+        probeQueueFeedback = {
+          identityHex: node.identity_hex,
+          status: payload.status || 'error',
+          scheduledAt: payload.scheduled_at || null,
+        };
+        await refresh();
+      } catch (error) {
+        probeQueueFeedback = {
+          identityHex: node.identity_hex,
+          status: 'error',
+          scheduledAt: null,
+        };
+        if (latestState) render(latestState);
+      } finally {
+        probeQueueBusyNodeId = null;
+        if (latestState) render(latestState);
+      }
+    }
+
     function lineSignalMetric(link) {
       if (typeof link.snr === 'number') {
         return { value: link.snr, label: `SNR ${link.snr.toFixed(1)} dB`, short: `SNR ${link.snr.toFixed(1)}`, kind: 'SNR' };
@@ -3837,6 +4114,118 @@ INDEX_HTML = """<!doctype html>
         .sort((left, right) => new Date(left.collected_at) - new Date(right.collected_at));
     }
 
+    function probeJobsForNode(state, node) {
+      if (!node) return [];
+      return (state.probe_jobs || []).filter((job) => job.pubkey_hex === node.identity_hex);
+    }
+
+    function nextProbeJobForNode(state, node) {
+      const activeJobs = probeJobsForNode(state, node)
+        .filter((job) => job.status === 'pending' || job.status === 'running')
+        .sort((left, right) => {
+          const leftRank = left.status === 'running' ? 0 : 1;
+          const rightRank = right.status === 'running' ? 0 : 1;
+          if (leftRank !== rightRank) return leftRank - rightRank;
+          const leftTime = left.scheduled_at ? new Date(left.scheduled_at).getTime() : 0;
+          const rightTime = right.scheduled_at ? new Date(right.scheduled_at).getTime() : 0;
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return (left.id || 0) - (right.id || 0);
+        });
+      return activeJobs[0] || null;
+    }
+
+    function probeQueueFeedbackForNode(node) {
+      if (!node || !probeQueueFeedback) return null;
+      return probeQueueFeedback.identityHex === node.identity_hex ? probeQueueFeedback : null;
+    }
+
+    function probeQueueSummary(state, node) {
+      if (!node) return null;
+      const activeJob = nextProbeJobForNode(state, node);
+      if (activeJob) {
+        if (activeJob.status === 'running') {
+          return {
+            chip: tr('probeQueueRunning'),
+            chipClass: 'busy',
+            note: tr('probeQueueHintRunning'),
+          };
+        }
+        if (activeJob.scheduled_at && new Date(activeJob.scheduled_at).getTime() > Date.now()) {
+          return {
+            chip: tr('probeQueuePending'),
+            chipClass: 'pending',
+            note: tr('probeQueueHintPendingAt')(formatShortWhen(activeJob.scheduled_at)),
+          };
+        }
+        return {
+          chip: tr('probeQueuePending'),
+          chipClass: 'pending',
+          note: tr('probeQueueHintPendingNow'),
+        };
+      }
+
+      if (probeQueueBusyNodeId === node.identity_hex) {
+        return {
+          chip: tr('probeQueuePending'),
+          chipClass: 'busy',
+          note: tr('probeQueueBusy'),
+        };
+      }
+
+      const feedback = probeQueueFeedbackForNode(node);
+      if (!feedback) return null;
+      if (feedback.status === 'queued') {
+        return {
+          chip: tr('probeQueueQueued'),
+          chipClass: 'pending',
+          note: feedback.scheduledAt
+            ? tr('probeQueueHintQueuedAt')(formatShortWhen(feedback.scheduledAt))
+            : tr('probeQueueHintQueuedNow'),
+        };
+      }
+      if (feedback.status === 'already_pending') {
+        return {
+          chip: tr('probeQueuePending'),
+          chipClass: 'pending',
+          note: feedback.scheduledAt
+            ? tr('probeQueueHintPendingAt')(formatShortWhen(feedback.scheduledAt))
+            : tr('probeQueueHintPendingNow'),
+        };
+      }
+      if (feedback.status === 'cooldown') {
+        return {
+          chip: tr('probeQueueCooldown'),
+          chipClass: 'cooldown',
+          note: tr('probeQueueHintCooldown'),
+        };
+      }
+      if (feedback.status === 'error') {
+        return {
+          chip: tr('probeQueueError'),
+          chipClass: 'error',
+          note: tr('probeQueueHintError'),
+        };
+      }
+      return null;
+    }
+
+    function renderProbeQueueCard(state, node) {
+      const summary = probeQueueSummary(state, node);
+      const isBusy = probeQueueBusyNodeId === node.identity_hex;
+      return `
+        <div class=\"probe-queue-card\">
+          <div class=\"expand-head\">
+            <strong>${tr('probeQueueTitle')}</strong>
+            ${summary ? `<span class=\"probe-status-chip ${summary.chipClass}\">${summary.chip}</span>` : ''}
+          </div>
+          <div class=\"probe-queue-controls\">
+            <button type=\"button\" class=\"probe-submit-button\" data-queue-probe=\"${node.id}\" ${isBusy ? 'disabled' : ''}>${isBusy ? tr('probeQueueBusy') : tr('probeQueueAction')}</button>
+          </div>
+          ${summary?.note ? `<div class=\"probe-note\">${summary.note}</div>` : ''}
+        </div>
+      `;
+    }
+
     function renderSignalChart(node, neighborLink, historyRows) {
       if (!node) return `<div class=\"empty-note\">${tr('emptySelectRepeater')}</div>`;
       if (!neighborLink) return `<div class=\"empty-note\">${tr('emptySelectNeighbor')}</div>`;
@@ -3944,6 +4333,7 @@ INDEX_HTML = """<!doctype html>
             <div class=\"detail-cell\"><strong>${tr('lastProbeResult')}</strong>${describeProbeResult(node)}</div>
             <div class=\"detail-cell\"><strong>${tr('lastProbeAttempt')}</strong>${formatWhen(node.last_probe_at)}</div>
           </div>
+          ${renderProbeQueueCard(state, node)}
           <div>
             <div class=\"expand-head\"><strong>${tr('directNeighbors')}</strong><span class=\"node-state-tag\">${selectedLinks.length}</span></div>
             ${neighborRows}
@@ -4073,6 +4463,11 @@ INDEX_HTML = """<!doctype html>
               render(latestState);
             });
           }
+          for (const button of container.querySelectorAll('[data-queue-probe]')) {
+            button.addEventListener('click', () => {
+              queueProbeJob(button.dataset.queueProbe);
+            });
+          }
           for (const button of container.querySelectorAll('[data-mobile-peer]')) {
             button.addEventListener('click', () => {
               selectedNeighborId = selectedNeighborId === button.dataset.mobilePeer ? null : button.dataset.mobilePeer;
@@ -4122,6 +4517,11 @@ INDEX_HTML = """<!doctype html>
         input.addEventListener('input', () => {
           nodeSearchQuery = input.value || '';
           render(latestState);
+        });
+      }
+      for (const button of container.querySelectorAll('[data-queue-probe]')) {
+        button.addEventListener('click', () => {
+          queueProbeJob(button.dataset.queueProbe);
         });
       }
       for (const button of container.querySelectorAll('[data-toggle-archived]')) {
@@ -4579,7 +4979,7 @@ INDEX_HTML = """<!doctype html>
 """
 
 
-def create_app(database: BotDatabase) -> FastAPI:
+def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
     app = FastAPI(title="meshcore-bot", version="0.1.0")
 
     @app.get("/healthz")
@@ -4599,6 +4999,84 @@ def create_app(database: BotDatabase) -> FastAPI:
                   "route_hints": database.repeater_route_hints(limit_repeaters=128),
                   "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
                 },
+            }
+        )
+
+    @app.post("/api/probe-jobs")
+    async def create_probe_job(payload: ProbeJobCreatePayload) -> JSONResponse:
+        repeater_id = int(payload.repeater_id)
+        repeater = database.repeater_full_state(repeater_id=repeater_id)
+        if repeater is None:
+            raise HTTPException(status_code=404, detail="unknown repeater")
+
+        active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
+        if active_job is not None:
+            return JSONResponse(
+                {
+                    "status": "already_pending",
+                    "job_id": active_job.get("id"),
+                    "endpoint_name": active_job.get("endpoint_name"),
+                    "scheduled_at": active_job.get("scheduled_at"),
+                }
+            )
+
+        endpoint_name = _resolve_manual_probe_endpoint_name(
+            config=config,
+            database=database,
+            repeater_id=repeater_id,
+            repeater_name=str(repeater.get("last_name_from_advert") or ""),
+        )
+        if not endpoint_name:
+            raise HTTPException(status_code=503, detail="no enabled endpoint available")
+
+        success_cooldown_secs = max(
+            MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS,
+            float(config.probe.advert_probe_min_interval_secs),
+        )
+        failure_cooldown_secs = max(
+            float(config.probe.advert_reprobe_failure_cooldown_secs),
+            float(config.probe.request_timeout_secs),
+        )
+        scheduled_at = _manual_probe_schedule_at(database, config=config)
+        job_id = database.enqueue_probe_job(
+            repeater_id=repeater_id,
+            endpoint_name=endpoint_name,
+            reason=MANUAL_WEB_PROBE_REASON,
+            success_cooldown_secs=success_cooldown_secs,
+            failure_cooldown_secs=failure_cooldown_secs,
+            scheduled_at=scheduled_at,
+            max_recent_jobs=MANUAL_WEB_PROBE_MAX_PER_WINDOW,
+            recent_window_secs=MANUAL_WEB_PROBE_WINDOW_SECS,
+        )
+        if job_id is not None:
+            if scheduled_at is None:
+                await _notify_probe_worker(config)
+            return JSONResponse(
+                {
+                    "status": "queued",
+                    "job_id": job_id,
+                    "endpoint_name": endpoint_name,
+                    "scheduled_at": scheduled_at,
+                }
+            )
+
+        active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
+        if active_job is not None:
+            return JSONResponse(
+                {
+                    "status": "already_pending",
+                    "job_id": active_job.get("id"),
+                    "endpoint_name": active_job.get("endpoint_name"),
+                    "scheduled_at": active_job.get("scheduled_at"),
+                }
+            )
+
+        return JSONResponse(
+            {
+                "status": "cooldown",
+                "job_id": None,
+                "endpoint_name": endpoint_name,
+                "scheduled_at": None,
             }
         )
 

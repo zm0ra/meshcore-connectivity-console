@@ -45,7 +45,7 @@ from meshcore_bot.repeater_protocol import (
 )
 from meshcore_bot.tcp_client import MeshcoreTCPClient
 from meshcore_bot.tcp_client import ReceivedPacket
-from meshcore_bot.web_service import INDEX_HTML
+from meshcore_bot.web_service import INDEX_HTML, ProbeJobCreatePayload, create_app
 
 
 class FakeTCPClient:
@@ -2532,6 +2532,8 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'function buildHistoricalRouteResult(state, sourceId, targetId)' in INDEX_HTML
     assert 'function buildRouteReachability(state, sourceId)' in INDEX_HTML
     assert 'function renderRouteProbePathSection(state)' in INDEX_HTML
+    assert 'function renderProbeQueueCard(state, node)' in INDEX_HTML
+    assert 'data-queue-probe=' in INDEX_HTML
     assert 'data-node-search="1"' in INDEX_HTML
     assert 'const MIN_NODE_SEARCH_QUERY_LENGTH = 2;' in INDEX_HTML
     assert "function effectiveNodeSearchQuery()" in INDEX_HTML
@@ -2549,6 +2551,161 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'function renderMobileOverview(state)' in INDEX_HTML
     assert 'function armBlankMapClear()' in INDEX_HTML
     assert 'function suppressUpcomingDoubleClickZoom()' in INDEX_HTML
+
+
+def test_web_api_manual_probe_queue_respects_pending_and_cooldown(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    identity = LocalIdentity.generate()
+    repeater_id = database.create_manual_repeater(
+        pubkey_hex=identity.public_key.hex().upper(),
+        name="Manual RPT",
+        endpoint_name="test-endpoint",
+        latitude=53.12,
+        longitude=14.55,
+    )
+
+    app = create_app(database, config)
+    route = next(route for route in app.routes if getattr(route, "path", None) == "/api/probe-jobs")
+
+    with patch("meshcore_bot.web_service._notify_probe_worker", AsyncMock(return_value=True)) as notify_worker:
+        queued_response = asyncio.run(route.endpoint(ProbeJobCreatePayload(repeater_id=repeater_id)))
+    assert queued_response.status_code == 200
+    queued_payload = json.loads(queued_response.body)
+    assert queued_payload["status"] == "queued"
+    assert queued_payload["endpoint_name"] == "test-endpoint"
+    assert queued_payload["job_id"] is not None
+    assert queued_payload["scheduled_at"] is None
+    assert notify_worker.await_count == 1
+
+    pending_response = asyncio.run(route.endpoint(ProbeJobCreatePayload(repeater_id=repeater_id)))
+    assert pending_response.status_code == 200
+    pending_payload = json.loads(pending_response.body)
+    assert pending_payload["status"] == "already_pending"
+    assert pending_payload["job_id"] == queued_payload["job_id"]
+
+    database.finish_probe_job(int(queued_payload["job_id"]), status="completed")
+
+    cooldown_response = asyncio.run(route.endpoint(ProbeJobCreatePayload(repeater_id=repeater_id)))
+    assert cooldown_response.status_code == 200
+    cooldown_payload = json.loads(cooldown_response.body)
+    assert cooldown_payload["status"] == "cooldown"
+    assert cooldown_payload["endpoint_name"] == "test-endpoint"
+
+
+def test_web_api_manual_probe_queue_spaces_multiple_manual_requests(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    first_repeater_id = database.create_manual_repeater(
+        pubkey_hex=LocalIdentity.generate().public_key.hex().upper(),
+        name="Manual A",
+        endpoint_name="test-endpoint",
+        latitude=53.12,
+        longitude=14.55,
+    )
+    second_repeater_id = database.create_manual_repeater(
+        pubkey_hex=LocalIdentity.generate().public_key.hex().upper(),
+        name="Manual B",
+        endpoint_name="test-endpoint",
+        latitude=53.13,
+        longitude=14.56,
+    )
+
+    app = create_app(database, config)
+    route = next(route for route in app.routes if getattr(route, "path", None) == "/api/probe-jobs")
+
+    with patch("meshcore_bot.web_service._notify_probe_worker", AsyncMock(return_value=True)) as notify_worker:
+        first_response = asyncio.run(route.endpoint(ProbeJobCreatePayload(repeater_id=first_repeater_id)))
+        second_response = asyncio.run(route.endpoint(ProbeJobCreatePayload(repeater_id=second_repeater_id)))
+
+    first_payload = json.loads(first_response.body)
+    second_payload = json.loads(second_response.body)
+
+    assert first_payload["status"] == "queued"
+    assert first_payload["scheduled_at"] is None
+    assert second_payload["status"] == "queued"
+    assert second_payload["scheduled_at"] is not None
+    assert notify_worker.await_count == 1
+
+
+def test_probe_worker_wakeup_socket_interrupts_poll_sleep(tmp_path) -> None:
+    config = replace(build_test_app_config(tmp_path), probe=replace(build_test_app_config(tmp_path).probe, poll_interval_secs=30.0))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    worker = GuestProbeWorker(config, database)
+    socket_path = Path("/tmp") / f"meshcore-wake-{tmp_path.name[-8:]}.sock"
+    worker._wakeup_socket_path = socket_path
+
+    async def exercise() -> float:
+        await worker._start_wakeup_listener()
+        started_at = asyncio.get_running_loop().time()
+        waiter = asyncio.create_task(worker._wait_for_next_job())
+        await asyncio.sleep(0.05)
+        _, writer = await asyncio.open_unix_connection(str(socket_path))
+        writer.write(b"wake\n")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.wait_for(waiter, timeout=1.0)
+        elapsed = asyncio.get_running_loop().time() - started_at
+        await worker._stop_wakeup_listener()
+        return elapsed
+
+    elapsed = asyncio.run(exercise())
+    assert elapsed < 1.0
+
+
+def test_claim_probe_job_prioritizes_manual_jobs_over_automatic_refresh(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    automatic_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="priority-auto",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    manual_repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="priority-manual",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    automatic_job_id = database.enqueue_probe_job(
+        repeater_id=automatic_repeater_id,
+        endpoint_name="test-endpoint",
+        reason="scheduled stale refresh",
+    )
+    manual_job_id = database.enqueue_probe_job(
+        repeater_id=manual_repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual cli probe",
+    )
+
+    assert automatic_job_id is not None
+    assert manual_job_id is not None
+
+    claimed = database.claim_probe_job()
+    assert claimed is not None
+    assert claimed["reason"] == "manual cli probe"
+    assert claimed["repeater_id"] == manual_repeater_id
 
 
 def test_repeater_admin_database_helpers_support_manual_lifecycle(tmp_path) -> None:
