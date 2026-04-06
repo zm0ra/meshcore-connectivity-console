@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -16,10 +21,107 @@ MANUAL_WEB_PROBE_REASON = "manual web fetch"
 MANUAL_WEB_PROBE_MAX_PER_WINDOW = 2
 MANUAL_WEB_PROBE_WINDOW_SECS = 3600.0
 MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS = 60.0
+STATE_CACHE_IDLE_TTL_SECS = 300.0
+STATE_CACHE_ACTIVE_TTL_SECS = 15.0
+STATE_SHARED_CACHE_IDLE_TTL_SECS = 60
+STATE_SHARED_CACHE_ACTIVE_TTL_SECS = 15
+STATE_CACHE_STALE_WHILE_REVALIDATE_SECS = 300
 
 
 class ProbeJobCreatePayload(BaseModel):
     repeater_id: int
+
+
+@dataclass(slots=True)
+class _StateSnapshot:
+    payload_bytes: bytes
+    etag: str
+    generated_monotonic: float
+    ttl_secs: float
+    cache_control: str
+
+
+class _StateSnapshotCache:
+    def __init__(self) -> None:
+        self._snapshot: _StateSnapshot | None = None
+        self._lock = asyncio.Lock()
+
+    def invalidate(self) -> None:
+        self._snapshot = None
+
+    async def get_snapshot(self, database: BotDatabase) -> _StateSnapshot:
+        snapshot = self._snapshot
+        if self._is_fresh(snapshot):
+            return snapshot
+
+        async with self._lock:
+            snapshot = self._snapshot
+            if self._is_fresh(snapshot):
+                return snapshot
+
+            payload = _build_state_payload(database)
+            payload_bytes = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            ttl_secs = _state_cache_ttl_secs(payload)
+            self._snapshot = _StateSnapshot(
+                payload_bytes=payload_bytes,
+                etag=f'"{hashlib.sha256(payload_bytes).hexdigest()}"',
+                generated_monotonic=time.monotonic(),
+                ttl_secs=ttl_secs,
+                cache_control=_state_cache_control(ttl_secs),
+            )
+            return self._snapshot
+
+    def _is_fresh(self, snapshot: _StateSnapshot | None) -> bool:
+        if snapshot is None:
+            return False
+        return (time.monotonic() - snapshot.generated_monotonic) < snapshot.ttl_secs
+
+
+def _build_state_payload(database: BotDatabase) -> dict[str, object]:
+    return {
+        "overview": database.snapshot_overview(),
+        "nodes": database.list_repeaters_for_web(),
+        "probe_jobs": database.list_probe_jobs(limit=100),
+        "management": {
+            "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
+            "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
+            "route_hints": database.repeater_route_hints(limit_repeaters=128),
+            "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
+        },
+    }
+
+
+def _state_cache_ttl_secs(payload: dict[str, object]) -> float:
+    probe_jobs = payload.get("probe_jobs")
+    if isinstance(probe_jobs, list):
+        for job in probe_jobs:
+            if not isinstance(job, dict):
+                continue
+            if str(job.get("status") or "") in {"pending", "running"}:
+                return STATE_CACHE_ACTIVE_TTL_SECS
+    return STATE_CACHE_IDLE_TTL_SECS
+
+
+def _state_cache_control(ttl_secs: float) -> str:
+    shared_ttl = STATE_SHARED_CACHE_ACTIVE_TTL_SECS if ttl_secs <= STATE_CACHE_ACTIVE_TTL_SECS else STATE_SHARED_CACHE_IDLE_TTL_SECS
+    return (
+        "public, max-age=0, must-revalidate, "
+        f"s-maxage={shared_ttl}, stale-while-revalidate={STATE_CACHE_STALE_WHILE_REVALIDATE_SECS}"
+    )
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    if not if_none_match:
+        return False
+    for candidate in if_none_match.split(","):
+        normalized = candidate.strip()
+        if normalized == "*":
+            return True
+        if normalized.startswith("W/"):
+            normalized = normalized[2:].strip()
+        if normalized == etag:
+            return True
+    return False
 
 
 def _enabled_endpoint_names(config: AppConfig) -> list[str]:
@@ -2467,6 +2569,9 @@ INDEX_HTML = """<!doctype html>
     let routeActiveEndpoint = 'source';
     let hasFitBounds = false;
     let pendingRefreshState = null;
+    let refreshTimerId = null;
+    let refreshInFlight = null;
+    let latestStateEtag = null;
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
     let pendingMapClearSelectionKey = null;
     let pendingMapClearExpiresAt = 0;
@@ -2476,6 +2581,9 @@ INDEX_HTML = """<!doctype html>
     const BLANK_MAP_CLEAR_WINDOW_MS = 900;
     const DOUBLE_CLICK_ZOOM_RESTORE_MS = 260;
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
+    const IDLE_REFRESH_INTERVAL_MS = 300000;
+    const ACTIVE_PROBE_REFRESH_INTERVAL_MS = 15000;
+    const ERROR_REFRESH_INTERVAL_MS = 60000;
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -3897,7 +4005,7 @@ INDEX_HTML = """<!doctype html>
           status: payload.status || 'error',
           scheduledAt: payload.scheduled_at || null,
         };
-        await refresh();
+        await refresh(true);
       } catch (error) {
         probeQueueFeedback = {
           identityHex: node.identity_hex,
@@ -4930,14 +5038,64 @@ INDEX_HTML = """<!doctype html>
       renderMap(state);
     }
 
-    async function refresh() {
-      const response = await fetch('/api/state');
-      const state = await response.json();
-      if (isSidebarInteractionActive()) {
-        pendingRefreshState = state;
-        return;
+    function hasActiveProbeJobs(state) {
+      return Boolean((state?.probe_jobs || []).some((job) => job.status === 'pending' || job.status === 'running'));
+    }
+
+    function refreshIntervalMs() {
+      if (document.hidden) return null;
+      return hasActiveProbeJobs(latestState) ? ACTIVE_PROBE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS;
+    }
+
+    function scheduleRefresh(delayMs = null) {
+      if (refreshTimerId !== null) {
+        window.clearTimeout(refreshTimerId);
+        refreshTimerId = null;
       }
-      render(state);
+      const nextDelay = delayMs ?? refreshIntervalMs();
+      if (nextDelay === null) return;
+      refreshTimerId = window.setTimeout(() => {
+        void refresh();
+      }, nextDelay);
+    }
+
+    async function refresh(force = false) {
+      if (refreshInFlight) return refreshInFlight;
+      refreshInFlight = (async () => {
+        const headers = {};
+        if (latestStateEtag && !force) {
+          headers['If-None-Match'] = latestStateEtag;
+        }
+        const response = await fetch('/api/state', {
+          headers,
+          cache: force ? 'no-store' : 'default',
+        });
+        if (response.status === 304) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`state refresh failed: ${response.status}`);
+        }
+        latestStateEtag = response.headers.get('etag') || latestStateEtag;
+        const state = await response.json();
+        if (isSidebarInteractionActive()) {
+          pendingRefreshState = state;
+          return;
+        }
+        render(state);
+      })();
+
+      try {
+        await refreshInFlight;
+      } catch (error) {
+        console.error('Dashboard refresh failed', error);
+        scheduleRefresh(ERROR_REFRESH_INTERVAL_MS);
+      } finally {
+        refreshInFlight = null;
+        if (refreshTimerId === null) {
+          scheduleRefresh();
+        }
+      }
     }
 
     map.on('click', () => {
@@ -4967,12 +5125,21 @@ INDEX_HTML = """<!doctype html>
     document.addEventListener('focusout', () => {
       window.setTimeout(flushPendingRefresh, 0);
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (refreshTimerId !== null) {
+          window.clearTimeout(refreshTimerId);
+          refreshTimerId = null;
+        }
+        return;
+      }
+      void refresh();
+    });
 
     document.documentElement.lang = currentLanguage;
     applyMobileView();
     renderLegend();
-    refresh();
-    setInterval(refresh, 5000);
+    void refresh(true);
   </script>
 </body>
 </html>
@@ -4981,26 +5148,23 @@ INDEX_HTML = """<!doctype html>
 
 def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
     app = FastAPI(title="meshcore-bot", version="0.1.0")
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
+    state_cache = _StateSnapshotCache()
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
         return JSONResponse({"status": "ok", "database": database.snapshot_overview()})
 
     @app.get("/api/state")
-    async def api_state() -> JSONResponse:
-        return JSONResponse(
-            {
-                "overview": database.snapshot_overview(),
-                "nodes": database.list_repeaters_for_web(),
-                "probe_jobs": database.list_probe_jobs(limit=100),
-                "management": {
-                    "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
-                    "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
-                  "route_hints": database.repeater_route_hints(limit_repeaters=128),
-                  "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
-                },
-            }
-        )
+    async def api_state(request: Request) -> Response:
+        snapshot = await state_cache.get_snapshot(database)
+        headers = {
+            "Cache-Control": snapshot.cache_control,
+            "ETag": snapshot.etag,
+        }
+        if _etag_matches(request.headers.get("if-none-match"), snapshot.etag):
+            return Response(status_code=304, headers=headers)
+        return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
 
     @app.post("/api/probe-jobs")
     async def create_probe_job(payload: ProbeJobCreatePayload) -> JSONResponse:
@@ -5049,6 +5213,7 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
             recent_window_secs=MANUAL_WEB_PROBE_WINDOW_SECS,
         )
         if job_id is not None:
+            state_cache.invalidate()
             if scheduled_at is None:
                 await _notify_probe_worker(config)
             return JSONResponse(
