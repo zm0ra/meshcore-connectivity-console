@@ -1461,6 +1461,36 @@ class BotDatabase:
             bucket.append(dict(row))
         return history
 
+    def repeater_signal_history(self, *, repeater_id: int, limit_samples: int = 128) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT src.pubkey_hex AS source_identity_hex,
+                       ns.observed_at AS collected_at,
+                       ns.heard_seconds_ago AS last_heard_seconds,
+                       ns.snr,
+                       ns.neighbour_pubkey_prefix_hex AS target_hash_prefix_hex,
+                       COALESCE(
+                           (
+                               SELECT t.pubkey_hex
+                               FROM repeaters t
+                               WHERE t.pubkey_hex LIKE ns.neighbour_pubkey_prefix_hex || '%'
+                               ORDER BY t.last_seen_at DESC, t.id DESC
+                               LIMIT 1
+                           ),
+                           ns.neighbour_pubkey_prefix_hex
+                       ) AS target_identity_hex
+                FROM repeater_neighbour_snapshots ns
+                JOIN repeater_probe_runs pr ON pr.id = ns.probe_run_id
+                JOIN repeaters src ON src.id = pr.repeater_id
+                WHERE pr.repeater_id = ?
+                ORDER BY ns.observed_at DESC, ns.id DESC
+                LIMIT ?
+                """,
+                (repeater_id, limit_samples),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def repeater_route_hints(self, limit_repeaters: int = 128) -> dict[str, dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(

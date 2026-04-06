@@ -104,7 +104,6 @@ def _build_management_payload(database: BotDatabase) -> dict[str, object]:
     return {
         "has_active_probe_jobs": _probe_jobs_have_active_entries(probe_jobs),
         "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
-        "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
         "route_hints": database.repeater_route_hints(limit_repeaters=128),
         "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
     }
@@ -2374,6 +2373,7 @@ INDEX_HTML = """<!doctype html>
         roleDefault: 'Repeater',
         kindSignal: 'sygnał',
         noDataShort: 'b/d',
+        loadingSignalHistory: 'Ładowanie historii sygnału...',
         storedSamples: (count) => `Dla tego połączenia zapisano na razie ${count} prób${count === 1 ? 'kę' : count < 5 ? 'ki' : 'ek'}. Wykres pojawi się po zebraniu co najmniej 2 próbek.`,
         agoSeconds: (count) => `${count}s temu`,
         agoMinutes: (count) => `${count} min temu`,
@@ -2588,6 +2588,7 @@ INDEX_HTML = """<!doctype html>
         roleDefault: 'Repeater',
         kindSignal: 'signal',
         noDataShort: 'n/a',
+        loadingSignalHistory: 'Loading signal history...',
         storedSamples: (count) => `Only ${count} stored sample${count === 1 ? '' : 's'} for this link so far. The history chart appears after at least 2 samples.`,
         agoSeconds: (count) => `${count}s ago`,
         agoMinutes: (count) => `${count}m ago`,
@@ -2608,6 +2609,7 @@ INDEX_HTML = """<!doctype html>
     const linkLabelsLayer = L.layerGroup().addTo(map);
     let latestState = null;
     let latestManagement = null;
+    let signalHistoryByNode = {};
     let selectedSourceId = null;
     let selectedNeighborId = null;
     let hoveredNodeId = null;
@@ -2625,10 +2627,13 @@ INDEX_HTML = """<!doctype html>
     let pendingRefreshState = null;
     let refreshTimerId = null;
     let refreshInFlight = null;
-    let managementRefreshTimerId = null;
     let managementRefreshInFlight = null;
     let latestStateEtag = null;
     let latestManagementEtag = null;
+    let latestManagementLoaded = false;
+    let signalHistoryRefreshInFlightByNode = new Map();
+    let signalHistoryLoadedNodes = new Set();
+    let signalHistoryPendingNodes = new Set();
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
     let pendingMapClearSelectionKey = null;
     let pendingMapClearExpiresAt = 0;
@@ -2640,15 +2645,12 @@ INDEX_HTML = """<!doctype html>
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
     const IDLE_REFRESH_INTERVAL_MS = 300000;
     const ACTIVE_PROBE_REFRESH_INTERVAL_MS = 15000;
-    const MANAGEMENT_IDLE_REFRESH_INTERVAL_MS = 900000;
-    const MANAGEMENT_ACTIVE_REFRESH_INTERVAL_MS = 60000;
     const ERROR_REFRESH_INTERVAL_MS = 60000;
 
     function emptyManagementState() {
       return {
         has_active_probe_jobs: false,
         map_links: [],
-        signal_history: {},
         route_hints: {},
         historical_links: [],
       };
@@ -2675,10 +2677,49 @@ INDEX_HTML = """<!doctype html>
         ...emptyManagementState(),
         ...(management || {}),
       };
+      latestManagementLoaded = true;
       if (latestState) {
         latestState = mergeStateWithManagement(latestState, latestManagement);
       }
       return latestManagement;
+    }
+
+    function clearFocusedDataCache() {
+      latestManagement = null;
+      latestManagementEtag = null;
+      latestManagementLoaded = false;
+      signalHistoryByNode = {};
+      signalHistoryRefreshInFlightByNode = new Map();
+      signalHistoryLoadedNodes = new Set();
+      signalHistoryPendingNodes = new Set();
+      if (latestState) {
+        latestState = mergeStateWithManagement(latestState, null);
+      }
+    }
+
+    function selectedNodeNeedsManagement() {
+      return Boolean(selectedSourceId && (currentPanel === 'map' || currentPanel === 'new'));
+    }
+
+    function currentPanelNeedsManagement() {
+      return currentPanel === 'connectivity' || currentPanel === 'route' || selectedNodeNeedsManagement();
+    }
+
+    function selectedHistoryNodeKey(node) {
+      if (!node) return null;
+      return String(node.identity_hex || '');
+    }
+
+    function hasSignalHistoryLoaded(node) {
+      const nodeKey = selectedHistoryNodeKey(node);
+      if (!nodeKey) return false;
+      return signalHistoryLoadedNodes.has(nodeKey);
+    }
+
+    function isSignalHistoryLoading(node) {
+      const nodeKey = selectedHistoryNodeKey(node);
+      if (!nodeKey) return false;
+      return signalHistoryPendingNodes.has(nodeKey);
     }
 
     function strings() {
@@ -2787,6 +2828,7 @@ INDEX_HTML = """<!doctype html>
       if (!['map', 'new', 'connectivity', 'route'].includes(panel)) return;
       resetPendingMapClear();
       currentPanel = panel;
+      latestManagementLoaded = false;
       if (panel === 'route' && !routeSourceId && selectedSourceId) {
         routeSourceId = selectedSourceId;
       }
@@ -4101,7 +4143,8 @@ INDEX_HTML = """<!doctype html>
           status: payload.status || 'error',
           scheduledAt: payload.scheduled_at || null,
         };
-        await Promise.all([refresh(true), refreshManagement(true)]);
+        await refresh(true);
+        await refreshFocusedDataIfNeeded({ force: true });
       } catch (error) {
         probeQueueFeedback = {
           identityHex: node.identity_hex,
@@ -4313,7 +4356,7 @@ INDEX_HTML = """<!doctype html>
 
     function selectedHistoryRows(state, node, neighborId) {
       if (!node || !neighborId) return [];
-      return ((state.management?.signal_history || {})[node.identity_hex] || [])
+      return (signalHistoryByNode[node.identity_hex] || [])
         .filter((row) => row.target_identity_hex === neighborId || row.target_hash_prefix_hex === neighborId)
         .sort((left, right) => new Date(left.collected_at) - new Date(right.collected_at));
     }
@@ -4433,6 +4476,9 @@ INDEX_HTML = """<!doctype html>
     function renderSignalChart(node, neighborLink, historyRows) {
       if (!node) return `<div class=\"empty-note\">${tr('emptySelectRepeater')}</div>`;
       if (!neighborLink) return `<div class=\"empty-note\">${tr('emptySelectNeighbor')}</div>`;
+      if (isSignalHistoryLoading(node) && !hasSignalHistoryLoaded(node)) {
+        return `<div class=\"empty-note\">${tr('loadingSignalHistory')}</div>`;
+      }
       if (historyRows.length < 2) {
         return `
           <div class=\"chart-shell\">
@@ -5132,6 +5178,7 @@ INDEX_HTML = """<!doctype html>
       syncSidebarSheetState();
       applyMobileView();
       renderMap(state);
+      void refreshFocusedDataIfNeeded();
     }
 
     function hasActiveProbeJobs(state) {
@@ -5143,11 +5190,6 @@ INDEX_HTML = """<!doctype html>
       return hasActiveProbeJobs(latestState) ? ACTIVE_PROBE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS;
     }
 
-    function managementRefreshIntervalMs() {
-      if (document.hidden) return null;
-      return hasActiveProbeJobs(latestState) ? MANAGEMENT_ACTIVE_REFRESH_INTERVAL_MS : MANAGEMENT_IDLE_REFRESH_INTERVAL_MS;
-    }
-
     function scheduleRefresh(delayMs = null) {
       if (refreshTimerId !== null) {
         window.clearTimeout(refreshTimerId);
@@ -5157,18 +5199,6 @@ INDEX_HTML = """<!doctype html>
       if (nextDelay === null) return;
       refreshTimerId = window.setTimeout(() => {
         void refresh();
-      }, nextDelay);
-    }
-
-    function scheduleManagementRefresh(delayMs = null) {
-      if (managementRefreshTimerId !== null) {
-        window.clearTimeout(managementRefreshTimerId);
-        managementRefreshTimerId = null;
-      }
-      const nextDelay = delayMs ?? managementRefreshIntervalMs();
-      if (nextDelay === null) return;
-      managementRefreshTimerId = window.setTimeout(() => {
-        void refreshManagement();
       }, nextDelay);
     }
 
@@ -5212,6 +5242,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function refreshManagement(force = false) {
+      if (!currentPanelNeedsManagement()) {
+        return;
+      }
       if (managementRefreshInFlight) return managementRefreshInFlight;
       managementRefreshInFlight = (async () => {
         const headers = {};
@@ -5223,6 +5256,7 @@ INDEX_HTML = """<!doctype html>
           cache: force ? 'no-store' : 'default',
         });
         if (response.status === 304) {
+          latestManagementLoaded = true;
           return;
         }
         if (!response.ok) {
@@ -5244,12 +5278,62 @@ INDEX_HTML = """<!doctype html>
         await managementRefreshInFlight;
       } catch (error) {
         console.error('Dashboard management refresh failed', error);
-        scheduleManagementRefresh(ERROR_REFRESH_INTERVAL_MS);
       } finally {
         managementRefreshInFlight = null;
-        if (managementRefreshTimerId === null) {
-          scheduleManagementRefresh();
+      }
+    }
+
+    async function refreshSignalHistory(node, force = false) {
+      if (!node) return;
+      const nodeKey = selectedHistoryNodeKey(node);
+      if (!nodeKey) return;
+      if (signalHistoryRefreshInFlightByNode.has(nodeKey)) {
+        return signalHistoryRefreshInFlightByNode.get(nodeKey);
+      }
+      if (signalHistoryLoadedNodes.has(nodeKey) && !force) {
+        return;
+      }
+      signalHistoryPendingNodes.add(nodeKey);
+      if (latestState) render(latestState);
+      const requestPromise = (async () => {
+        const response = await fetch(`/api/repeaters/${encodeURIComponent(node.id)}/signal-history`, {
+          cache: force ? 'no-store' : 'default',
+        });
+        if (!response.ok) {
+          throw new Error(`signal history refresh failed: ${response.status}`);
         }
+        const payload = await response.json();
+        signalHistoryByNode = {
+          ...signalHistoryByNode,
+          [nodeKey]: Array.isArray(payload.rows) ? payload.rows : [],
+        };
+        signalHistoryLoadedNodes.add(nodeKey);
+      })();
+      signalHistoryRefreshInFlightByNode.set(nodeKey, requestPromise);
+      try {
+        await requestPromise;
+      } catch (error) {
+        console.error('Dashboard signal history refresh failed', error);
+      } finally {
+        signalHistoryRefreshInFlightByNode.delete(nodeKey);
+        signalHistoryPendingNodes.delete(nodeKey);
+        if (latestState && selectedSourceId === node.identity_hex) {
+          render(latestState);
+        }
+      }
+    }
+
+    async function refreshFocusedDataIfNeeded(options = {}) {
+      const force = Boolean(options.force);
+      if (!latestState || document.hidden) {
+        return;
+      }
+      if (currentPanelNeedsManagement() && (force || !latestManagementLoaded)) {
+        await refreshManagement(force);
+      }
+      const selectedNode = getSelectedNode(latestState);
+      if (selectedNodeNeedsManagement() && selectedNeighborId && selectedNode) {
+        await refreshSignalHistory(selectedNode, force);
       }
     }
 
@@ -5286,19 +5370,15 @@ INDEX_HTML = """<!doctype html>
           window.clearTimeout(refreshTimerId);
           refreshTimerId = null;
         }
-        if (managementRefreshTimerId !== null) {
-          window.clearTimeout(managementRefreshTimerId);
-          managementRefreshTimerId = null;
-        }
         return;
       }
-      void Promise.all([refresh(), refreshManagement()]);
+      void Promise.all([refresh(), refreshFocusedDataIfNeeded()]);
     });
 
     document.documentElement.lang = currentLanguage;
     applyMobileView();
     renderLegend();
-    void Promise.all([refresh(true), refreshManagement(true)]);
+    void refresh(true);
   </script>
 </body>
 </html>
@@ -5336,14 +5416,21 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
 
     @app.get("/api/management")
     async def api_management(request: Request) -> Response:
-      snapshot = await management_cache.get_snapshot(database)
-      headers = {
-        "Cache-Control": snapshot.cache_control,
-        "ETag": snapshot.etag,
-      }
-      if _etag_matches(request.headers.get("if-none-match"), snapshot.etag):
-        return Response(status_code=304, headers=headers)
-      return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
+        snapshot = await management_cache.get_snapshot(database)
+        headers = {
+            "Cache-Control": snapshot.cache_control,
+            "ETag": snapshot.etag,
+        }
+        if _etag_matches(request.headers.get("if-none-match"), snapshot.etag):
+            return Response(status_code=304, headers=headers)
+        return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
+
+    @app.get("/api/repeaters/{repeater_id}/signal-history")
+    async def api_repeater_signal_history(repeater_id: int) -> JSONResponse:
+        repeater = database.repeater_full_state(repeater_id=repeater_id)
+        if repeater is None:
+            raise HTTPException(status_code=404, detail="unknown repeater")
+        return JSONResponse({"rows": database.repeater_signal_history(repeater_id=repeater_id, limit_samples=128)})
 
     @app.post("/api/probe-jobs")
     async def create_probe_job(payload: ProbeJobCreatePayload) -> JSONResponse:
