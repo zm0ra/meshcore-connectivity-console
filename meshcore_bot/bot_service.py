@@ -217,16 +217,7 @@ class ChannelCommandBotService:
             return f"pong {mention} {sent_at_text}"
         if command != "!test":
             return None
-        signal = self.database.latest_repeater_signal_by_name(sender_name) if self.INCLUDE_TEST_SIGNAL else None
-        parts = ["test", mention, f"hops: {path_len}", sent_at_text]
-        if signal is not None:
-            last_snr = signal.get("last_snr")
-            last_rssi = signal.get("last_rssi")
-            if isinstance(last_snr, int | float):
-                parts.append(f"SNR: {float(last_snr):.1f}")
-            if isinstance(last_rssi, int | float):
-                parts.append(f"RSSI: {int(last_rssi)}")
-        return " ".join(parts)
+        return f"test {mention} {sent_at_text}"
 
     async def _activate_quiet_window(self, client: PacketTransportClient, channel_name: str) -> None:
         activate = getattr(client, "activate_quiet_window", None)
