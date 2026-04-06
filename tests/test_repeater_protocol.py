@@ -742,7 +742,7 @@ def test_bot_service_replies_to_test_with_signal_when_known(tmp_path) -> None:
     attempts = [cast(Any, decoded).attempt for decoded in decoded_packets]
     assert attempts == [0, 1]
     texts = [cast(Any, decoded).text for decoded in decoded_packets]
-    assert all(text.startswith("meshcore-bot: @[alice] hops: 0 ") for text in texts)
+    assert all(text.startswith("meshcore-bot: test @[alice] hops: 0 ") for text in texts)
     assert all("SNR: 4.5" in text for text in texts)
     assert all("RSSI: -87" in text for text in texts)
     assert texts[0].endswith("RSSI: -87 tx 1/2")

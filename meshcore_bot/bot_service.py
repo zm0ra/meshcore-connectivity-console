@@ -218,7 +218,7 @@ class ChannelCommandBotService:
         if command != "!test":
             return None
         signal = self.database.latest_repeater_signal_by_name(sender_name) if self.INCLUDE_TEST_SIGNAL else None
-        parts = [mention, f"hops: {path_len}", sent_at_text]
+        parts = ["test", mention, f"hops: {path_len}", sent_at_text]
         if signal is not None:
             last_snr = signal.get("last_snr")
             last_rssi = signal.get("last_rssi")
