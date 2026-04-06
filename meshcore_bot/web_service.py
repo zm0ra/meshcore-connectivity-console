@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Callable
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
@@ -25,6 +26,10 @@ STATE_CACHE_IDLE_TTL_SECS = 300.0
 STATE_CACHE_ACTIVE_TTL_SECS = 15.0
 STATE_SHARED_CACHE_IDLE_TTL_SECS = 60
 STATE_SHARED_CACHE_ACTIVE_TTL_SECS = 15
+MANAGEMENT_CACHE_IDLE_TTL_SECS = 900.0
+MANAGEMENT_CACHE_ACTIVE_TTL_SECS = 60.0
+MANAGEMENT_SHARED_CACHE_IDLE_TTL_SECS = 300
+MANAGEMENT_SHARED_CACHE_ACTIVE_TTL_SECS = 60
 STATE_CACHE_STALE_WHILE_REVALIDATE_SECS = 300
 
 
@@ -42,9 +47,18 @@ class _StateSnapshot:
 
 
 class _StateSnapshotCache:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        payload_builder: Callable[[BotDatabase], dict[str, object]],
+        ttl_builder: Callable[[dict[str, object]], float],
+        cache_control_builder: Callable[[float], str],
+    ) -> None:
         self._snapshot: _StateSnapshot | None = None
         self._lock = asyncio.Lock()
+        self._payload_builder = payload_builder
+        self._ttl_builder = ttl_builder
+        self._cache_control_builder = cache_control_builder
 
     def invalidate(self) -> None:
         self._snapshot = None
@@ -59,15 +73,15 @@ class _StateSnapshotCache:
             if self._is_fresh(snapshot):
                 return snapshot
 
-            payload = _build_state_payload(database)
+            payload = self._payload_builder(database)
             payload_bytes = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-            ttl_secs = _state_cache_ttl_secs(payload)
+            ttl_secs = self._ttl_builder(payload)
             self._snapshot = _StateSnapshot(
                 payload_bytes=payload_bytes,
                 etag=f'"{hashlib.sha256(payload_bytes).hexdigest()}"',
                 generated_monotonic=time.monotonic(),
                 ttl_secs=ttl_secs,
-                cache_control=_state_cache_control(ttl_secs),
+                cache_control=self._cache_control_builder(ttl_secs),
             )
             return self._snapshot
 
@@ -82,31 +96,70 @@ def _build_state_payload(database: BotDatabase) -> dict[str, object]:
         "overview": database.snapshot_overview(),
         "nodes": database.list_repeaters_for_web(),
         "probe_jobs": database.list_probe_jobs(limit=100),
-        "management": {
-            "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
-            "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
-            "route_hints": database.repeater_route_hints(limit_repeaters=128),
-            "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
-        },
     }
 
 
+def _build_management_payload(database: BotDatabase) -> dict[str, object]:
+    probe_jobs = database.list_probe_jobs(limit=100)
+    return {
+        "has_active_probe_jobs": _probe_jobs_have_active_entries(probe_jobs),
+        "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
+        "signal_history": database.repeater_neighbor_signal_history(limit_samples_per_source=128),
+        "route_hints": database.repeater_route_hints(limit_repeaters=128),
+        "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
+    }
+
+
+def _probe_jobs_have_active_entries(probe_jobs: object) -> bool:
+    if not isinstance(probe_jobs, list):
+        return False
+    for job in probe_jobs:
+        if not isinstance(job, dict):
+            continue
+        if str(job.get("status") or "") in {"pending", "running"}:
+            return True
+    return False
+
+
 def _state_cache_ttl_secs(payload: dict[str, object]) -> float:
-    probe_jobs = payload.get("probe_jobs")
-    if isinstance(probe_jobs, list):
-        for job in probe_jobs:
-            if not isinstance(job, dict):
-                continue
-            if str(job.get("status") or "") in {"pending", "running"}:
-                return STATE_CACHE_ACTIVE_TTL_SECS
-    return STATE_CACHE_IDLE_TTL_SECS
+    return STATE_CACHE_ACTIVE_TTL_SECS if _probe_jobs_have_active_entries(payload.get("probe_jobs")) else STATE_CACHE_IDLE_TTL_SECS
 
 
-def _state_cache_control(ttl_secs: float) -> str:
-    shared_ttl = STATE_SHARED_CACHE_ACTIVE_TTL_SECS if ttl_secs <= STATE_CACHE_ACTIVE_TTL_SECS else STATE_SHARED_CACHE_IDLE_TTL_SECS
+def _management_cache_ttl_secs(payload: dict[str, object]) -> float:
+    if bool(payload.get("has_active_probe_jobs")):
+        return MANAGEMENT_CACHE_ACTIVE_TTL_SECS
+    return MANAGEMENT_CACHE_IDLE_TTL_SECS
+
+
+def _snapshot_cache_control(
+    ttl_secs: float,
+    *,
+    active_ttl_secs: float,
+    shared_cache_active_ttl_secs: int,
+    shared_cache_idle_ttl_secs: int,
+) -> str:
+    shared_ttl = shared_cache_active_ttl_secs if ttl_secs <= active_ttl_secs else shared_cache_idle_ttl_secs
     return (
         "public, max-age=0, must-revalidate, "
         f"s-maxage={shared_ttl}, stale-while-revalidate={STATE_CACHE_STALE_WHILE_REVALIDATE_SECS}"
+    )
+
+
+def _state_cache_control(ttl_secs: float) -> str:
+    return _snapshot_cache_control(
+        ttl_secs,
+        active_ttl_secs=STATE_CACHE_ACTIVE_TTL_SECS,
+        shared_cache_active_ttl_secs=STATE_SHARED_CACHE_ACTIVE_TTL_SECS,
+        shared_cache_idle_ttl_secs=STATE_SHARED_CACHE_IDLE_TTL_SECS,
+    )
+
+
+def _management_cache_control(ttl_secs: float) -> str:
+    return _snapshot_cache_control(
+        ttl_secs,
+        active_ttl_secs=MANAGEMENT_CACHE_ACTIVE_TTL_SECS,
+        shared_cache_active_ttl_secs=MANAGEMENT_SHARED_CACHE_ACTIVE_TTL_SECS,
+        shared_cache_idle_ttl_secs=MANAGEMENT_SHARED_CACHE_IDLE_TTL_SECS,
     )
 
 
@@ -2554,6 +2607,7 @@ INDEX_HTML = """<!doctype html>
     const labelsLayer = L.layerGroup().addTo(map);
     const linkLabelsLayer = L.layerGroup().addTo(map);
     let latestState = null;
+    let latestManagement = null;
     let selectedSourceId = null;
     let selectedNeighborId = null;
     let hoveredNodeId = null;
@@ -2571,7 +2625,10 @@ INDEX_HTML = """<!doctype html>
     let pendingRefreshState = null;
     let refreshTimerId = null;
     let refreshInFlight = null;
+    let managementRefreshTimerId = null;
+    let managementRefreshInFlight = null;
     let latestStateEtag = null;
+    let latestManagementEtag = null;
     let sidebarSheetState = localStorage.getItem('meshcoreDashboardSheetState') || 'collapsed';
     let pendingMapClearSelectionKey = null;
     let pendingMapClearExpiresAt = 0;
@@ -2583,7 +2640,46 @@ INDEX_HTML = """<!doctype html>
     const MIN_NODE_SEARCH_QUERY_LENGTH = 2;
     const IDLE_REFRESH_INTERVAL_MS = 300000;
     const ACTIVE_PROBE_REFRESH_INTERVAL_MS = 15000;
+    const MANAGEMENT_IDLE_REFRESH_INTERVAL_MS = 900000;
+    const MANAGEMENT_ACTIVE_REFRESH_INTERVAL_MS = 60000;
     const ERROR_REFRESH_INTERVAL_MS = 60000;
+
+    function emptyManagementState() {
+      return {
+        has_active_probe_jobs: false,
+        map_links: [],
+        signal_history: {},
+        route_hints: {},
+        historical_links: [],
+      };
+    }
+
+    function mergeStateWithManagement(state, management = latestManagement) {
+      if (!state) return null;
+      return {
+        ...state,
+        management: {
+          ...emptyManagementState(),
+          ...(management || {}),
+        },
+      };
+    }
+
+    function commitState(state) {
+      latestState = mergeStateWithManagement(state);
+      return latestState;
+    }
+
+    function commitManagement(management) {
+      latestManagement = {
+        ...emptyManagementState(),
+        ...(management || {}),
+      };
+      if (latestState) {
+        latestState = mergeStateWithManagement(latestState, latestManagement);
+      }
+      return latestManagement;
+    }
 
     function strings() {
       return TRANSLATIONS[currentLanguage] || TRANSLATIONS.pl;
@@ -4005,7 +4101,7 @@ INDEX_HTML = """<!doctype html>
           status: payload.status || 'error',
           scheduledAt: payload.scheduled_at || null,
         };
-        await refresh(true);
+        await Promise.all([refresh(true), refreshManagement(true)]);
       } catch (error) {
         probeQueueFeedback = {
           identityHex: node.identity_hex,
@@ -5047,6 +5143,11 @@ INDEX_HTML = """<!doctype html>
       return hasActiveProbeJobs(latestState) ? ACTIVE_PROBE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS;
     }
 
+    function managementRefreshIntervalMs() {
+      if (document.hidden) return null;
+      return hasActiveProbeJobs(latestState) ? MANAGEMENT_ACTIVE_REFRESH_INTERVAL_MS : MANAGEMENT_IDLE_REFRESH_INTERVAL_MS;
+    }
+
     function scheduleRefresh(delayMs = null) {
       if (refreshTimerId !== null) {
         window.clearTimeout(refreshTimerId);
@@ -5056,6 +5157,18 @@ INDEX_HTML = """<!doctype html>
       if (nextDelay === null) return;
       refreshTimerId = window.setTimeout(() => {
         void refresh();
+      }, nextDelay);
+    }
+
+    function scheduleManagementRefresh(delayMs = null) {
+      if (managementRefreshTimerId !== null) {
+        window.clearTimeout(managementRefreshTimerId);
+        managementRefreshTimerId = null;
+      }
+      const nextDelay = delayMs ?? managementRefreshIntervalMs();
+      if (nextDelay === null) return;
+      managementRefreshTimerId = window.setTimeout(() => {
+        void refreshManagement();
       }, nextDelay);
     }
 
@@ -5077,7 +5190,7 @@ INDEX_HTML = """<!doctype html>
           throw new Error(`state refresh failed: ${response.status}`);
         }
         latestStateEtag = response.headers.get('etag') || latestStateEtag;
-        const state = await response.json();
+        const state = commitState(await response.json());
         if (isSidebarInteractionActive()) {
           pendingRefreshState = state;
           return;
@@ -5094,6 +5207,48 @@ INDEX_HTML = """<!doctype html>
         refreshInFlight = null;
         if (refreshTimerId === null) {
           scheduleRefresh();
+        }
+      }
+    }
+
+    async function refreshManagement(force = false) {
+      if (managementRefreshInFlight) return managementRefreshInFlight;
+      managementRefreshInFlight = (async () => {
+        const headers = {};
+        if (latestManagementEtag && !force) {
+          headers['If-None-Match'] = latestManagementEtag;
+        }
+        const response = await fetch('/api/management', {
+          headers,
+          cache: force ? 'no-store' : 'default',
+        });
+        if (response.status === 304) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`management refresh failed: ${response.status}`);
+        }
+        latestManagementEtag = response.headers.get('etag') || latestManagementEtag;
+        commitManagement(await response.json());
+        if (!latestState) {
+          return;
+        }
+        if (isSidebarInteractionActive()) {
+          pendingRefreshState = latestState;
+          return;
+        }
+        render(latestState);
+      })();
+
+      try {
+        await managementRefreshInFlight;
+      } catch (error) {
+        console.error('Dashboard management refresh failed', error);
+        scheduleManagementRefresh(ERROR_REFRESH_INTERVAL_MS);
+      } finally {
+        managementRefreshInFlight = null;
+        if (managementRefreshTimerId === null) {
+          scheduleManagementRefresh();
         }
       }
     }
@@ -5131,15 +5286,19 @@ INDEX_HTML = """<!doctype html>
           window.clearTimeout(refreshTimerId);
           refreshTimerId = null;
         }
+        if (managementRefreshTimerId !== null) {
+          window.clearTimeout(managementRefreshTimerId);
+          managementRefreshTimerId = null;
+        }
         return;
       }
-      void refresh();
+      void Promise.all([refresh(), refreshManagement()]);
     });
 
     document.documentElement.lang = currentLanguage;
     applyMobileView();
     renderLegend();
-    void refresh(true);
+    void Promise.all([refresh(true), refreshManagement(true)]);
   </script>
 </body>
 </html>
@@ -5149,7 +5308,16 @@ INDEX_HTML = """<!doctype html>
 def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
     app = FastAPI(title="meshcore-bot", version="0.1.0")
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-    state_cache = _StateSnapshotCache()
+    state_cache = _StateSnapshotCache(
+        payload_builder=_build_state_payload,
+        ttl_builder=_state_cache_ttl_secs,
+        cache_control_builder=_state_cache_control,
+    )
+    management_cache = _StateSnapshotCache(
+        payload_builder=_build_management_payload,
+        ttl_builder=_management_cache_ttl_secs,
+        cache_control_builder=_management_cache_control,
+    )
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
@@ -5165,6 +5333,17 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
         if _etag_matches(request.headers.get("if-none-match"), snapshot.etag):
             return Response(status_code=304, headers=headers)
         return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
+
+    @app.get("/api/management")
+    async def api_management(request: Request) -> Response:
+      snapshot = await management_cache.get_snapshot(database)
+      headers = {
+        "Cache-Control": snapshot.cache_control,
+        "ETag": snapshot.etag,
+      }
+      if _etag_matches(request.headers.get("if-none-match"), snapshot.etag):
+        return Response(status_code=304, headers=headers)
+      return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
 
     @app.post("/api/probe-jobs")
     async def create_probe_job(payload: ProbeJobCreatePayload) -> JSONResponse:
@@ -5214,6 +5393,7 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
         )
         if job_id is not None:
             state_cache.invalidate()
+            management_cache.invalidate()
             if scheduled_at is None:
                 await _notify_probe_worker(config)
             return JSONResponse(

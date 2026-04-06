@@ -1,7 +1,11 @@
 from meshcore_bot.web_service import (
+    MANAGEMENT_CACHE_ACTIVE_TTL_SECS,
+    MANAGEMENT_CACHE_IDLE_TTL_SECS,
     STATE_CACHE_ACTIVE_TTL_SECS,
     STATE_CACHE_IDLE_TTL_SECS,
     _etag_matches,
+    _management_cache_ttl_secs,
+    _probe_jobs_have_active_entries,
     _state_cache_ttl_secs,
 )
 
@@ -25,6 +29,31 @@ def test_state_cache_uses_active_ttl_with_pending_jobs() -> None:
     }
 
     assert _state_cache_ttl_secs(payload) == STATE_CACHE_ACTIVE_TTL_SECS
+
+
+def test_probe_jobs_have_active_entries_detects_running_job() -> None:
+    probe_jobs = [
+        {"status": "success"},
+        {"status": "running"},
+    ]
+
+    assert _probe_jobs_have_active_entries(probe_jobs) is True
+
+
+def test_management_cache_uses_idle_ttl_without_active_jobs() -> None:
+    payload = {
+        "has_active_probe_jobs": False,
+    }
+
+    assert _management_cache_ttl_secs(payload) == MANAGEMENT_CACHE_IDLE_TTL_SECS
+
+
+def test_management_cache_uses_active_ttl_with_active_jobs() -> None:
+    payload = {
+        "has_active_probe_jobs": True,
+    }
+
+    assert _management_cache_ttl_secs(payload) == MANAGEMENT_CACHE_ACTIVE_TTL_SECS
 
 
 def test_etag_matches_strong_and_weak_headers() -> None:
