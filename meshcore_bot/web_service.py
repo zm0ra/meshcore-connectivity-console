@@ -99,14 +99,16 @@ def _build_state_payload(database: BotDatabase) -> dict[str, object]:
     }
 
 
-def _build_management_payload(database: BotDatabase) -> dict[str, object]:
+def _build_management_payload(database: BotDatabase, *, include_historical: bool = False) -> dict[str, object]:
     probe_jobs = database.list_probe_jobs(limit=100)
-    return {
+    payload: dict[str, object] = {
         "has_active_probe_jobs": _probe_jobs_have_active_entries(probe_jobs),
         "map_links": database.latest_repeater_neighbor_links(limit_repeaters=128),
         "route_hints": database.repeater_route_hints(limit_repeaters=128),
-        "historical_links": database.repeater_historical_neighbor_links(limit_repeaters=128),
     }
+    if include_historical:
+        payload["historical_links"] = database.repeater_historical_neighbor_links(limit_repeaters=128)
+    return payload
 
 
 def _probe_jobs_have_active_entries(probe_jobs: object) -> bool:
@@ -2631,6 +2633,7 @@ INDEX_HTML = """<!doctype html>
     let latestStateEtag = null;
     let latestManagementEtag = null;
     let latestManagementLoaded = false;
+    let latestManagementIncludesHistorical = false;
     let signalHistoryRefreshInFlightByNode = new Map();
     let signalHistoryLoadedNodes = new Set();
     let signalHistoryPendingNodes = new Set();
@@ -2672,12 +2675,13 @@ INDEX_HTML = """<!doctype html>
       return latestState;
     }
 
-    function commitManagement(management) {
+    function commitManagement(management, includesHistorical = false) {
       latestManagement = {
         ...emptyManagementState(),
         ...(management || {}),
       };
       latestManagementLoaded = true;
+      latestManagementIncludesHistorical = includesHistorical;
       if (latestState) {
         latestState = mergeStateWithManagement(latestState, latestManagement);
       }
@@ -2688,6 +2692,7 @@ INDEX_HTML = """<!doctype html>
       latestManagement = null;
       latestManagementEtag = null;
       latestManagementLoaded = false;
+      latestManagementIncludesHistorical = false;
       signalHistoryByNode = {};
       signalHistoryRefreshInFlightByNode = new Map();
       signalHistoryLoadedNodes = new Set();
@@ -5245,25 +5250,28 @@ INDEX_HTML = """<!doctype html>
       if (!currentPanelNeedsManagement()) {
         return;
       }
+      const includeHistorical = currentPanel === 'connectivity';
       if (managementRefreshInFlight) return managementRefreshInFlight;
       managementRefreshInFlight = (async () => {
         const headers = {};
-        if (latestManagementEtag && !force) {
+        if (latestManagementEtag && !force && latestManagementIncludesHistorical === includeHistorical) {
           headers['If-None-Match'] = latestManagementEtag;
         }
-        const response = await fetch('/api/management', {
+        const endpoint = includeHistorical ? '/api/management?include_historical=1' : '/api/management';
+        const response = await fetch(endpoint, {
           headers,
           cache: force ? 'no-store' : 'default',
         });
         if (response.status === 304) {
           latestManagementLoaded = true;
+          latestManagementIncludesHistorical = includeHistorical;
           return;
         }
         if (!response.ok) {
           throw new Error(`management refresh failed: ${response.status}`);
         }
         latestManagementEtag = response.headers.get('etag') || latestManagementEtag;
-        commitManagement(await response.json());
+        commitManagement(await response.json(), includeHistorical);
         if (!latestState) {
           return;
         }
@@ -5328,7 +5336,9 @@ INDEX_HTML = """<!doctype html>
       if (!latestState || document.hidden) {
         return;
       }
-      if (currentPanelNeedsManagement() && (force || !latestManagementLoaded)) {
+      const includeHistorical = currentPanel === 'connectivity';
+      const needsManagementRefresh = force || !latestManagementLoaded || (includeHistorical && !latestManagementIncludesHistorical);
+      if (currentPanelNeedsManagement() && needsManagementRefresh) {
         await refreshManagement(force);
       }
       const selectedNode = getSelectedNode(latestState);
@@ -5394,7 +5404,12 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
         cache_control_builder=_state_cache_control,
     )
     management_cache = _StateSnapshotCache(
-        payload_builder=_build_management_payload,
+        payload_builder=lambda db: _build_management_payload(db, include_historical=False),
+        ttl_builder=_management_cache_ttl_secs,
+        cache_control_builder=_management_cache_control,
+    )
+    management_with_history_cache = _StateSnapshotCache(
+        payload_builder=lambda db: _build_management_payload(db, include_historical=True),
         ttl_builder=_management_cache_ttl_secs,
         cache_control_builder=_management_cache_control,
     )
@@ -5415,8 +5430,8 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
         return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
 
     @app.get("/api/management")
-    async def api_management(request: Request) -> Response:
-        snapshot = await management_cache.get_snapshot(database)
+    async def api_management(request: Request, include_historical: bool = False) -> Response:
+        snapshot = await (management_with_history_cache if include_historical else management_cache).get_snapshot(database)
         headers = {
             "Cache-Control": snapshot.cache_control,
             "ETag": snapshot.etag,
