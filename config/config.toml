@@ -1,0 +1,65 @@
+[bot]
+name = "MeshBot"
+reply_prefix = "[MeshBot] "
+command_prefix = "!"
+listen_channels = ["bot-test"]
+message_history_size = 200
+self_advert_enabled = true
+self_advert_interval_seconds = 900
+
+[identity]
+file_path = "./data/bot-identity.json"
+
+[web]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+
+[logging]
+level = "INFO"
+
+[storage]
+database_path = "./data/meshcore-bot.db"
+
+[management]
+enabled = true
+auto_discover_from_adverts = true
+auto_guest_password = ""
+auto_admin_password = ""
+temporary_admin_password = "qweqwe"
+temporary_admin_name_prefixes = ["SZN_BKO_"]
+poll_interval_seconds = 30
+request_timeout_seconds = 6
+login_interval_seconds = 600
+retry_after_failed_poll_seconds = 180
+owner_poll_interval_seconds = 900
+acl_poll_interval_seconds = 900
+neighbors_poll_interval_seconds = 120
+console_neighbors_poll_interval_seconds = 120
+console_command_timeout_seconds = 5
+neighbors_request_count = 24
+neighbors_prefix_length = 6
+
+[[channels]]
+name = "bot-test"
+# Optional. When omitted, the bot derives the hashtag-channel key from "#bot-test".
+
+[[endpoints]]
+name = "rpt-primary"
+enabled = true
+raw_host = "172.30.105.24"
+raw_port = 5002
+console_host = "172.30.105.24"
+console_port = 5001
+console_mirror_host = "172.30.105.24"
+console_mirror_port = 5003
+
+[[management_nodes]]
+name = "SZN_BKO_DIR_STRGD_RPT"
+endpoint_name = "rpt-primary"
+target_identity_hex = "35d4f9975a2b0e57a48b5bbccc9f71144ccc7f06bdb8cdad91054a7a72b0868c"
+guest_password = ""
+admin_password = "qweqwe"
+prefer_role = "guest"
+enabled = true
+notes = "Focused single-target runtime for login debugging"

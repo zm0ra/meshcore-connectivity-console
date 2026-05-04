@@ -1,0 +1,16 @@
+services:
+  meshcore-tcp-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meshcore-tcp-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MESHCORE_ADMIN_PASSWORD: ${MESHCORE_ADMIN_PASSWORD:-changeme}
+      MESHCORE_ADMIN_SESSION_SECRET: ${MESHCORE_ADMIN_SESSION_SECRET:-}
+    volumes:
+      - ./config/config.toml:/app/config/config.toml:ro
+      - ./data:/app/data
+      - ./logs:/app/logs

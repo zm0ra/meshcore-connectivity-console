@@ -1,0 +1,65 @@
+[bot]
+name = "MeshBot"
+reply_prefix = "[MeshBot] "
+command_prefix = "!"
+listen_channels = ["bot-test"]
+message_history_size = 200
+
+[identity]
+file_path = "./data/bot-identity.json"
+
+[web]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+
+[logging]
+level = "INFO"
+
+[storage]
+database_path = "./data/meshcore-bot.db"
+
+[management]
+enabled = true
+auto_discover_from_adverts = true
+# Optional shared credentials used for repeaters discovered from live adverts.
+auto_guest_password = ""
+auto_admin_password = ""
+poll_interval_seconds = 15
+request_timeout_seconds = 20
+login_interval_seconds = 300
+owner_poll_interval_seconds = 900
+acl_poll_interval_seconds = 900
+neighbors_poll_interval_seconds = 120
+neighbors_request_count = 24
+neighbors_prefix_length = 6
+
+[[channels]]
+name = "bot-test"
+# Optional. When omitted, the bot derives the hashtag-channel key from "#bot-test".
+
+[[endpoints]]
+name = "rpt-primary"
+enabled = true
+raw_host = "172.30.105.24"
+raw_port = 5002
+# Optional but recommended for real per-packet SNR/RSSI enrichment.
+# Enable this only when the repeater firmware exposes the console mirror port.
+console_mirror_host = "172.30.105.24"
+console_mirror_port = 5003
+latitude = 52.22977
+longitude = 21.01178
+
+[[management_nodes]]
+name = "rpt-primary"
+endpoint_name = "rpt-primary"
+target_hash_prefix = ""
+guest_password = ""
+admin_password = "password"
+prefer_role = "guest"
+enabled = false
+notes = "Enable when this bot gains full MeshCore identity-based management sessions"
+
+# Admin UI login is configured from Docker environment variables, not TOML:
+# MESHCORE_ADMIN_PASSWORD=...
+# MESHCORE_ADMIN_SESSION_SECRET=...
