@@ -1467,6 +1467,85 @@ def test_await_login_response_extends_deadline_after_decryptable_foreign_anon_re
     assert elapsed >= 0.14
 
 
+def test_await_login_response_fails_fast_on_echo_loop(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(base_config, probe=replace(base_config.probe, request_timeout_secs=1.0))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    worker = GuestProbeWorker(config, database)
+    remote_identity = LocalIdentity.generate()
+    shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    client = TimedReceiveClient(
+        [
+            (
+                delay,
+                ReceivedPacket(
+                    observed_at=datetime.now(tz=UTC).isoformat(),
+                    frame_hex=echoed_login.packet.hex().upper(),
+                    packet_hex=echoed_login.packet.hex().upper(),
+                    summary=echoed_login.summary,
+                ),
+            )
+            for delay, echoed_login in (
+                (
+                    0.0,
+                    build_login_packet(
+                        identity=worker.identity,
+                        remote_public_key=remote_identity.public_key,
+                        guest_password="",
+                    ),
+                ),
+                (
+                    0.2,
+                    build_login_packet(
+                        identity=worker.identity,
+                        remote_public_key=remote_identity.public_key,
+                        guest_password="",
+                        encoded_path_len=1,
+                        path_bytes=bytes.fromhex("35"),
+                    ),
+                ),
+                (
+                    0.4,
+                    build_login_packet(
+                        identity=worker.identity,
+                        remote_public_key=remote_identity.public_key,
+                        guest_password="",
+                        encoded_path_len=1,
+                        path_bytes=bytes.fromhex("24"),
+                    ),
+                ),
+                (
+                    0.6,
+                    build_login_packet(
+                        identity=worker.identity,
+                        remote_public_key=remote_identity.public_key,
+                        guest_password="",
+                        encoded_path_len=1,
+                        path_bytes=bytes.fromhex("2C"),
+                    ),
+                ),
+            )
+        ]
+    )
+
+    async def run_login() -> float:
+        started_at = asyncio.get_running_loop().time()
+        with pytest.raises(ProbeTimeoutError, match="echoed-own-anon-req-loop"):
+            await worker._await_login_response(
+                client=cast(Any, client),
+                endpoint_name="test-endpoint",
+                probe_run_id=1,
+                remote_pubkey=remote_identity.public_key,
+                shared_secret=shared_secret,
+            )
+        return asyncio.get_running_loop().time() - started_at
+
+    elapsed = asyncio.run(run_login())
+
+    assert elapsed < 1.0
+
+
 def test_bridge_gateway_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     received_packet = build_received_packet()

@@ -182,6 +182,7 @@ class GuestProbeWorker:
     SCHEDULED_STALE_REFRESH_REASON = "scheduled stale refresh"
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
+    LOGIN_ECHO_LOOP_THRESHOLD = 4
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
     ENDPOINT_FALLBACK_MAX_ALTERNATIVES = 1
     LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
@@ -1145,9 +1146,11 @@ class GuestProbeWorker:
     async def _await_login_response(self, *, client: PacketTransportClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
         loop = asyncio.get_running_loop()
         started_at = loop.time()
+        base_timeout = max(0.01, float(self.config.probe.request_timeout_secs))
         deadline = started_at + self.config.probe.request_timeout_secs
         remote_hash = remote_pubkey[:1]
         last_observation = "none"
+        echoed_own_anon_req_count = 0
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -1167,7 +1170,13 @@ class GuestProbeWorker:
                     continue
                 deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                 if sender_public_key == self.identity.public_key:
+                    echoed_own_anon_req_count += 1
                     last_observation = "echoed-own-anon-req"
+                    if (
+                        echoed_own_anon_req_count >= self.LOGIN_ECHO_LOOP_THRESHOLD
+                        and loop.time() - started_at >= min(2.0, max(0.5, base_timeout / 4.0))
+                    ):
+                        raise ProbeTimeoutError("timeout waiting for login response; last_observation=echoed-own-anon-req-loop")
                     self.logger.info("ignored echoed own login anon request")
                     continue
                 last_observation = f"anon-req-activity:{sender_public_key.hex().upper()[:12]}"
