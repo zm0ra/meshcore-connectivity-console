@@ -538,9 +538,16 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
     }
     .toolbar-note {
-      color: var(--muted);
+      padding: 10px 12px;
+      border: 1px solid rgba(207, 170, 56, 0.24);
+      border-radius: 12px;
+      background: rgba(207, 170, 56, 0.12);
+      color: #6e5510;
       font-size: 0.74rem;
       line-height: 1.35;
+    }
+    .toolbar-note strong {
+      color: var(--ink);
     }
     .toolbar-head {
       display: flex;
@@ -2187,6 +2194,7 @@ INDEX_HTML = """<!doctype html>
         summaryInactive: 'nieaktywne',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
+        archivedAutoFallback: 'Brak aktywnych punktów z ostatnich 24 godzin. Pokazuję archiwalne, żeby mapa nie była pusta.',
         answerSelectedRepeater: 'Wybrany punkt',
         mobileMapTitle: 'Połączenia na mapie',
         mobileMapEmpty: 'Wybierz punkt, aby pokazać relacje na mapie.',
@@ -2402,6 +2410,7 @@ INDEX_HTML = """<!doctype html>
         summaryInactive: 'inactive',
         archivedToggle: '>24h',
         archivedToggleCount: (count) => `>24h ${count}`,
+        archivedAutoFallback: 'No active nodes were seen in the last 24 hours. Showing archived ones so the map does not stay empty.',
         answerSelectedRepeater: 'Selected node',
         mobileMapTitle: 'Links on map',
         mobileMapEmpty: 'Select a node to show relations on the map.',
@@ -2757,6 +2766,16 @@ INDEX_HTML = """<!doctype html>
       return Boolean(effectiveNodeSearchQuery());
     }
 
+    function autoShowArchived(state) {
+      if (currentPanel === 'new' || showArchived) return false;
+      const nodes = state?.nodes || [];
+      return nodes.length > 0 && nodes.every((node) => isInactive(node));
+    }
+
+    function archivedVisible(state) {
+      return showArchived || autoShowArchived(state);
+    }
+
     function nodeMatchesSearch(node) {
       const query = effectiveNodeSearchQuery();
       if (!query) return true;
@@ -2998,7 +3017,7 @@ INDEX_HTML = """<!doctype html>
         return newRepeaterNodes(state);
       }
       const nodes = state.nodes || [];
-      if (showArchived) return nodes;
+      if (archivedVisible(state)) return nodes;
       return nodes.filter((node) => !isInactive(node));
     }
 
@@ -4628,6 +4647,7 @@ INDEX_HTML = """<!doctype html>
       const panelTitle = panelCopy.title;
       const panelSubtitle = panelCopy.subtitle;
       const archivedCount = archivedNodeCount(state);
+      const archivedAutoFallback = autoShowArchived(state);
       let html = '';
       const sortHtml = currentPanel === 'map' && !isPortraitMobileView()
         ? `
@@ -4654,6 +4674,9 @@ INDEX_HTML = """<!doctype html>
         : `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
       const metaHtml = `${searchHtml}${sortHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
+      const archivedNoteHtml = archivedAutoFallback
+        ? `<div class="toolbar-note"><strong>${tr('archivedToggle')}</strong> ${tr('archivedAutoFallback')}</div>`
+        : '';
       html += `
         <div class="list-toolbar">
           <div class="toolbar-head">
@@ -4666,6 +4689,7 @@ INDEX_HTML = """<!doctype html>
               ${langHtml}
             </div>
           </div>
+          ${archivedNoteHtml}
           ${renderPrimaryTabs()}
           <div class="toolbar-meta">
             ${metaHtml}
