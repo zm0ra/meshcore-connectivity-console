@@ -15,7 +15,7 @@ from .config import AppConfig, EndpointConfig
 from .database import BotDatabase
 from .endpoint_console import parse_console_neighbors_reply, parse_console_text_reply, run_console_command
 from .identity import LocalIdentity
-from .mesh_builders import build_login_packet, build_request_packet, next_request_tag, parse_encrypted_datagram, parse_path_response
+from .mesh_builders import build_login_packet, build_request_packet, next_request_tag, parse_anon_request, parse_encrypted_datagram, parse_path_response
 from .mesh_builders import build_advert_packet
 from .mesh_packets import AdvertType, PayloadType, RouteType, describe_packet_summary
 from .repeater_protocol import (
@@ -1159,12 +1159,23 @@ class GuestProbeWorker:
             self._record_rx(endpoint_name, probe_run_id, remote_pubkey, received)
             summary = received.summary
             if summary.payload_type is PayloadType.ANON_REQ and len(summary.payload) >= 33:
-                sender_public_key = summary.payload[1:33]
+                try:
+                    _, sender_public_key, _ = parse_anon_request(summary, shared_secret=shared_secret)
+                except Exception as exc:
+                    last_observation = f"anon-req-decrypt-failed:{exc}"
+                    self.logger.info("ignored login anon request reason=%s", exc)
+                    continue
+                deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                 if sender_public_key == self.identity.public_key:
                     last_observation = "echoed-own-anon-req"
-                    deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                     self.logger.info("ignored echoed own login anon request")
                     continue
+                last_observation = f"anon-req-activity:{sender_public_key.hex().upper()[:12]}"
+                self.logger.info(
+                    "ignored login anon request activity sender=%s",
+                    sender_public_key.hex().upper()[:12],
+                )
+                continue
             if summary.payload_type is PayloadType.PATH:
                 try:
                     path_response = parse_path_response(summary, shared_secret=shared_secret)
