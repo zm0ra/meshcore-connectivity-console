@@ -4131,6 +4131,58 @@ def test_schedule_recent_failed_repeater_probe_jobs_accepts_legacy_advert_endpoi
     }
 
 
+def test_schedule_stale_reprobes_uses_short_window_before_recovery_window(tmp_path, monkeypatch) -> None:
+    config = replace(
+        build_multi_endpoint_test_app_config(tmp_path),
+        probe=replace(
+            build_multi_endpoint_test_app_config(tmp_path).probe,
+            scheduled_reprobe_interval_secs=3600.0,
+            scheduled_reprobe_seen_within_secs=30 * 24 * 3600.0,
+        ),
+    )
+    database = BotDatabase(config.storage.database_path)
+    worker = GuestProbeWorker(config, database)
+    calls: list[float] = []
+
+    def fake_schedule_stale_repeater_probe_jobs(**kwargs):
+        calls.append(float(kwargs["seen_within_secs"]))
+        return 0 if len(calls) == 1 else 2
+
+    monkeypatch.setattr(database, "schedule_stale_repeater_probe_jobs", fake_schedule_stale_repeater_probe_jobs)
+    monkeypatch.setattr(database, "schedule_recent_failed_repeater_probe_jobs", lambda **kwargs: 0)
+    worker._next_scheduled_reprobe_scan_monotonic = 0.0
+
+    worker._schedule_stale_reprobes_if_due()
+
+    assert calls == [3600.0 * 3, 30 * 24 * 3600.0]
+
+
+def test_schedule_stale_reprobes_skips_recovery_window_when_short_window_enqueues(tmp_path, monkeypatch) -> None:
+    config = replace(
+        build_multi_endpoint_test_app_config(tmp_path),
+        probe=replace(
+            build_multi_endpoint_test_app_config(tmp_path).probe,
+            scheduled_reprobe_interval_secs=3600.0,
+            scheduled_reprobe_seen_within_secs=30 * 24 * 3600.0,
+        ),
+    )
+    database = BotDatabase(config.storage.database_path)
+    worker = GuestProbeWorker(config, database)
+    calls: list[float] = []
+
+    def fake_schedule_stale_repeater_probe_jobs(**kwargs):
+        calls.append(float(kwargs["seen_within_secs"]))
+        return 1
+
+    monkeypatch.setattr(database, "schedule_stale_repeater_probe_jobs", fake_schedule_stale_repeater_probe_jobs)
+    monkeypatch.setattr(database, "schedule_recent_failed_repeater_probe_jobs", lambda **kwargs: 0)
+    worker._next_scheduled_reprobe_scan_monotonic = 0.0
+
+    worker._schedule_stale_reprobes_if_due()
+
+    assert calls == [3600.0 * 3]
+
+
 def test_run_job_success_sets_preferred_endpoint(tmp_path) -> None:
     config = build_multi_endpoint_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
