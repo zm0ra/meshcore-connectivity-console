@@ -4175,7 +4175,7 @@ def test_run_job_success_sets_preferred_endpoint(tmp_path) -> None:
     assert preferred["preferred_endpoint_name"] == "RPT_Przesocin"
 
 
-def test_run_job_failure_enqueues_fallback_jobs_once(tmp_path) -> None:
+def test_run_job_failure_enqueues_single_recommended_fallback_job(tmp_path) -> None:
     config = build_multi_endpoint_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
     database.initialize()
@@ -4209,14 +4209,14 @@ def test_run_job_failure_enqueues_fallback_jobs_once(tmp_path) -> None:
     endpoint_names = {(item["endpoint_name"], item["reason"], item["status"]) for item in jobs}
     assert ("RPT_Okolna", "manual cli probe", "failed") in endpoint_names
     assert ("RPT_Przesocin", GuestProbeWorker.ENDPOINT_FALLBACK_REASON, "pending") in endpoint_names
-    assert ("RPT_Zapas", GuestProbeWorker.ENDPOINT_FALLBACK_REASON, "pending") in endpoint_names
+    assert ("RPT_Zapas", GuestProbeWorker.ENDPOINT_FALLBACK_REASON, "pending") not in endpoint_names
 
     fallback_job = database.claim_probe_job()
     assert fallback_job is not None
     asyncio.run(worker._run_job(fallback_job))
     jobs_after = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
     fallback_pending = [item for item in jobs_after if item["reason"] == GuestProbeWorker.ENDPOINT_FALLBACK_REASON and item["status"] == "pending"]
-    assert len(fallback_pending) == 1
+    assert len(fallback_pending) == 0
 
 
 def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:

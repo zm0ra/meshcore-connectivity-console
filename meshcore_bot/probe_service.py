@@ -182,6 +182,7 @@ class GuestProbeWorker:
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
+    ENDPOINT_FALLBACK_MAX_ALTERNATIVES = 1
     LOCAL_CONSOLE_REDIRECT_REASON = "endpoint local console redirect"
     CONSOLE_TEXT_COMMAND_RETRY_ATTEMPTS = 3
     CONSOLE_NEIGHBORS_RETRY_ATTEMPTS = 20
@@ -577,7 +578,17 @@ class GuestProbeWorker:
     def _enqueue_endpoint_fallback_jobs(self, *, repeater_id: int, failed_endpoint_name: str, trigger_reason: str) -> None:
         if trigger_reason == self.ENDPOINT_FALLBACK_REASON:
             return
-        fallback_endpoints = [name for name in sorted(self._endpoint_map) if name != failed_endpoint_name]
+        recommended_names = self.database.recommended_repeater_endpoint_names(
+            repeater_id=repeater_id,
+            endpoint_names=sorted(self._endpoint_map),
+        )
+        fallback_endpoints: list[str] = []
+        for endpoint_name in recommended_names:
+            if endpoint_name == failed_endpoint_name or endpoint_name not in self._endpoint_map:
+                continue
+            fallback_endpoints.append(endpoint_name)
+            if len(fallback_endpoints) >= self.ENDPOINT_FALLBACK_MAX_ALTERNATIVES:
+                break
         if not fallback_endpoints:
             return
         cooldown_secs = max(self.config.probe.advert_reprobe_failure_cooldown_secs, self.config.probe.request_timeout_secs)
