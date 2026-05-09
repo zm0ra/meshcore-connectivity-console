@@ -40,9 +40,11 @@ class ProbeConfig:
     advert_path_change_cooldown_secs: float
     automatic_probe_max_per_day: int
     scheduled_reprobe_interval_secs: float
+    scheduled_reprobe_max_batch: int
     night_failed_retry_start_hour: int
     night_failed_retry_end_hour: int
     night_failed_retry_interval_secs: float
+    night_failed_retry_max_batch: int
     poll_interval_secs: float
     request_timeout_secs: float
     route_freshness_secs: float
@@ -195,9 +197,11 @@ def load_config(config_path: str | Path) -> AppConfig:
             advert_path_change_cooldown_secs=max(0.0, float(probe.get("advert_path_change_cooldown_secs", 300.0))),
             automatic_probe_max_per_day=max(1, int(probe.get("automatic_probe_max_per_day", 3))),
             scheduled_reprobe_interval_secs=float(probe.get("scheduled_reprobe_interval_secs", 28800.0)),
+            scheduled_reprobe_max_batch=max(1, int(probe.get("scheduled_reprobe_max_batch", 24))),
             night_failed_retry_start_hour=int(probe.get("night_failed_retry_start_hour", 1)),
             night_failed_retry_end_hour=int(probe.get("night_failed_retry_end_hour", 7)),
             night_failed_retry_interval_secs=float(probe.get("night_failed_retry_interval_secs", 3600.0)),
+            night_failed_retry_max_batch=max(1, int(probe.get("night_failed_retry_max_batch", 12))),
             poll_interval_secs=float(probe.get("poll_interval_secs", 2.0)),
             request_timeout_secs=float(probe.get("request_timeout_secs", 8.0)),
             route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),

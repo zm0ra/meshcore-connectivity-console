@@ -105,9 +105,11 @@ def build_test_app_config(tmp_path) -> AppConfig:
             advert_path_change_cooldown_secs=300.0,
             automatic_probe_max_per_day=3,
             scheduled_reprobe_interval_secs=28800.0,
+            scheduled_reprobe_max_batch=24,
             night_failed_retry_start_hour=1,
             night_failed_retry_end_hour=7,
             night_failed_retry_interval_secs=3600.0,
+            night_failed_retry_max_batch=12,
             poll_interval_secs=2.0,
             request_timeout_secs=1.0,
             route_freshness_secs=1800.0,
@@ -2332,6 +2334,49 @@ def test_schedule_stale_repeater_probe_jobs_respects_daily_cap(tmp_path) -> None
     assert enqueued == 0
 
 
+def test_schedule_stale_repeater_probe_jobs_respects_batch_cap(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    now = datetime(2026, 3, 18, 20, 0, tzinfo=UTC)
+
+    repeater_ids: list[int] = []
+    for index in range(4):
+        identity = LocalIdentity.generate()
+        repeater_ids.append(
+            database.upsert_repeater_from_advert(
+                endpoint_name="test-endpoint",
+                observed_at=(now - timedelta(minutes=30 + index)).isoformat(),
+                public_key=identity.public_key,
+                advert_name=f"batch-capped-{index}",
+                advert_lat=None,
+                advert_lon=None,
+                advert_timestamp_remote=1,
+                path_len=1,
+                path_hex="35",
+                raw_packet_hex="00",
+            )
+        )
+
+    enqueued = database.schedule_stale_repeater_probe_jobs(
+        endpoint_names=["test-endpoint"],
+        stale_after_secs=3600.0,
+        seen_within_secs=24 * 3600.0,
+        reason="scheduled stale refresh",
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+        max_enqueued_jobs=2,
+        now=now,
+    )
+
+    assert enqueued == 2
+    with database.connect() as connection:
+        queued = connection.execute(
+            "SELECT COUNT(*) FROM probe_jobs WHERE reason = 'scheduled stale refresh'"
+        ).fetchone()[0]
+    assert queued == 2
+
+
 def test_schedule_recent_failed_repeater_probe_jobs_only_enqueues_recent_failed_repeaters_with_adverts(tmp_path) -> None:
     config = build_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
@@ -2435,6 +2480,57 @@ def test_schedule_recent_failed_repeater_probe_jobs_only_enqueues_recent_failed_
     ]
     assert success_repeater_id not in {row[0] for row in rows}
     assert old_failed_repeater_id not in {row[0] for row in rows}
+
+
+def test_schedule_recent_failed_repeater_probe_jobs_respects_batch_cap(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    now = datetime(2026, 3, 15, 2, 0, tzinfo=UTC)
+
+    for index in range(3):
+        identity = LocalIdentity.generate()
+        repeater_id = database.upsert_repeater_from_advert(
+            endpoint_name="test-endpoint",
+            observed_at=(now - timedelta(minutes=10 + index)).isoformat(),
+            public_key=identity.public_key,
+            advert_name=f"failed-batch-{index}",
+            advert_lat=None,
+            advert_lon=None,
+            advert_timestamp_remote=1,
+            path_len=1,
+            path_hex="35",
+            raw_packet_hex="00",
+        )
+        failed_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+        database.complete_probe_run(
+            failed_run_id,
+            repeater_id=repeater_id,
+            result="failed",
+            guest_login_ok=False,
+            guest_permissions=None,
+            firmware_capability_level=None,
+            login_server_time=None,
+            error_message="login timeout",
+        )
+
+    enqueued = database.schedule_recent_failed_repeater_probe_jobs(
+        endpoint_names=["test-endpoint"],
+        seen_within_secs=2 * 3600.0,
+        reason=GuestProbeWorker.NIGHT_FAILED_RETRY_REASON,
+        success_cooldown_secs=3600.0,
+        failure_cooldown_secs=3600.0,
+        max_enqueued_jobs=2,
+        now=now,
+    )
+
+    assert enqueued == 2
+    with database.connect() as connection:
+        queued = connection.execute(
+            "SELECT COUNT(*) FROM probe_jobs WHERE reason = ?",
+            (GuestProbeWorker.NIGHT_FAILED_RETRY_REASON,),
+        ).fetchone()[0]
+    assert queued == 2
 
 
 def test_is_within_hour_window_supports_night_range() -> None:

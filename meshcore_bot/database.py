@@ -695,6 +695,7 @@ class BotDatabase:
         success_cooldown_secs: float,
         failure_cooldown_secs: float,
         max_recent_jobs: int | None = None,
+        max_enqueued_jobs: int | None = None,
         now: datetime | None = None,
     ) -> int:
         if stale_after_secs <= 0 or seen_within_secs <= 0 or not endpoint_names:
@@ -734,6 +735,8 @@ class BotDatabase:
 
         enqueued = 0
         for row in rows:
+            if max_enqueued_jobs is not None and max_enqueued_jobs > 0 and enqueued >= max_enqueued_jobs:
+                break
             last_data_at = row["last_data_at"]
             if last_data_at and is_recent_iso_timestamp(str(last_data_at), stale_after_secs, now=now):
                 continue
@@ -765,6 +768,7 @@ class BotDatabase:
         success_cooldown_secs: float,
         failure_cooldown_secs: float,
         max_recent_jobs: int | None = None,
+        max_enqueued_jobs: int | None = None,
         now: datetime | None = None,
     ) -> int:
         if seen_within_secs <= 0 or not endpoint_names:
@@ -801,12 +805,16 @@ class BotDatabase:
 
         enqueued = 0
         for row in rows:
+            if max_enqueued_jobs is not None and max_enqueued_jobs > 0 and enqueued >= max_enqueued_jobs:
+                break
             candidate_names = self.recommended_repeater_endpoint_names(
                 repeater_id=int(row["id"]),
                 endpoint_names=endpoint_names,
             )
             seen: set[str] = set()
             for endpoint_name in candidate_names:
+                if max_enqueued_jobs is not None and max_enqueued_jobs > 0 and enqueued >= max_enqueued_jobs:
+                    break
                 if not endpoint_name or endpoint_name in seen or endpoint_name not in endpoint_names:
                     continue
                 seen.add(endpoint_name)

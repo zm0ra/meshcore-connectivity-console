@@ -316,6 +316,7 @@ class GuestProbeWorker:
                 reason="scheduled stale refresh",
                 success_cooldown_secs=interval_secs,
                 failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
+                max_enqueued_jobs=self.config.probe.scheduled_reprobe_max_batch,
                 now=now_utc,
                 max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
             )
@@ -328,6 +329,7 @@ class GuestProbeWorker:
                     reason="scheduled stale refresh",
                     success_cooldown_secs=interval_secs,
                     failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
+                    max_enqueued_jobs=self.config.probe.scheduled_reprobe_max_batch,
                     now=now_utc,
                     max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
                 )
@@ -359,6 +361,7 @@ class GuestProbeWorker:
             reason=self.NIGHT_FAILED_RETRY_REASON,
             success_cooldown_secs=night_interval_secs,
             failure_cooldown_secs=night_interval_secs,
+            max_enqueued_jobs=self.config.probe.night_failed_retry_max_batch,
             now=now_utc,
             max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
         )
