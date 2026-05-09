@@ -702,10 +702,9 @@ class BotDatabase:
         if now is None:
             now = datetime.now(tz=UTC)
         recent_cutoff_iso = (now - timedelta(seconds=seen_within_secs)).isoformat()
-        placeholders = ",".join("?" for _ in endpoint_names)
         with self.connect() as connection:
             rows = connection.execute(
-                f"""
+                """
                 WITH latest_advert AS (
                     SELECT ra.repeater_id, ra.endpoint_name
                     FROM repeater_adverts ra
@@ -728,10 +727,9 @@ class BotDatabase:
                 FROM repeaters r
                 JOIN latest_advert la ON la.repeater_id = r.id
                 WHERE r.last_seen_at >= ?
-                  AND la.endpoint_name IN ({placeholders})
                 ORDER BY r.last_seen_at DESC, r.id DESC
                 """,
-                (recent_cutoff_iso, *endpoint_names),
+                                (recent_cutoff_iso,),
             ).fetchall()
 
         enqueued = 0
@@ -774,10 +772,9 @@ class BotDatabase:
         if now is None:
             now = datetime.now(tz=UTC)
         recent_cutoff_iso = (now - timedelta(seconds=seen_within_secs)).isoformat()
-        placeholders = ",".join("?" for _ in endpoint_names)
         with self.connect() as connection:
             rows = connection.execute(
-                f"""
+                """
                 WITH latest_advert AS (
                     SELECT ra.repeater_id, ra.endpoint_name
                     FROM repeater_adverts ra
@@ -796,11 +793,10 @@ class BotDatabase:
                 FROM repeaters r
                 JOIN latest_advert la ON la.repeater_id = r.id
                 WHERE r.last_seen_at >= ?
-                  AND la.endpoint_name IN ({placeholders})
                   AND r.last_probe_status = 'failed'
                 ORDER BY r.last_seen_at DESC, r.id DESC
                 """,
-                (recent_cutoff_iso, *endpoint_names),
+                                (recent_cutoff_iso,),
             ).fetchall()
 
         enqueued = 0

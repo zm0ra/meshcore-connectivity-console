@@ -4055,6 +4055,82 @@ def test_schedule_stale_repeater_probe_jobs_prefers_stored_endpoint(tmp_path) ->
     assert jobs[0]["endpoint_name"] == "RPT_Przesocin"
 
 
+def test_schedule_stale_repeater_probe_jobs_accepts_legacy_advert_endpoint_name(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="Legacy Station Name",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Sched Legacy RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    enqueued = database.schedule_stale_repeater_probe_jobs(
+        endpoint_names=[endpoint.name for endpoint in config.endpoints],
+        stale_after_secs=3600.0,
+        seen_within_secs=3600.0,
+        reason="scheduled stale refresh",
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+    )
+
+    assert enqueued == 1
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=5)
+    assert jobs[0]["endpoint_name"] == "RPT_Okolna"
+
+
+def test_schedule_recent_failed_repeater_probe_jobs_accepts_legacy_advert_endpoint_name(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="Legacy Station Name",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Failed Legacy RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    failed_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="RPT_Okolna")
+    database.complete_probe_run(
+        failed_run_id,
+        repeater_id=repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="legacy mapping failed",
+    )
+
+    enqueued = database.schedule_recent_failed_repeater_probe_jobs(
+        endpoint_names=[endpoint.name for endpoint in config.endpoints],
+        seen_within_secs=3600.0,
+        reason=GuestProbeWorker.NIGHT_FAILED_RETRY_REASON,
+        success_cooldown_secs=0.0,
+        failure_cooldown_secs=0.0,
+    )
+
+    assert enqueued == len(config.endpoints)
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
+    assert {item["endpoint_name"] for item in jobs if item["reason"] == GuestProbeWorker.NIGHT_FAILED_RETRY_REASON} == {
+        endpoint.name for endpoint in config.endpoints
+    }
+
+
 def test_run_job_success_sets_preferred_endpoint(tmp_path) -> None:
     config = build_multi_endpoint_test_app_config(tmp_path)
     database = BotDatabase(config.storage.database_path)
