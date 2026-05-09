@@ -117,6 +117,7 @@ def build_test_app_config(tmp_path) -> AppConfig:
         bot=BotConfig(
             enabled=True,
             sender_name="",
+            reply_endpoint_name=None,
             channels=("#bot-test",),
             enabled_commands=("!ping", "!test", "!help"),
             min_response_delay_secs=1.0,
@@ -605,6 +606,52 @@ def test_bot_service_replies_to_help(tmp_path) -> None:
         "meshcore-bot: !ping !test !help tx 1/2",
         "meshcore-bot: !ping !test !help tx 2/2",
     ]
+
+
+def test_bot_service_replies_once_via_preferred_endpoint(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    config = replace(
+        config,
+        bot=replace(config.bot, reply_endpoint_name="rpt-primary"),
+        endpoints=(
+            EndpointConfig(name="rpt-primary", raw_host="172.30.105.28", raw_port=5002, enabled=True),
+            EndpointConfig(name="rpt-secondary", raw_host="172.30.105.27", raw_port=5002, enabled=True),
+        ),
+    )
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    secret = derive_hashtag_secret("#bot-test")
+    incoming = build_group_text_packet(sender_name="alice", message="!ping", channel_secret=secret)
+    received = ReceivedPacket(
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        frame_hex=incoming.packet.hex().upper(),
+        packet_hex=incoming.packet.hex().upper(),
+        summary=incoming.summary,
+    )
+    preferred_client = FakeTCPClient([])
+    secondary_client = FakeTCPClient([])
+    service = ChannelCommandBotService(
+        config,
+        database,
+        transport_factory=lambda endpoint: preferred_client if endpoint.name == "rpt-primary" else secondary_client,
+    )
+    service.MIN_RESPONSE_DELAY_SECS = 0.0
+    service.ECHO_ACK_TIMEOUT_SECS = 0.0
+    service.RESPONSE_RETRY_DELAY_SECS = 0.0
+    service._active_clients = {
+        "rpt-primary": (config.endpoints[0], preferred_client),
+        "rpt-secondary": (config.endpoints[1], secondary_client),
+    }
+
+    async def exercise() -> None:
+        await service._handle_packet(config.endpoints[1], secondary_client, received)
+        await service._handle_packet(config.endpoints[0], preferred_client, received)
+        await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert len(preferred_client.sent_packets) == service.RESPONSE_ATTEMPTS
+    assert len(secondary_client.sent_packets) == 0
 
 
 def test_bot_service_ignores_unconfigured_channel(tmp_path) -> None:

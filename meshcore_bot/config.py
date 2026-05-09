@@ -54,6 +54,7 @@ class ProbeConfig:
 class BotConfig:
     enabled: bool
     sender_name: str
+    reply_endpoint_name: str | None
     channels: tuple[str, ...]
     enabled_commands: tuple[str, ...]
     min_response_delay_secs: float
@@ -205,6 +206,7 @@ def load_config(config_path: str | Path) -> AppConfig:
         bot=BotConfig(
             enabled=bool(bot.get("enabled", True)),
             sender_name=str(bot.get("sender_name", "")).strip(),
+            reply_endpoint_name=str(bot.get("reply_endpoint_name", "")).strip() or None,
             channels=tuple(str(item).strip() for item in bot.get("channels", ["#bot-test"]) if str(item).strip()),
             enabled_commands=tuple(
                 str(item).strip().lower() for item in bot.get("enabled_commands", ["!ping", "!test", "!help"])

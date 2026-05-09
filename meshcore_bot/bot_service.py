@@ -52,6 +52,7 @@ class ChannelCommandBotService:
         self.identity = LocalIdentity.load_or_create(config.identity.key_file_path)
         self.logger = logging.getLogger(f"{config.service.name}.bot")
         self.sender_name = config.bot.sender_name or config.service.name
+        self.reply_endpoint_name = config.bot.reply_endpoint_name
         self.channel_bindings = tuple(
             ChannelBinding(name=channel_name, secret=derive_hashtag_secret(channel_name))
             for channel_name in config.bot.channels
@@ -72,8 +73,9 @@ class ChannelCommandBotService:
         self._stop_event = asyncio.Event()
         self._tasks: list[asyncio.Task[None]] = []
         self._transport_factory = transport_factory or self._build_gateway_transport
+        self._active_clients: dict[str, tuple[EndpointConfig, PacketTransportClient]] = {}
         self._send_locks: dict[str, asyncio.Lock] = {}
-        self._recent_commands: dict[tuple[str, str, int, str], datetime] = {}
+        self._recent_commands: dict[tuple[str, int, str], datetime] = {}
         self._pending_replies: dict[tuple[str, str, int, str], PendingReply] = {}
         self._adaptive_response_attempts: dict[tuple[str, str], int] = {}
 
@@ -121,6 +123,7 @@ class ChannelCommandBotService:
             client = self._transport_factory(endpoint)
             try:
                 await client.connect()
+                self._active_clients[endpoint.name] = (endpoint, client)
                 self.logger.info("[BOT-CONNECT] endpoint=%s host=%s port=%s", endpoint.name, endpoint.raw_host, endpoint.raw_port)
                 while not self._stop_event.is_set():
                     try:
@@ -135,6 +138,9 @@ class ChannelCommandBotService:
                 await asyncio.sleep(3.0)
             finally:
                 self._cancel_pending_replies_for_endpoint(endpoint.name)
+                active_entry = self._active_clients.get(endpoint.name)
+                if active_entry is not None and active_entry[1] is client:
+                    del self._active_clients[endpoint.name]
                 await client.close()
 
     async def _handle_packet(self, endpoint: EndpointConfig, client: PacketTransportClient, packet: ReceivedPacket) -> None:
@@ -158,7 +164,7 @@ class ChannelCommandBotService:
         command = message.strip().split(None, 1)[0].lower()
         if command not in self._enabled_commands:
             return
-        command_key = (endpoint.name, channel_name, group_text.timestamp, group_text.text)
+        command_key = (channel_name, group_text.timestamp, group_text.text)
         if self._is_duplicate_command(command_key):
             self.logger.debug(
                 "[BOT-DUP] endpoint=%s channel=%s ts=%s text=%s",
@@ -177,7 +183,11 @@ class ChannelCommandBotService:
             group_text.timestamp,
             message,
         )
-        await self._activate_quiet_window(client, channel_name)
+        reply_target = self._resolve_reply_target(endpoint, client)
+        if reply_target is None:
+            return
+        reply_endpoint, reply_client = reply_target
+        await self._activate_quiet_window(reply_client, channel_name)
         await asyncio.sleep(self.MIN_RESPONSE_DELAY_SECS)
         reply = self._build_reply(
             sender_name=sender_name,
@@ -187,9 +197,9 @@ class ChannelCommandBotService:
         )
         if reply is None:
             return
-        self._schedule_channel_reply(endpoint, client, channel_name, reply)
+        self._schedule_channel_reply(reply_endpoint, reply_client, channel_name, reply)
 
-    def _is_duplicate_command(self, command_key: tuple[str, str, int, str]) -> bool:
+    def _is_duplicate_command(self, command_key: tuple[str, int, str]) -> bool:
         now = datetime.now(tz=UTC)
         cutoff = now - timedelta(seconds=self.COMMAND_DEDUP_TTL_SECS)
         stale_keys = [key for key, seen_at in self._recent_commands.items() if seen_at < cutoff]
@@ -205,6 +215,23 @@ class ChannelCommandBotService:
             decoded = parse_group_text(summary, channel_secret=binding.secret)
             if decoded is not None:
                 return binding.name, decoded
+        return None
+
+    def _resolve_reply_target(
+        self,
+        endpoint: EndpointConfig,
+        client: PacketTransportClient,
+    ) -> tuple[EndpointConfig, PacketTransportClient] | None:
+        if self.reply_endpoint_name is None or endpoint.name == self.reply_endpoint_name:
+            return endpoint, client
+        preferred = self._active_clients.get(self.reply_endpoint_name)
+        if preferred is not None:
+            return preferred
+        self.logger.warning(
+            "[BOT-SKIP] preferred reply endpoint=%s unavailable for command seen on endpoint=%s",
+            self.reply_endpoint_name,
+            endpoint.name,
+        )
         return None
 
     def _build_reply(self, *, sender_name: str, message: str, path_len: int, sent_at: datetime) -> str | None:
@@ -248,14 +275,15 @@ class ChannelCommandBotService:
         )
 
     def _acknowledge_pending_reply(self, endpoint_name: str, channel_name: str, wire_timestamp: int, decoded_text: str) -> None:
-        reply_key, pending = self._find_pending_reply(endpoint_name, channel_name, wire_timestamp, decoded_text)
+        reply_key, pending = self._find_pending_reply(channel_name, wire_timestamp, decoded_text)
         if pending is None or reply_key is None:
             return
         pending.echo_event.set()
         if not pending.task.done():
             pending.task.cancel()
         self.logger.info(
-            "[BOT-ECHO] endpoint=%s channel=%s ts=%s attempts=%s",
+            "[BOT-ECHO] endpoint=%s seen_on=%s channel=%s ts=%s attempts=%s",
+            reply_key[0],
             endpoint_name,
             channel_name,
             wire_timestamp,
@@ -264,13 +292,12 @@ class ChannelCommandBotService:
 
     def _find_pending_reply(
         self,
-        endpoint_name: str,
         channel_name: str,
         wire_timestamp: int,
         decoded_text: str,
     ) -> tuple[tuple[str, str, int, str] | None, PendingReply | None]:
         for reply_key, pending in self._pending_replies.items():
-            if reply_key[0] != endpoint_name or reply_key[1] != channel_name or reply_key[2] != wire_timestamp:
+            if reply_key[1] != channel_name or reply_key[2] != wire_timestamp:
                 continue
             if decoded_text in pending.expected_texts:
                 return reply_key, pending

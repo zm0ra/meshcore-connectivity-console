@@ -45,6 +45,7 @@ neighbours_prefix_len = 4
 [bot]
 enabled = true
 sender_name = ""
+reply_endpoint_name = "rpt-primary"
 channels = ["#bot"]
 enabled_commands = ["!ping", "!test", "!help"]
 min_response_delay_secs = 1.0
