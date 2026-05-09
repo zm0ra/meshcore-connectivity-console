@@ -37,6 +37,7 @@ from meshcore_bot.config import load_config, save_raw_config
 from meshcore_bot.endpoint_console import normalize_console_reply, parse_console_neighbors_reply, parse_console_text_reply, run_console_command
 from meshcore_bot.probe_service import LocalConsoleEndpointResolver, ProbeTimeoutError, GuestProbeWorker, is_recent_observation, is_within_hour_window, select_login_candidates, select_login_route_attempts
 from meshcore_bot.repeater_protocol import (
+    RESP_SERVER_LOGIN_OK,
     build_path_discovery_request,
     parse_login_response,
     parse_neighbours_response,
@@ -71,6 +72,22 @@ class FakeTCPClient:
         if not self.received_packets:
             raise asyncio.TimeoutError()
         return self.received_packets.pop(0)
+
+
+class TimedReceiveClient(FakeTCPClient):
+    def __init__(self, scheduled_packets: list[tuple[float, ReceivedPacket]]) -> None:
+        super().__init__([])
+        self.scheduled_packets = list(scheduled_packets)
+
+    async def receive_packet(self, *, timeout: float) -> ReceivedPacket:
+        if not self.scheduled_packets:
+            raise asyncio.TimeoutError()
+        delay, packet = self.scheduled_packets.pop(0)
+        if delay > timeout:
+            await asyncio.sleep(timeout)
+            raise asyncio.TimeoutError()
+        await asyncio.sleep(delay)
+        return packet
 
 
 def build_received_packet(*, advert_type: AdvertType = AdvertType.REPEATER, name: str = "test-rpt") -> ReceivedPacket:
@@ -1223,6 +1240,158 @@ def test_send_with_tagged_response_retries_after_timeout(tmp_path) -> None:
     assert result == (b"ok", 1, bytes.fromhex("35"))
     assert worker._send_and_record.await_count == 2
     assert worker._await_tagged_response.await_count == 2
+
+
+def test_await_tagged_response_extends_deadline_after_echoed_own_request(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(base_config, probe=replace(base_config.probe, request_timeout_secs=0.05))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    worker = GuestProbeWorker(config, database)
+    remote_identity = LocalIdentity.generate()
+    shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="echo-tag-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    request_tag = 0x10203040
+    echoed_request = build_request_packet(
+        identity=worker.identity,
+        remote_public_key=remote_identity.public_key,
+        plaintext=struct.pack("<I", request_tag) + b"PING",
+        encoded_path_len=1,
+        path_bytes=bytes.fromhex("35"),
+    )
+    tagged_response_plaintext = bytes([1]) + bytes.fromhex("35") + bytes([int(PayloadType.RESPONSE)]) + struct.pack("<I", request_tag) + b"OK"
+    tagged_response = build_mesh_packet(
+        route_type=RouteType.DIRECT,
+        payload_type=PayloadType.PATH,
+        payload=build_datagram_payload(
+            destination_public_key=worker.identity.public_key,
+            source_identity=remote_identity,
+            shared_secret=shared_secret,
+            plaintext=tagged_response_plaintext,
+        ),
+    )
+    client = TimedReceiveClient(
+        [
+            (
+                0.0,
+                ReceivedPacket(
+                    observed_at=datetime.now(tz=UTC).isoformat(),
+                    frame_hex=echoed_request.packet.hex().upper(),
+                    packet_hex=echoed_request.packet.hex().upper(),
+                    summary=echoed_request.summary,
+                ),
+            ),
+            (
+                0.15,
+                ReceivedPacket(
+                    observed_at=datetime.now(tz=UTC).isoformat(),
+                    frame_hex=tagged_response.packet.hex().upper(),
+                    packet_hex=tagged_response.packet.hex().upper(),
+                    summary=tagged_response.summary,
+                ),
+            ),
+        ]
+    )
+
+    async def run_probe() -> tuple[bytes, int, bytes, float]:
+        started_at = asyncio.get_running_loop().time()
+        payload, path_len, path_bytes = await worker._await_tagged_response(
+            client=cast(Any, client),
+            endpoint_name="test-endpoint",
+            probe_run_id=1,
+            repeater_id=repeater_id,
+            remote_pubkey=remote_identity.public_key,
+            shared_secret=shared_secret,
+            expected_tag=request_tag,
+            current_path_len=1,
+            current_path_bytes=bytes.fromhex("35"),
+        )
+        return payload, path_len, path_bytes, asyncio.get_running_loop().time() - started_at
+
+    payload, path_len, path_bytes, elapsed = asyncio.run(run_probe())
+
+    assert payload == struct.pack("<I", request_tag) + b"OK"
+    assert path_len == 1
+    assert path_bytes == bytes.fromhex("35")
+    assert elapsed >= 0.14
+
+
+def test_await_login_response_extends_deadline_after_echoed_own_anon_request(tmp_path) -> None:
+    base_config = build_test_app_config(tmp_path)
+    config = replace(base_config, probe=replace(base_config.probe, request_timeout_secs=0.05))
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    worker = GuestProbeWorker(config, database)
+    remote_identity = LocalIdentity.generate()
+    shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    echoed_login = build_login_packet(
+        identity=worker.identity,
+        remote_public_key=remote_identity.public_key,
+        guest_password="",
+    )
+    login_payload = struct.pack("<IBBBB4sB", 1234567890, RESP_SERVER_LOGIN_OK, 1, 0, 1, b"ABCD", 1)
+    login_response_plaintext = bytes([1]) + bytes.fromhex("35") + bytes([int(PayloadType.RESPONSE)]) + login_payload
+    login_response = build_mesh_packet(
+        route_type=RouteType.DIRECT,
+        payload_type=PayloadType.PATH,
+        payload=build_datagram_payload(
+            destination_public_key=worker.identity.public_key,
+            source_identity=remote_identity,
+            shared_secret=shared_secret,
+            plaintext=login_response_plaintext,
+        ),
+    )
+    client = TimedReceiveClient(
+        [
+            (
+                0.0,
+                ReceivedPacket(
+                    observed_at=datetime.now(tz=UTC).isoformat(),
+                    frame_hex=echoed_login.packet.hex().upper(),
+                    packet_hex=echoed_login.packet.hex().upper(),
+                    summary=echoed_login.summary,
+                ),
+            ),
+            (
+                0.15,
+                ReceivedPacket(
+                    observed_at=datetime.now(tz=UTC).isoformat(),
+                    frame_hex=login_response.packet.hex().upper(),
+                    packet_hex=login_response.packet.hex().upper(),
+                    summary=login_response.summary,
+                ),
+            ),
+        ]
+    )
+
+    async def run_login() -> tuple[bytes, int, bytes, float]:
+        started_at = asyncio.get_running_loop().time()
+        payload, path_len, path_bytes = await worker._await_login_response(
+            client=cast(Any, client),
+            endpoint_name="test-endpoint",
+            probe_run_id=1,
+            remote_pubkey=remote_identity.public_key,
+            shared_secret=shared_secret,
+        )
+        return payload, path_len, path_bytes, asyncio.get_running_loop().time() - started_at
+
+    payload, path_len, path_bytes, elapsed = asyncio.run(run_login())
+
+    assert parse_login_response(payload).response_code == RESP_SERVER_LOGIN_OK
+    assert path_len == 1
+    assert path_bytes == bytes.fromhex("35")
+    assert elapsed >= 0.14
 
 
 def test_bridge_gateway_ignores_idle_receive_timeout_without_reconnect(tmp_path) -> None:

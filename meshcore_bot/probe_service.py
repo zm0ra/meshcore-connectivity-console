@@ -216,6 +216,14 @@ class GuestProbeWorker:
             return
         self._progress_callback(event, payload)
 
+    def _extend_probe_wait_deadline(self, deadline: float, *, started_at: float) -> float:
+        base_timeout = max(0.01, float(self.config.probe.request_timeout_secs))
+        max_deadline = started_at + max(base_timeout * 2.0, base_timeout + 0.25)
+        if deadline >= max_deadline:
+            return deadline
+        extension_secs = max(0.25, min(base_timeout / 2.0, 4.0))
+        return min(max_deadline, max(deadline, asyncio.get_running_loop().time()) + extension_secs)
+
     async def run(self) -> None:
         self.database.initialize()
         await self._start_wakeup_listener()
@@ -1130,11 +1138,13 @@ class GuestProbeWorker:
         raise last_error
 
     async def _await_login_response(self, *, client: PacketTransportClient, endpoint_name: str, probe_run_id: int, remote_pubkey: bytes, shared_secret: bytes) -> tuple[bytes, int, bytes]:
-        deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        deadline = started_at + self.config.probe.request_timeout_secs
         remote_hash = remote_pubkey[:1]
         last_observation = "none"
         while True:
-            remaining = deadline - asyncio.get_running_loop().time()
+            remaining = deadline - loop.time()
             if remaining <= 0:
                 raise ProbeTimeoutError(f"timeout waiting for login response; last_observation={last_observation}")
             try:
@@ -1147,6 +1157,7 @@ class GuestProbeWorker:
                 sender_public_key = summary.payload[1:33]
                 if sender_public_key == self.identity.public_key:
                     last_observation = "echoed-own-anon-req"
+                    deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                     self.logger.info("ignored echoed own login anon request")
                     continue
             if summary.payload_type is PayloadType.PATH:
@@ -1179,6 +1190,7 @@ class GuestProbeWorker:
                     f":src={path_response.source_hash.hex().upper()}"
                     f":dst={path_response.destination_hash.hex().upper()}"
                 )
+                deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                 if path_response.extra_type == int(PayloadType.RESPONSE):
                     self.logger.info(
                         "accepted login response via PATH src=%s dst=%s path_len=%s",
@@ -1455,11 +1467,13 @@ class GuestProbeWorker:
         current_path_len: int,
         current_path_bytes: bytes,
     ) -> tuple[bytes, int, bytes]:
-        deadline = asyncio.get_running_loop().time() + self.config.probe.request_timeout_secs
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        deadline = started_at + self.config.probe.request_timeout_secs
         remote_hash = remote_pubkey[:1]
         last_observation = "none"
         while True:
-            remaining = deadline - asyncio.get_running_loop().time()
+            remaining = deadline - loop.time()
             if remaining <= 0:
                 raise ProbeTimeoutError(
                     f"timeout waiting for tagged response tag={expected_tag}; last_observation={last_observation}"
@@ -1503,6 +1517,7 @@ class GuestProbeWorker:
                         path_bytes=path_response.path_bytes,
                         source="path_update",
                     )
+                deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                 if path_response.extra_type != int(PayloadType.RESPONSE):
                     last_observation = (
                         f"path-extra-type={path_response.extra_type}"
@@ -1569,6 +1584,7 @@ class GuestProbeWorker:
                 request_tag = struct.unpack_from("<I", decrypted_req.plaintext, 0)[0] if len(decrypted_req.plaintext) >= 4 else None
                 if decrypted_req.source_hash == self._local_hash and decrypted_req.destination_hash == remote_hash:
                     last_observation = f"echoed-own-req:{request_tag}"
+                    deadline = self._extend_probe_wait_deadline(deadline, started_at=started_at)
                     self.logger.info(
                         "ignored echoed own request expected_tag=%s echoed_tag=%s src=%s dst=%s",
                         expected_tag,
