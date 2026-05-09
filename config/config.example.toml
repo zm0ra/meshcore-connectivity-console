@@ -33,6 +33,7 @@ advert_probe_min_interval_secs = 10.0
 advert_path_change_cooldown_secs = 300.0
 automatic_probe_max_per_day = 3
 scheduled_reprobe_interval_secs = 28800.0
+scheduled_reprobe_seen_within_secs = 2592000.0
 night_failed_retry_start_hour = 1
 night_failed_retry_end_hour = 7
 night_failed_retry_interval_secs = 3600.0

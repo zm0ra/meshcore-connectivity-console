@@ -48,6 +48,7 @@ class ProbeConfig:
     route_freshness_secs: float
     neighbours_page_size: int
     neighbours_prefix_len: int
+    scheduled_reprobe_seen_within_secs: float = 2592000.0
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,10 @@ def load_config(config_path: str | Path) -> AppConfig:
             route_freshness_secs=float(probe.get("route_freshness_secs", 1800.0)),
             neighbours_page_size=int(probe.get("neighbours_page_size", 15)),
             neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 4)),
+            scheduled_reprobe_seen_within_secs=max(
+                0.0,
+                float(probe.get("scheduled_reprobe_seen_within_secs", 2592000.0)),
+            ),
         ),
         bot=BotConfig(
             enabled=bool(bot.get("enabled", True)),

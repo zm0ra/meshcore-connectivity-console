@@ -302,10 +302,14 @@ class GuestProbeWorker:
         if not endpoint_names:
             return
         if interval_secs > 0:
+            seen_within_secs = max(
+                interval_secs,
+                self.config.probe.scheduled_reprobe_seen_within_secs,
+            )
             enqueued = self.database.schedule_stale_repeater_probe_jobs(
                 endpoint_names=endpoint_names,
                 stale_after_secs=interval_secs,
-                seen_within_secs=max(interval_secs * 3, interval_secs),
+                seen_within_secs=seen_within_secs,
                 reason="scheduled stale refresh",
                 success_cooldown_secs=interval_secs,
                 failure_cooldown_secs=max(interval_secs / 2, self.config.probe.advert_reprobe_failure_cooldown_secs),
@@ -313,7 +317,12 @@ class GuestProbeWorker:
                 max_recent_jobs=self.config.probe.automatic_probe_max_per_day,
             )
             if enqueued:
-                self.logger.info("scheduled stale reprobe jobs=%s stale_after_secs=%s", enqueued, interval_secs)
+                self.logger.info(
+                    "scheduled stale reprobe jobs=%s stale_after_secs=%s seen_within_secs=%s",
+                    enqueued,
+                    interval_secs,
+                    seen_within_secs,
+                )
 
         night_interval_secs = self.config.probe.night_failed_retry_interval_secs
         if night_interval_secs <= 0:
