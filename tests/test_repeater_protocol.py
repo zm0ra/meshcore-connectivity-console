@@ -4536,6 +4536,46 @@ def test_run_job_failure_enqueues_single_recommended_fallback_job(tmp_path) -> N
     assert len(fallback_pending) == 0
 
 
+def test_run_job_failure_from_scheduled_stale_refresh_does_not_enqueue_fallback_job(tmp_path) -> None:
+    config = build_multi_endpoint_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    remote_identity = LocalIdentity.generate()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="RPT_Okolna",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="Fail Scheduled RPT",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="RPT_Okolna",
+        reason=GuestProbeWorker.SCHEDULED_STALE_REFRESH_REASON,
+    )
+    assert job_id is not None
+    job = database.claim_probe_job()
+    assert job is not None
+
+    worker = GuestProbeWorker(config, database)
+
+    async def failing_probe(*, probe_run_id: int, repeater_id: int, endpoint: EndpointConfig, **kwargs) -> None:
+        raise RuntimeError(f"failed via {endpoint.name}")
+
+    worker.probe_repeater_as_guest = failing_probe  # type: ignore[method-assign]
+    asyncio.run(worker._run_job(job))
+
+    jobs = database.probe_jobs_for_repeater(repeater_id=repeater_id, limit=10)
+    endpoint_names = {(item["endpoint_name"], item["reason"], item["status"]) for item in jobs}
+    assert ("RPT_Okolna", GuestProbeWorker.SCHEDULED_STALE_REFRESH_REASON, "failed") in endpoint_names
+    assert all(item[1] != GuestProbeWorker.ENDPOINT_FALLBACK_REASON for item in endpoint_names)
+
+
 def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:
     config = ProbeConfig(
         key_file_path=None,

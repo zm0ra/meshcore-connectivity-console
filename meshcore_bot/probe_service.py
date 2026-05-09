@@ -179,6 +179,7 @@ class LocalConsoleEndpointResolver:
 
 class GuestProbeWorker:
     SCHEDULED_REPROBE_SCAN_INTERVAL_SECS = 300.0
+    SCHEDULED_STALE_REFRESH_REASON = "scheduled stale refresh"
     NIGHT_FAILED_RETRY_REASON = "night failed advert retry"
     LEARNED_LOGIN_STABLE_SUCCESS_COUNT = 3
     ENDPOINT_FALLBACK_REASON = "endpoint fallback verification"
@@ -601,7 +602,11 @@ class GuestProbeWorker:
         self._progress("probe_completed", endpoint_name=endpoint.name, result="success")
 
     def _enqueue_endpoint_fallback_jobs(self, *, repeater_id: int, failed_endpoint_name: str, trigger_reason: str) -> None:
-        if trigger_reason == self.ENDPOINT_FALLBACK_REASON:
+        if trigger_reason in {
+            self.ENDPOINT_FALLBACK_REASON,
+            self.SCHEDULED_STALE_REFRESH_REASON,
+            self.NIGHT_FAILED_RETRY_REASON,
+        }:
             return
         recommended_names = self.database.recommended_repeater_endpoint_names(
             repeater_id=repeater_id,
