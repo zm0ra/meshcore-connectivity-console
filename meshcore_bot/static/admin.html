@@ -19,14 +19,66 @@
       --warn: #b96918;
       --danger: #b13c2e;
       --shadow: 0 24px 60px rgba(23, 33, 43, 0.12);
+      --surface-rgb: 255, 255, 255;
+      --bg-grad-1: rgba(20, 99, 86, 0.12);
+      --bg-grad-2: #eef1e8;
+      --bg-grad-3: #f6f0e6;
+      --bg-grad-4: #f1f3ef;
+      --log-bg: rgba(20, 28, 34, 0.94);
+      --log-ink: #d8e5ea;
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f1620;
+      --panel: rgba(24, 33, 44, 0.94);
+      --panel-strong: #1a2330;
+      --line: rgba(230, 236, 242, 0.12);
+      --line-strong: rgba(230, 236, 242, 0.22);
+      --ink: #e6ecf2;
+      --muted: #8b97a3;
+      --accent: #5cc4b1;
+      --accent-strong: #3fa996;
+      --warn: #e0a35a;
+      --danger: #e07060;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      --surface-rgb: 26, 35, 48;
+      --bg-grad-1: rgba(20, 99, 86, 0.18);
+      --bg-grad-2: #0f1620;
+      --bg-grad-3: #131c28;
+      --bg-grad-4: #0f1620;
+      --log-bg: rgba(0, 0, 0, 0.55);
+      --log-ink: #d8e5ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f1620;
+        --panel: rgba(24, 33, 44, 0.94);
+        --panel-strong: #1a2330;
+        --line: rgba(230, 236, 242, 0.12);
+        --line-strong: rgba(230, 236, 242, 0.22);
+        --ink: #e6ecf2;
+        --muted: #8b97a3;
+        --accent: #5cc4b1;
+        --accent-strong: #3fa996;
+        --warn: #e0a35a;
+        --danger: #e07060;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        --surface-rgb: 26, 35, 48;
+        --bg-grad-1: rgba(20, 99, 86, 0.18);
+        --bg-grad-2: #0f1620;
+        --bg-grad-3: #131c28;
+        --bg-grad-4: #0f1620;
+        --log-bg: rgba(0, 0, 0, 0.55);
+      }
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       min-height: 100%;
       background:
-        radial-gradient(circle at top left, rgba(20, 99, 86, 0.12), transparent 32%),
-        linear-gradient(160deg, #eef1e8 0%, #f6f0e6 48%, #f1f3ef 100%);
+        radial-gradient(circle at top left, var(--bg-grad-1), transparent 32%),
+        linear-gradient(160deg, var(--bg-grad-2) 0%, var(--bg-grad-3) 48%, var(--bg-grad-4) 100%);
       color: var(--ink);
       font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
       -webkit-text-size-adjust: 100%;
@@ -55,6 +107,31 @@
       gap: 16px;
       padding: 18px 22px;
       border-radius: 24px;
+      position: sticky;
+      top: 8px;
+      z-index: 50;
+    }
+    .tabs {
+      position: sticky;
+      top: 96px;
+      z-index: 40;
+      padding: 6px;
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .theme-toggle {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.05rem;
     }
     .topbar h1 {
       margin: 0;
@@ -112,8 +189,8 @@
     .metric {
       padding: 16px 18px;
       border-radius: 20px;
-      background: rgba(255, 255, 255, 0.62);
-      border: 1px solid rgba(23, 33, 43, 0.08);
+      background: rgba(var(--surface-rgb), 0.62);
+      border: 1px solid var(--line);
     }
     .metric strong {
       display: block;
@@ -145,8 +222,8 @@
     .table-wrap {
       overflow: auto;
       border-radius: 16px;
-      border: 1px solid rgba(23, 33, 43, 0.08);
-      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid var(--line);
+      background: rgba(var(--surface-rgb), 0.55);
     }
     table {
       width: 100%;
@@ -156,7 +233,7 @@
     th,
     td {
       padding: 12px 14px;
-      border-bottom: 1px solid rgba(23, 33, 43, 0.08);
+      border-bottom: 1px solid var(--line);
       text-align: left;
       vertical-align: top;
       font-size: 0.92rem;
@@ -184,8 +261,8 @@
       width: 100%;
       padding: 10px 12px;
       border-radius: 14px;
-      border: 1px solid rgba(23, 33, 43, 0.12);
-      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid var(--line);
+      background: rgba(var(--surface-rgb), 0.78);
       color: var(--ink);
       font: inherit;
     }
@@ -207,10 +284,10 @@
       gap: 12px;
     }
     .endpoint-row {
-      border: 1px solid rgba(23, 33, 43, 0.1);
+      border: 1px solid var(--line);
       border-radius: 18px;
       padding: 16px;
-      background: rgba(255, 255, 255, 0.58);
+      background: rgba(var(--surface-rgb), 0.58);
       display: grid;
       gap: 12px;
     }
@@ -342,10 +419,10 @@
       border-color: transparent;
     }
     details.config-group {
-      border: 1px solid rgba(23, 33, 43, 0.1);
+      border: 1px solid var(--line);
       border-radius: 14px;
       padding: 10px 14px;
-      background: rgba(255, 255, 255, 0.45);
+      background: rgba(var(--surface-rgb), 0.45);
     }
     details.config-group > summary {
       cursor: pointer;
@@ -366,9 +443,9 @@
     }
     .log-block {
       border-radius: 18px;
-      border: 1px solid rgba(23, 33, 43, 0.08);
-      background: rgba(20, 28, 34, 0.94);
-      color: #d8e5ea;
+      border: 1px solid var(--line);
+      background: var(--log-bg);
+      color: var(--log-ink);
       padding: 14px;
       overflow: auto;
       white-space: pre-wrap;
@@ -418,6 +495,7 @@
       </div>
       <div class="actions">
         <span id="sessionBadge" class="pill">Niezalogowany</span>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Przełącz motyw" title="Przełącz motyw (auto/jasny/ciemny)">🌓</button>
         <a href="/">Widok publiczny</a>
         <button id="logoutButton" hidden>Wyloguj</button>
       </div>
@@ -1206,6 +1284,24 @@
       }
       showLogin();
       showToast('Wylogowano.');
+    });
+
+    // Theme: auto (default) -> light -> dark -> auto
+    function applyTheme(mode) {
+      if (mode === 'light' || mode === 'dark') {
+        document.documentElement.setAttribute('data-theme', mode);
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = mode === 'light' ? '☀️' : (mode === 'dark' ? '🌙' : '🌓');
+    }
+    try { applyTheme(localStorage.getItem('mc_theme') || 'auto'); } catch {}
+    $('#themeToggle')?.addEventListener('click', () => {
+      const cur = (localStorage.getItem('mc_theme') || 'auto');
+      const next = cur === 'auto' ? 'light' : (cur === 'light' ? 'dark' : 'auto');
+      try { localStorage.setItem('mc_theme', next); } catch {}
+      applyTheme(next);
     });
 
     $('#refreshButton').addEventListener('click', async () => {
