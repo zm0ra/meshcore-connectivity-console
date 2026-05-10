@@ -46,13 +46,13 @@ class BotDatabase:
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout={self.BUSY_TIMEOUT_MS}")
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA synchronous=NORMAL")
         return connection
 
     def initialize(self) -> None:
         now_iso = utc_now_iso()
         with self.connect() as connection:
             connection.execute("PRAGMA journal_mode=DELETE")
+            connection.execute("PRAGMA synchronous=NORMAL")
             connection.executescript(
                 """
                 PRAGMA foreign_keys=ON;
