@@ -6427,7 +6427,7 @@ ADMIN_HTML = """<!doctype html>
 
     function linesToArray(value) {
       return String(value || '')
-        .split(/[,\n]/)
+        .split(/[,\\n]/)
         .map((item) => item.trim())
         .filter(Boolean);
     }
@@ -6507,8 +6507,8 @@ ADMIN_HTML = """<!doctype html>
       $('#cfg-bot-enabled').checked = !!config.bot.enabled;
       $('#cfg-bot-sender-name').value = config.bot.sender_name || '';
       $('#cfg-bot-reply-endpoint').value = config.bot.reply_endpoint_name || '';
-      $('#cfg-bot-channels').value = (config.bot.channels || []).join('\n');
-      $('#cfg-bot-commands').value = (config.bot.enabled_commands || []).join('\n');
+      $('#cfg-bot-channels').value = (config.bot.channels || []).join('\\n');
+      $('#cfg-bot-commands').value = (config.bot.enabled_commands || []).join('\\n');
       $('#cfg-bot-min-delay').value = config.bot.min_response_delay_secs ?? '';
       $('#cfg-bot-attempts').value = config.bot.response_attempts ?? '';
       $('#cfg-bot-attempts-max').value = config.bot.response_attempts_max ?? '';
