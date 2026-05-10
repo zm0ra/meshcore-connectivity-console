@@ -29,3 +29,6 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 include = ["meshcore_bot*"]
+
+[tool.setuptools.package-data]
+meshcore_bot = ["static/*.html", "static/*.css", "static/*.js"]
