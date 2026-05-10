@@ -65,6 +65,8 @@ include_test_signal = true
 [web]
 host = "0.0.0.0"
 port = 8080
+admin_username = "admin"
+admin_password = "admin"
 
 [gateway]
 control_socket_path = "./data/gateway/control.sock"

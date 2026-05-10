@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hmac
 import hashlib
 import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Callable
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from .config import AppConfig
+from .config import AppConfig, load_config, load_raw_config, save_raw_config
 from .database import BotDatabase
 from .probe_service import probe_wakeup_socket_path
 
@@ -31,10 +35,26 @@ MANAGEMENT_CACHE_ACTIVE_TTL_SECS = 60.0
 MANAGEMENT_SHARED_CACHE_IDLE_TTL_SECS = 300
 MANAGEMENT_SHARED_CACHE_ACTIVE_TTL_SECS = 60
 STATE_CACHE_STALE_WHILE_REVALIDATE_SECS = 300
+ADMIN_COOKIE_NAME = "meshcore_admin"
+ADMIN_COOKIE_MAX_AGE_SECS = 12 * 60 * 60
+ADMIN_NODE_LIMIT = 300
+ADMIN_PROBE_JOB_LIMIT = 120
+ADMIN_PACKET_LOG_LIMIT = 80
+ADMIN_LOG_FILE_LIMIT = 6
+ADMIN_LOG_TAIL_LINES = 160
 
 
 class ProbeJobCreatePayload(BaseModel):
     repeater_id: int
+
+
+class AdminLoginPayload(BaseModel):
+  username: str
+  password: str
+
+
+class AdminCleanupPayload(BaseModel):
+  failed_older_than_hours: float = 24.0
 
 
 @dataclass(slots=True)
@@ -293,6 +313,439 @@ def _manual_probe_schedule_at(database: BotDatabase, *, config: AppConfig) -> st
     return scheduled_at.isoformat()
 
 
+def _current_admin_username(config: AppConfig) -> str:
+    return config.web.admin_username.strip() or "admin"
+
+
+def _admin_cookie_value(config: AppConfig) -> str:
+    token_seed = f"{_current_admin_username(config)}\0{config.web.admin_password}\0{config.service.name}\0admin"
+    return hashlib.sha256(token_seed.encode("utf-8")).hexdigest()
+
+
+def _request_uses_https(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto", "")).split(",", 1)[0].strip().lower()
+    return forwarded_proto == "https" or request.url.scheme == "https"
+
+
+def _is_admin_authenticated(request: Request, config: AppConfig) -> bool:
+    cookie = request.cookies.get(ADMIN_COOKIE_NAME)
+    if not cookie:
+      return False
+    return hmac.compare_digest(cookie, _admin_cookie_value(config))
+
+
+def _require_admin(request: Request, config: AppConfig) -> None:
+    if not _is_admin_authenticated(request, config):
+      raise HTTPException(status_code=401, detail="admin auth required")
+
+
+def _set_admin_cookie(response: JSONResponse, request: Request, config: AppConfig) -> None:
+    response.set_cookie(
+      key=ADMIN_COOKIE_NAME,
+      value=_admin_cookie_value(config),
+      max_age=ADMIN_COOKIE_MAX_AGE_SECS,
+      httponly=True,
+      samesite="lax",
+      secure=_request_uses_https(request),
+      path="/",
+    )
+
+
+def _clear_admin_cookie(response: JSONResponse) -> None:
+    response.delete_cookie(key=ADMIN_COOKIE_NAME, path="/", httponly=True, samesite="lax")
+
+
+def _admin_session_payload(config: AppConfig) -> dict[str, object]:
+    return {"authenticated": True, "username": _current_admin_username(config)}
+
+
+def _normalize_bool(value: object) -> bool:
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, (int, float)):
+      return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_required_text(value: object, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+      raise ValueError(f"missing {field_name}")
+    return normalized
+
+
+def _normalize_optional_text(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _normalize_int(value: object, field_name: str) -> int:
+    try:
+      return int(value)
+    except (TypeError, ValueError) as exc:
+      raise ValueError(f"invalid integer for {field_name}") from exc
+
+
+def _normalize_float(value: object, field_name: str) -> float:
+    try:
+      return float(value)
+    except (TypeError, ValueError) as exc:
+      raise ValueError(f"invalid number for {field_name}") from exc
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    if value is None:
+      return []
+    if isinstance(value, list):
+      raw_items = value
+    else:
+      raw_items = str(value).replace("\n", ",").split(",")
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _section_dict(raw_config: dict[str, object], section_name: str) -> dict[str, object]:
+    existing = raw_config.get(section_name)
+    if existing is None:
+      existing = {}
+      raw_config[section_name] = existing
+    if not isinstance(existing, dict):
+      raise ValueError(f"invalid config section: {section_name}")
+    return existing
+
+
+def _normalize_endpoint_config_entry(entry: object) -> dict[str, object]:
+    if not isinstance(entry, dict):
+      raise ValueError("endpoint entry must be an object")
+    normalized: dict[str, object] = {
+      "name": _normalize_required_text(entry.get("name"), "endpoint.name"),
+      "raw_host": _normalize_required_text(entry.get("raw_host"), "endpoint.raw_host"),
+      "raw_port": _normalize_int(entry.get("raw_port", 5002), "endpoint.raw_port"),
+      "enabled": _normalize_bool(entry.get("enabled", True)),
+    }
+    console_port = entry.get("console_port")
+    if console_port not in (None, ""):
+      normalized["console_port"] = _normalize_int(console_port, "endpoint.console_port")
+    local_node_name = _normalize_optional_text(entry.get("local_node_name"))
+    if local_node_name:
+      normalized["local_node_name"] = local_node_name
+    console_mirror_host = _normalize_optional_text(entry.get("console_mirror_host"))
+    if console_mirror_host:
+      normalized["console_mirror_host"] = console_mirror_host
+    console_mirror_port = entry.get("console_mirror_port")
+    if console_mirror_port not in (None, ""):
+      normalized["console_mirror_port"] = _normalize_int(console_mirror_port, "endpoint.console_mirror_port")
+    return normalized
+
+
+def _apply_admin_config_payload(raw_config: dict[str, object], payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict):
+      raise ValueError("invalid config payload")
+
+    updated = copy.deepcopy(raw_config)
+
+    if isinstance(payload.get("service"), dict):
+      service = _section_dict(updated, "service")
+      service_payload = payload["service"]
+      if "name" in service_payload:
+        service["name"] = _normalize_required_text(service_payload.get("name"), "service.name")
+      if "log_level" in service_payload:
+        service["log_level"] = _normalize_required_text(service_payload.get("log_level"), "service.log_level")
+
+    if isinstance(payload.get("web"), dict):
+      web = _section_dict(updated, "web")
+      web_payload = payload["web"]
+      if "host" in web_payload:
+        web["host"] = _normalize_required_text(web_payload.get("host"), "web.host")
+      if "port" in web_payload:
+        web["port"] = _normalize_int(web_payload.get("port"), "web.port")
+      if "admin_username" in web_payload:
+        web["admin_username"] = _normalize_required_text(web_payload.get("admin_username"), "web.admin_username")
+      if "admin_password" in web_payload:
+        web["admin_password"] = str(web_payload.get("admin_password") or "")
+
+    if isinstance(payload.get("bot"), dict):
+      bot = _section_dict(updated, "bot")
+      bot_payload = payload["bot"]
+      if "enabled" in bot_payload:
+        bot["enabled"] = _normalize_bool(bot_payload.get("enabled"))
+      if "sender_name" in bot_payload:
+        bot["sender_name"] = str(bot_payload.get("sender_name") or "").strip()
+      if "reply_endpoint_name" in bot_payload:
+        reply_endpoint_name = _normalize_optional_text(bot_payload.get("reply_endpoint_name"))
+        if reply_endpoint_name is None:
+          bot.pop("reply_endpoint_name", None)
+        else:
+          bot["reply_endpoint_name"] = reply_endpoint_name
+      if "channels" in bot_payload:
+        bot["channels"] = _normalize_string_list(bot_payload.get("channels"))
+      if "enabled_commands" in bot_payload:
+        bot["enabled_commands"] = _normalize_string_list(bot_payload.get("enabled_commands"))
+      if "min_response_delay_secs" in bot_payload:
+        bot["min_response_delay_secs"] = _normalize_float(
+          bot_payload.get("min_response_delay_secs"), "bot.min_response_delay_secs"
+        )
+      if "response_attempts" in bot_payload:
+        bot["response_attempts"] = _normalize_int(bot_payload.get("response_attempts"), "bot.response_attempts")
+      if "response_attempts_max" in bot_payload:
+        bot["response_attempts_max"] = _normalize_int(
+          bot_payload.get("response_attempts_max"), "bot.response_attempts_max"
+        )
+      if "quiet_window_secs" in bot_payload:
+        bot["quiet_window_secs"] = _normalize_float(bot_payload.get("quiet_window_secs"), "bot.quiet_window_secs")
+      if "command_dedup_ttl_secs" in bot_payload:
+        bot["command_dedup_ttl_secs"] = _normalize_float(
+          bot_payload.get("command_dedup_ttl_secs"), "bot.command_dedup_ttl_secs"
+        )
+      if "include_test_signal" in bot_payload:
+        bot["include_test_signal"] = _normalize_bool(bot_payload.get("include_test_signal"))
+
+    if isinstance(payload.get("probe"), dict):
+      probe = _section_dict(updated, "probe")
+      probe_payload = payload["probe"]
+      string_fields = {
+        "admin_password",
+        "guest_password",
+        "default_guest_password",
+        "pre_login_advert_name",
+      }
+      float_fields = {
+        "poll_interval_secs",
+        "request_timeout_secs",
+        "route_freshness_secs",
+        "scheduled_reprobe_interval_secs",
+        "scheduled_reprobe_seen_within_secs",
+        "night_failed_retry_interval_secs",
+        "advert_probe_min_interval_secs",
+        "advert_reprobe_failure_cooldown_secs",
+      }
+      int_fields = {
+        "scheduled_reprobe_max_batch",
+        "night_failed_retry_max_batch",
+      }
+      for field_name in string_fields:
+        if field_name in probe_payload:
+          probe[field_name] = str(probe_payload.get(field_name) or "")
+      for field_name in float_fields:
+        if field_name in probe_payload:
+          probe[field_name] = _normalize_float(probe_payload.get(field_name), f"probe.{field_name}")
+      for field_name in int_fields:
+        if field_name in probe_payload:
+          probe[field_name] = _normalize_int(probe_payload.get(field_name), f"probe.{field_name}")
+
+    if isinstance(payload.get("gateway"), dict):
+      gateway = _section_dict(updated, "gateway")
+      gateway_payload = payload["gateway"]
+      for field_name in {"traffic_watchdog_secs", "close_timeout_secs", "console_probe_timeout_secs"}:
+        if field_name in gateway_payload:
+          gateway[field_name] = _normalize_float(gateway_payload.get(field_name), f"gateway.{field_name}")
+
+    if "endpoints" in payload:
+      endpoints_payload = payload.get("endpoints")
+      if not isinstance(endpoints_payload, list):
+        raise ValueError("endpoints must be a list")
+      updated["endpoints"] = [_normalize_endpoint_config_entry(item) for item in endpoints_payload]
+
+    return updated
+
+
+def _save_validated_config(config_path: Path, raw_config: dict[str, object]) -> AppConfig:
+    temp_path: Path | None = None
+    try:
+      with NamedTemporaryFile("w", suffix=".toml", dir=str(config_path.parent), delete=False, encoding="utf-8") as handle:
+        temp_path = Path(handle.name)
+      save_raw_config(temp_path, raw_config)
+      validated_config = load_config(temp_path)
+      save_raw_config(config_path, raw_config)
+      return validated_config
+    finally:
+      if temp_path is not None:
+        try:
+          temp_path.unlink()
+        except OSError:
+          pass
+
+
+def _admin_config_payload(config: AppConfig, *, config_path: Path) -> dict[str, object]:
+    return {
+      "config_path": str(config_path),
+      "service": {
+        "name": config.service.name,
+        "log_level": config.service.log_level,
+      },
+      "web": {
+        "host": config.web.host,
+        "port": config.web.port,
+        "admin_username": _current_admin_username(config),
+        "admin_password": config.web.admin_password,
+      },
+      "bot": {
+        "enabled": config.bot.enabled,
+        "sender_name": config.bot.sender_name,
+        "reply_endpoint_name": config.bot.reply_endpoint_name or "",
+        "channels": list(config.bot.channels),
+        "enabled_commands": list(config.bot.enabled_commands),
+        "min_response_delay_secs": config.bot.min_response_delay_secs,
+        "response_attempts": config.bot.response_attempts,
+        "response_attempts_max": config.bot.response_attempts_max,
+        "quiet_window_secs": config.bot.quiet_window_secs,
+        "command_dedup_ttl_secs": config.bot.command_dedup_ttl_secs,
+        "include_test_signal": config.bot.include_test_signal,
+      },
+      "probe": {
+        "admin_password": config.probe.admin_password,
+        "guest_password": config.probe.guest_password,
+        "default_guest_password": config.probe.default_guest_password,
+        "pre_login_advert_name": config.probe.pre_login_advert_name,
+        "poll_interval_secs": config.probe.poll_interval_secs,
+        "request_timeout_secs": config.probe.request_timeout_secs,
+        "route_freshness_secs": config.probe.route_freshness_secs,
+        "scheduled_reprobe_interval_secs": config.probe.scheduled_reprobe_interval_secs,
+        "scheduled_reprobe_max_batch": config.probe.scheduled_reprobe_max_batch,
+        "scheduled_reprobe_seen_within_secs": config.probe.scheduled_reprobe_seen_within_secs,
+        "night_failed_retry_interval_secs": config.probe.night_failed_retry_interval_secs,
+        "night_failed_retry_max_batch": config.probe.night_failed_retry_max_batch,
+        "advert_probe_min_interval_secs": config.probe.advert_probe_min_interval_secs,
+        "advert_reprobe_failure_cooldown_secs": config.probe.advert_reprobe_failure_cooldown_secs,
+      },
+      "gateway": {
+        "traffic_watchdog_secs": config.gateway.traffic_watchdog_secs,
+        "close_timeout_secs": config.gateway.close_timeout_secs,
+        "console_probe_timeout_secs": config.gateway.console_probe_timeout_secs,
+      },
+      "endpoints": [
+        {
+          "name": endpoint.name,
+          "raw_host": endpoint.raw_host,
+          "raw_port": endpoint.raw_port,
+          "enabled": endpoint.enabled,
+          "console_port": endpoint.console_port,
+          "local_node_name": endpoint.local_node_name or "",
+          "console_mirror_host": endpoint.console_mirror_host or "",
+          "console_mirror_port": endpoint.console_mirror_port,
+        }
+        for endpoint in config.endpoints
+      ],
+    }
+
+
+def _admin_endpoint_rows(database: BotDatabase, config: AppConfig) -> list[dict[str, object]]:
+    recent_jobs = database.list_probe_jobs(limit=512)
+    rows: list[dict[str, object]] = []
+    for endpoint in config.endpoints:
+      endpoint_jobs = [job for job in recent_jobs if str(job.get("endpoint_name") or "") == endpoint.name]
+      seen_repeaters = database.list_repeaters_seen_on_endpoint(
+        endpoint_name=endpoint.name,
+        limit=128,
+        seen_within_hours=48.0,
+      )
+      rows.append(
+        {
+          "name": endpoint.name,
+          "raw_host": endpoint.raw_host,
+          "raw_port": endpoint.raw_port,
+          "enabled": endpoint.enabled,
+          "console_port": endpoint.console_port,
+          "local_node_name": endpoint.local_node_name,
+          "console_mirror_host": endpoint.console_mirror_host,
+          "console_mirror_port": endpoint.console_mirror_port,
+          "seen_repeater_count": len(seen_repeaters),
+          "last_advert_at": seen_repeaters[0].get("advert_observed_at") if seen_repeaters else None,
+          "recent_job_count": len(endpoint_jobs),
+          "recent_failed_count": sum(1 for job in endpoint_jobs if str(job.get("status") or "") == "failed"),
+          "recent_running_count": sum(1 for job in endpoint_jobs if str(job.get("status") or "") == "running"),
+          "recent_pending_count": sum(1 for job in endpoint_jobs if str(job.get("status") or "") == "pending"),
+          "sample_repeaters": [str(item.get("name") or item.get("pubkey_hex") or "") for item in seen_repeaters[:4]],
+        }
+      )
+    return rows
+
+
+def _recent_raw_packet_rows(database: BotDatabase, *, limit: int = ADMIN_PACKET_LOG_LIMIT) -> list[dict[str, object]]:
+    with database.connect() as connection:
+      rows = connection.execute(
+        """
+        SELECT id,
+             endpoint_name,
+             observed_at,
+             direction,
+             transport,
+             payload_type,
+             route_type,
+             remote_pubkey_hex,
+             request_tag,
+             notes,
+             SUBSTR(mesh_packet_hex, 1, 96) AS mesh_packet_prefix,
+             SUBSTR(COALESCE(rs232_frame_hex, ''), 1, 96) AS rs232_frame_prefix
+        FROM raw_mesh_packets
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+      ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _tail_log_files(config_path: Path) -> list[dict[str, object]]:
+    logs_dir = config_path.parent.parent / "logs"
+    if not logs_dir.exists() or not logs_dir.is_dir():
+      return []
+    try:
+      candidates = sorted(
+        [path for path in logs_dir.iterdir() if path.is_file()],
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+      )[:ADMIN_LOG_FILE_LIMIT]
+    except OSError:
+      return []
+
+    rows: list[dict[str, object]] = []
+    for path in candidates:
+      try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+      except OSError:
+        continue
+      tail = "\n".join(content.splitlines()[-ADMIN_LOG_TAIL_LINES:])
+      rows.append({"name": path.name, "path": str(path), "tail": tail})
+    return rows
+
+
+def _build_admin_dashboard_payload(database: BotDatabase, config: AppConfig, *, config_path: Path) -> dict[str, object]:
+    repeaters = database.list_repeaters_for_web()
+    recent_jobs = database.list_probe_jobs(limit=ADMIN_PROBE_JOB_LIMIT)
+    now = datetime.now(tz=UTC)
+    recent_window = now - timedelta(hours=24)
+
+    def is_recent(timestamp_value: object) -> bool:
+      parsed = _parse_iso_datetime(timestamp_value)
+      return parsed is not None and parsed >= recent_window
+
+    return {
+      "config_path": str(config_path),
+      "overview": database.snapshot_overview(),
+      "summary": {
+        "recent_nodes": sum(1 for repeater in repeaters if is_recent(repeater.get("last_advert_at") or repeater.get("last_seen_at"))),
+        "nodes_with_data": sum(1 for repeater in repeaters if bool(repeater.get("data_fetch_ok"))),
+        "recent_failures": sum(1 for job in recent_jobs if str(job.get("status") or "") == "failed"),
+        "active_jobs": sum(1 for job in recent_jobs if str(job.get("status") or "") in {"pending", "running"}),
+      },
+      "endpoints": _admin_endpoint_rows(database, config),
+      "repeaters": repeaters[:ADMIN_NODE_LIMIT],
+      "probe_jobs": recent_jobs,
+      "recent_failures": [job for job in recent_jobs if str(job.get("status") or "") == "failed"][:40],
+      "wakeup_socket": str(probe_wakeup_socket_path(config)),
+    }
+
+
+def _build_admin_logs_payload(database: BotDatabase, *, config_path: Path) -> dict[str, object]:
+    recent_jobs = database.list_probe_jobs(limit=ADMIN_PROBE_JOB_LIMIT)
+    return {
+      "recent_jobs": recent_jobs,
+      "recent_failures": [job for job in recent_jobs if str(job.get("status") or "") == "failed"][:80],
+      "recent_packets": _recent_raw_packet_rows(database),
+      "file_logs": _tail_log_files(config_path),
+    }
+
+
 INDEX_HTML = """<!doctype html>
 <html lang=\"pl\">
 <head>
@@ -338,6 +791,25 @@ INDEX_HTML = """<!doctype html>
       height: 100%;
       min-height: 100dvh;
       overflow: hidden;
+    }
+    .admin-link {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 1400;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(21, 33, 42, 0.14);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
     }
     #map {
       position: absolute;
@@ -2153,6 +2625,7 @@ INDEX_HTML = """<!doctype html>
   </style>
 </head>
 <body>
+  <a class=\"admin-link\" href=\"/admin\">Admin</a>
   <div id=\"app\">
     <div id=\"map\"></div>
     <div id=\"map-legend\" class=\"overlay\"></div>
@@ -5419,9 +5892,922 @@ INDEX_HTML = """<!doctype html>
 """
 
 
-def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
+ADMIN_HTML = """<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeshCore Admin</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1e8;
+      --panel: rgba(255, 252, 246, 0.94);
+      --panel-strong: #fffdf9;
+      --line: rgba(33, 43, 50, 0.12);
+      --line-strong: rgba(33, 43, 50, 0.22);
+      --ink: #17212b;
+      --muted: #68757e;
+      --accent: #146356;
+      --accent-strong: #0f4e44;
+      --warn: #b96918;
+      --danger: #b13c2e;
+      --shadow: 0 24px 60px rgba(23, 33, 43, 0.12);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(20, 99, 86, 0.12), transparent 32%),
+        linear-gradient(160deg, #eef1e8 0%, #f6f0e6 48%, #f1f3ef 100%);
+      color: var(--ink);
+      font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    body {
+      padding: 24px;
+    }
+    .shell {
+      display: grid;
+      gap: 18px;
+      width: min(1440px, 100%);
+      margin: 0 auto;
+    }
+    .topbar,
+    .card,
+    .tab-panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px;
+      border-radius: 24px;
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 700;
+    }
+    .subtle {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .actions,
+    .tabs,
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .actions a,
+    button,
+    .tab-button {
+      border: 1px solid var(--line-strong);
+      background: var(--panel-strong);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 10px 15px;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    button:hover,
+    .actions a:hover,
+    .tab-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(20, 99, 86, 0.32);
+    }
+    .tab-button.is-active,
+    .button-primary {
+      background: var(--accent);
+      color: #f7f6f1;
+      border-color: transparent;
+    }
+    .button-danger {
+      color: var(--danger);
+      border-color: rgba(177, 60, 46, 0.25);
+    }
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+    .dashboard-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .metric {
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(23, 33, 43, 0.08);
+    }
+    .metric strong {
+      display: block;
+      font-size: 1.9rem;
+      margin-top: 6px;
+    }
+    .card,
+    .tab-panel {
+      border-radius: 24px;
+      padding: 20px;
+    }
+    .tab-panel[hidden],
+    #dashboard[hidden],
+    #loginCard[hidden],
+    #logoutButton[hidden] {
+      display: none !important;
+    }
+    .section-title {
+      margin: 0 0 6px;
+      font-size: 1.18rem;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .table-wrap {
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(23, 33, 43, 0.08);
+      background: rgba(255, 255, 255, 0.55);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(23, 33, 43, 0.08);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.92rem;
+    }
+    th {
+      color: var(--muted);
+      font-size: 0.8rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+    input,
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(23, 33, 43, 0.12);
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--ink);
+      font: inherit;
+    }
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+    }
+    .checkbox-row input {
+      width: auto;
+    }
+    .endpoint-list {
+      display: grid;
+      gap: 12px;
+    }
+    .endpoint-row {
+      border: 1px solid rgba(23, 33, 43, 0.1);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.58);
+      display: grid;
+      gap: 12px;
+    }
+    .endpoint-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .inline-note {
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(185, 105, 24, 0.18);
+      background: rgba(185, 105, 24, 0.08);
+      color: #6f4510;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(20, 99, 86, 0.08);
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+    }
+    .pill.warn {
+      background: rgba(185, 105, 24, 0.1);
+      color: #8b4f12;
+    }
+    .pill.danger {
+      background: rgba(177, 60, 46, 0.1);
+      color: var(--danger);
+    }
+    .log-block {
+      border-radius: 18px;
+      border: 1px solid rgba(23, 33, 43, 0.08);
+      background: rgba(20, 28, 34, 0.94);
+      color: #d8e5ea;
+      padding: 14px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+    #toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: rgba(23, 33, 43, 0.92);
+      color: #f7f6f1;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    @media (max-width: 900px) {
+      body { padding: 14px; }
+      .topbar,
+      .card,
+      .tab-panel { border-radius: 20px; }
+      table { min-width: 580px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <h1>MeshCore Admin</h1>
+        <div class="subtle">Konfiguracja backendów, kolejki probe, logi i stan node bez wychodzenia ze strony.</div>
+      </div>
+      <div class="actions">
+        <span id="sessionBadge" class="pill">Niezalogowany</span>
+        <a href="/">Widok publiczny</a>
+        <button id="logoutButton" hidden>Wyloguj</button>
+      </div>
+    </header>
+
+    <section id="loginCard" class="card">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">Logowanie administratora</h2>
+          <div class="subtle">Domyślnie: admin / admin.</div>
+        </div>
+      </div>
+      <form id="loginForm" class="form-grid">
+        <label>
+          Login
+          <input id="loginUsername" type="text" value="admin" autocomplete="username">
+        </label>
+        <label>
+          Hasło
+          <input id="loginPassword" type="password" value="admin" autocomplete="current-password">
+        </label>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="button-primary" type="submit">Zaloguj</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="dashboard" hidden>
+      <div class="tabs">
+        <button class="tab-button is-active" data-tab="status">Status</button>
+        <button class="tab-button" data-tab="config">Konfiguracja</button>
+        <button class="tab-button" data-tab="logs">Logi</button>
+        <button class="tab-button" data-tab="nodes">Node</button>
+      </div>
+
+      <section id="tab-status" class="tab-panel">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Stan systemu</h2>
+            <div id="statusSubtitle" class="subtle"></div>
+          </div>
+          <div class="actions">
+            <button id="refreshButton" type="button">Odśwież</button>
+            <button id="wakeupButton" type="button">Wake probe worker</button>
+            <button id="cleanupButton" type="button">Czyść stare błędy</button>
+          </div>
+        </div>
+        <div id="metrics" class="metrics"></div>
+        <div class="grid dashboard-grid" style="margin-top:16px;">
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Backendy</h3>
+            <div class="table-wrap"><table><thead><tr><th>Nazwa</th><th>Adres</th><th>Stan</th><th>Ruch</th><th>Ostatni advert</th></tr></thead><tbody id="endpointStatusBody"></tbody></table></div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Ostatnie błędy</h3>
+            <div class="table-wrap"><table><thead><tr><th>Job</th><th>Endpoint</th><th>Node</th><th>Błąd</th></tr></thead><tbody id="failureBody"></tbody></table></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-config" class="tab-panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Konfiguracja</h2>
+            <div id="configPath" class="subtle"></div>
+          </div>
+          <div class="actions">
+            <button id="addEndpointButton" type="button">Dodaj backend</button>
+            <button id="saveConfigButton" class="button-primary" type="button">Zapisz config</button>
+          </div>
+        </div>
+        <div class="inline-note">Zapis trafia do pliku konfiguracyjnego od razu. Web użyje nowych ustawień natychmiast, ale worker bot/probe może wymagać restartu stacka po zmianach backendów lub haseł.</div>
+        <div class="grid" style="margin-top:16px;">
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Serwis i WWW</h3>
+            <div class="form-grid">
+              <label>Service name<input id="cfg-service-name" type="text"></label>
+              <label>Log level<input id="cfg-log-level" type="text"></label>
+              <label>Web host<input id="cfg-web-host" type="text"></label>
+              <label>Web port<input id="cfg-web-port" type="number"></label>
+              <label>Admin login<input id="cfg-admin-username" type="text"></label>
+              <label>Admin hasło<input id="cfg-admin-password" type="text"></label>
+            </div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Bot</h3>
+            <div class="form-grid">
+              <label class="checkbox-row"><input id="cfg-bot-enabled" type="checkbox">Bot aktywny</label>
+              <label>Sender name<input id="cfg-bot-sender-name" type="text"></label>
+              <label>Reply endpoint<input id="cfg-bot-reply-endpoint" type="text"></label>
+              <label>Channels (comma or newline)<textarea id="cfg-bot-channels"></textarea></label>
+              <label>Commands (comma or newline)<textarea id="cfg-bot-commands"></textarea></label>
+              <label>Min response delay<input id="cfg-bot-min-delay" type="number" step="0.1"></label>
+              <label>Response attempts<input id="cfg-bot-attempts" type="number"></label>
+              <label>Response attempts max<input id="cfg-bot-attempts-max" type="number"></label>
+              <label>Quiet window<input id="cfg-bot-quiet-window" type="number" step="0.1"></label>
+              <label>Dedup TTL<input id="cfg-bot-dedup-ttl" type="number" step="0.1"></label>
+              <label class="checkbox-row"><input id="cfg-bot-include-test" type="checkbox">Include !test signal</label>
+            </div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Probe</h3>
+            <div class="form-grid">
+              <label>Admin password<input id="cfg-probe-admin-password" type="text"></label>
+              <label>Guest password<input id="cfg-probe-guest-password" type="text"></label>
+              <label>Default guest password<input id="cfg-probe-default-guest-password" type="text"></label>
+              <label>Pre-login advert name<input id="cfg-probe-pre-login-advert" type="text"></label>
+              <label>Poll interval<input id="cfg-probe-poll-interval" type="number" step="0.1"></label>
+              <label>Request timeout<input id="cfg-probe-request-timeout" type="number" step="0.1"></label>
+              <label>Route freshness<input id="cfg-probe-route-freshness" type="number" step="0.1"></label>
+              <label>Scheduled reprobe interval<input id="cfg-probe-scheduled-interval" type="number" step="0.1"></label>
+              <label>Scheduled reprobe max batch<input id="cfg-probe-scheduled-batch" type="number"></label>
+              <label>Seen within secs<input id="cfg-probe-seen-within" type="number" step="0.1"></label>
+              <label>Night retry interval<input id="cfg-probe-night-interval" type="number" step="0.1"></label>
+              <label>Night retry max batch<input id="cfg-probe-night-batch" type="number"></label>
+              <label>Advert min interval<input id="cfg-probe-advert-min-interval" type="number" step="0.1"></label>
+              <label>Advert failure cooldown<input id="cfg-probe-advert-failure-cooldown" type="number" step="0.1"></label>
+            </div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Gateway i backendy</h3>
+            <div class="form-grid">
+              <label>Traffic watchdog<input id="cfg-gateway-watchdog" type="number" step="0.1"></label>
+              <label>Close timeout<input id="cfg-gateway-close-timeout" type="number" step="0.1"></label>
+              <label>Console probe timeout<input id="cfg-gateway-console-timeout" type="number" step="0.1"></label>
+            </div>
+            <div id="endpointList" class="endpoint-list" style="margin-top:16px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-logs" class="tab-panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Logi i historia</h2>
+            <div class="subtle">Ostatnie probe jobs, surowe pakiety i pliki logów z katalogu logs/.</div>
+          </div>
+        </div>
+        <div class="grid dashboard-grid">
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Probe jobs</h3>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Endpoint</th><th>Node</th><th>Szczegóły</th></tr></thead><tbody id="jobBody"></tbody></table></div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <h3 class="section-title">Raw packets</h3>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>Endpoint</th><th>Kierunek</th><th>Typ</th><th>Remote</th></tr></thead><tbody id="packetBody"></tbody></table></div>
+          </div>
+        </div>
+        <div id="fileLogs" class="grid" style="margin-top:16px;"></div>
+      </section>
+
+      <section id="tab-nodes" class="tab-panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Node i repeatery</h2>
+            <div class="subtle">Ręczne kolejkowanie probe dla wybranych wpisów.</div>
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Nazwa</th><th>Identity</th><th>Last advert</th><th>Last probe</th><th>Data</th><th>Akcja</th></tr></thead><tbody id="nodeBody"></tbody></table></div>
+      </section>
+    </section>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const state = {
+      dashboard: null,
+      config: null,
+      logs: null,
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const escapeHtml = (value) => String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+
+    async function api(url, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (!headers.has('Content-Type') && options.body !== undefined) {
+        headers.set('Content-Type', 'application/json');
+      }
+      const response = await fetch(url, { ...options, headers });
+      const text = await response.text();
+      let payload = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = { detail: text };
+        }
+      }
+      if (response.status === 401) {
+        showLogin();
+      }
+      if (!response.ok) {
+        throw new Error(payload.detail || 'Request failed');
+      }
+      return payload;
+    }
+
+    function showToast(message, isError = false) {
+      const toast = $('#toast');
+      toast.textContent = message;
+      toast.style.background = isError ? 'rgba(177, 60, 46, 0.94)' : 'rgba(23, 33, 43, 0.92)';
+      toast.classList.add('is-visible');
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.classList.remove('is-visible'), 2600);
+    }
+
+    function setTab(name) {
+      document.querySelectorAll('.tab-button').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab-panel').forEach((panel) => {
+        panel.hidden = panel.id !== `tab-${name}`;
+      });
+    }
+
+    function showLogin() {
+      $('#loginCard').hidden = false;
+      $('#dashboard').hidden = true;
+      $('#logoutButton').hidden = true;
+      $('#sessionBadge').textContent = 'Niezalogowany';
+    }
+
+    function showDashboard(username) {
+      $('#loginCard').hidden = true;
+      $('#dashboard').hidden = false;
+      $('#logoutButton').hidden = false;
+      $('#sessionBadge').textContent = `Admin: ${username}`;
+    }
+
+    function linesToArray(value) {
+      return String(value || '')
+        .split(/[,\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function endpointRow(entry = {}) {
+      const enabled = entry.enabled !== false;
+      return `
+        <div class="endpoint-row">
+          <div class="endpoint-head">
+            <strong>${escapeHtml(entry.name || 'Nowy backend')}</strong>
+            <button type="button" class="button-danger" data-action="remove-endpoint">Usuń</button>
+          </div>
+          <div class="form-grid">
+            <label>Nazwa<input data-field="name" type="text" value="${escapeHtml(entry.name || '')}"></label>
+            <label>Raw host<input data-field="raw_host" type="text" value="${escapeHtml(entry.raw_host || '')}"></label>
+            <label>Raw port<input data-field="raw_port" type="number" value="${escapeHtml(entry.raw_port ?? 5002)}"></label>
+            <label>Console port<input data-field="console_port" type="number" value="${escapeHtml(entry.console_port ?? 5001)}"></label>
+            <label>Local node name<input data-field="local_node_name" type="text" value="${escapeHtml(entry.local_node_name || '')}"></label>
+            <label>Mirror host<input data-field="console_mirror_host" type="text" value="${escapeHtml(entry.console_mirror_host || '')}"></label>
+            <label>Mirror port<input data-field="console_mirror_port" type="number" value="${escapeHtml(entry.console_mirror_port ?? '')}"></label>
+            <label class="checkbox-row"><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''}>Backend aktywny</label>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStatus() {
+      const dashboard = state.dashboard;
+      if (!dashboard) {
+        return;
+      }
+      $('#statusSubtitle').textContent = `Config: ${dashboard.config_path} | Wake socket: ${dashboard.wakeup_socket}`;
+      const metrics = [
+        ['Repeaters', dashboard.overview.repeater_count ?? 0],
+        ['Packets', dashboard.overview.raw_packet_count ?? 0],
+        ['Node z danymi', dashboard.summary.nodes_with_data ?? 0],
+        ['Aktywne probe', dashboard.summary.active_jobs ?? 0],
+        ['Błędy (ostatnie)', dashboard.summary.recent_failures ?? 0],
+      ];
+      $('#metrics').innerHTML = metrics.map(([label, value]) => `
+        <div class="metric">
+          <div class="subtle">${escapeHtml(label)}</div>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join('');
+      $('#endpointStatusBody').innerHTML = (dashboard.endpoints || []).map((endpoint) => `
+        <tr>
+          <td><strong>${escapeHtml(endpoint.name)}</strong><br><span class="subtle">${escapeHtml((endpoint.sample_repeaters || []).join(', '))}</span></td>
+          <td>${escapeHtml(endpoint.raw_host)}:${escapeHtml(endpoint.raw_port)}</td>
+          <td>${endpoint.enabled ? '<span class="pill">enabled</span>' : '<span class="pill danger">disabled</span>'}</td>
+          <td>${escapeHtml(endpoint.seen_repeater_count)} node<br><span class="subtle">jobs ${escapeHtml(endpoint.recent_job_count)} | fail ${escapeHtml(endpoint.recent_failed_count)}</span></td>
+          <td>${escapeHtml(endpoint.last_advert_at || 'brak')}</td>
+        </tr>
+      `).join('');
+      $('#failureBody').innerHTML = (dashboard.recent_failures || []).map((job) => `
+        <tr>
+          <td>#${escapeHtml(job.id)}</td>
+          <td>${escapeHtml(job.endpoint_name || '')}</td>
+          <td>${escapeHtml(job.last_name_from_advert || job.pubkey_hex || '')}</td>
+          <td>${escapeHtml(job.last_error || 'brak')}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderConfig() {
+      const config = state.config;
+      if (!config) {
+        return;
+      }
+      $('#configPath').textContent = config.config_path;
+      $('#cfg-service-name').value = config.service.name || '';
+      $('#cfg-log-level').value = config.service.log_level || '';
+      $('#cfg-web-host').value = config.web.host || '';
+      $('#cfg-web-port').value = config.web.port ?? '';
+      $('#cfg-admin-username').value = config.web.admin_username || '';
+      $('#cfg-admin-password').value = config.web.admin_password || '';
+      $('#cfg-bot-enabled').checked = !!config.bot.enabled;
+      $('#cfg-bot-sender-name').value = config.bot.sender_name || '';
+      $('#cfg-bot-reply-endpoint').value = config.bot.reply_endpoint_name || '';
+      $('#cfg-bot-channels').value = (config.bot.channels || []).join('\n');
+      $('#cfg-bot-commands').value = (config.bot.enabled_commands || []).join('\n');
+      $('#cfg-bot-min-delay').value = config.bot.min_response_delay_secs ?? '';
+      $('#cfg-bot-attempts').value = config.bot.response_attempts ?? '';
+      $('#cfg-bot-attempts-max').value = config.bot.response_attempts_max ?? '';
+      $('#cfg-bot-quiet-window').value = config.bot.quiet_window_secs ?? '';
+      $('#cfg-bot-dedup-ttl').value = config.bot.command_dedup_ttl_secs ?? '';
+      $('#cfg-bot-include-test').checked = !!config.bot.include_test_signal;
+      $('#cfg-probe-admin-password').value = config.probe.admin_password || '';
+      $('#cfg-probe-guest-password').value = config.probe.guest_password || '';
+      $('#cfg-probe-default-guest-password').value = config.probe.default_guest_password || '';
+      $('#cfg-probe-pre-login-advert').value = config.probe.pre_login_advert_name || '';
+      $('#cfg-probe-poll-interval').value = config.probe.poll_interval_secs ?? '';
+      $('#cfg-probe-request-timeout').value = config.probe.request_timeout_secs ?? '';
+      $('#cfg-probe-route-freshness').value = config.probe.route_freshness_secs ?? '';
+      $('#cfg-probe-scheduled-interval').value = config.probe.scheduled_reprobe_interval_secs ?? '';
+      $('#cfg-probe-scheduled-batch').value = config.probe.scheduled_reprobe_max_batch ?? '';
+      $('#cfg-probe-seen-within').value = config.probe.scheduled_reprobe_seen_within_secs ?? '';
+      $('#cfg-probe-night-interval').value = config.probe.night_failed_retry_interval_secs ?? '';
+      $('#cfg-probe-night-batch').value = config.probe.night_failed_retry_max_batch ?? '';
+      $('#cfg-probe-advert-min-interval').value = config.probe.advert_probe_min_interval_secs ?? '';
+      $('#cfg-probe-advert-failure-cooldown').value = config.probe.advert_reprobe_failure_cooldown_secs ?? '';
+      $('#cfg-gateway-watchdog').value = config.gateway.traffic_watchdog_secs ?? '';
+      $('#cfg-gateway-close-timeout').value = config.gateway.close_timeout_secs ?? '';
+      $('#cfg-gateway-console-timeout').value = config.gateway.console_probe_timeout_secs ?? '';
+      $('#endpointList').innerHTML = (config.endpoints || []).map((entry) => endpointRow(entry)).join('');
+    }
+
+    function renderLogs() {
+      const logs = state.logs;
+      if (!logs) {
+        return;
+      }
+      $('#jobBody').innerHTML = (logs.recent_jobs || []).map((job) => `
+        <tr>
+          <td>#${escapeHtml(job.id)}</td>
+          <td>${escapeHtml(job.status || '')}</td>
+          <td>${escapeHtml(job.endpoint_name || '')}</td>
+          <td>${escapeHtml(job.last_name_from_advert || job.pubkey_hex || '')}</td>
+          <td>${escapeHtml(job.last_error || job.reason || '')}</td>
+        </tr>
+      `).join('');
+      $('#packetBody').innerHTML = (logs.recent_packets || []).map((packet) => `
+        <tr>
+          <td>#${escapeHtml(packet.id)}</td>
+          <td>${escapeHtml(packet.endpoint_name || '')}<br><span class="subtle">${escapeHtml(packet.observed_at || '')}</span></td>
+          <td>${escapeHtml(packet.direction || '')}</td>
+          <td>${escapeHtml(packet.payload_type || '')}<br><span class="subtle">${escapeHtml(packet.route_type || '')}</span></td>
+          <td>${escapeHtml(packet.remote_pubkey_hex || '')}<br><span class="subtle">${escapeHtml(packet.request_tag || packet.notes || '')}</span></td>
+        </tr>
+      `).join('');
+      $('#fileLogs').innerHTML = (logs.file_logs || []).map((entry) => `
+        <div class="card" style="padding:16px;">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">${escapeHtml(entry.name)}</h3>
+              <div class="subtle">${escapeHtml(entry.path)}</div>
+            </div>
+          </div>
+          <div class="log-block">${escapeHtml(entry.tail || '')}</div>
+        </div>
+      `).join('') || '<div class="subtle">Brak plików logów w katalogu logs/.</div>';
+    }
+
+    function renderNodes() {
+      const dashboard = state.dashboard;
+      if (!dashboard) {
+        return;
+      }
+      $('#nodeBody').innerHTML = (dashboard.repeaters || []).map((repeater) => `
+        <tr>
+          <td>${escapeHtml(repeater.id)}</td>
+          <td><strong>${escapeHtml(repeater.name || '')}</strong><br><span class="subtle">${escapeHtml(repeater.role || '')}</span></td>
+          <td>${escapeHtml(repeater.identity_hex || '')}</td>
+          <td>${escapeHtml(repeater.last_advert_at || repeater.last_seen_at || 'brak')}</td>
+          <td>${escapeHtml(repeater.last_probe_status || 'n/a')}<br><span class="subtle">${escapeHtml(repeater.last_probe_at || '')}</span></td>
+          <td>${repeater.data_fetch_ok ? '<span class="pill">OK</span>' : '<span class="pill warn">brak</span>'}</td>
+          <td><button type="button" data-action="probe" data-repeater-id="${escapeHtml(repeater.id)}">Queue probe</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function collectEndpoints() {
+      return Array.from(document.querySelectorAll('.endpoint-row')).map((row) => {
+        const lookup = (field) => row.querySelector(`[data-field="${field}"]`);
+        return {
+          name: lookup('name').value,
+          raw_host: lookup('raw_host').value,
+          raw_port: Number(lookup('raw_port').value || 5002),
+          console_port: lookup('console_port').value === '' ? '' : Number(lookup('console_port').value),
+          local_node_name: lookup('local_node_name').value,
+          console_mirror_host: lookup('console_mirror_host').value,
+          console_mirror_port: lookup('console_mirror_port').value === '' ? '' : Number(lookup('console_mirror_port').value),
+          enabled: lookup('enabled').checked,
+        };
+      });
+    }
+
+    function collectConfigPayload() {
+      return {
+        service: {
+          name: $('#cfg-service-name').value,
+          log_level: $('#cfg-log-level').value,
+        },
+        web: {
+          host: $('#cfg-web-host').value,
+          port: Number($('#cfg-web-port').value || 0),
+          admin_username: $('#cfg-admin-username').value,
+          admin_password: $('#cfg-admin-password').value,
+        },
+        bot: {
+          enabled: $('#cfg-bot-enabled').checked,
+          sender_name: $('#cfg-bot-sender-name').value,
+          reply_endpoint_name: $('#cfg-bot-reply-endpoint').value,
+          channels: linesToArray($('#cfg-bot-channels').value),
+          enabled_commands: linesToArray($('#cfg-bot-commands').value),
+          min_response_delay_secs: Number($('#cfg-bot-min-delay').value || 0),
+          response_attempts: Number($('#cfg-bot-attempts').value || 0),
+          response_attempts_max: Number($('#cfg-bot-attempts-max').value || 0),
+          quiet_window_secs: Number($('#cfg-bot-quiet-window').value || 0),
+          command_dedup_ttl_secs: Number($('#cfg-bot-dedup-ttl').value || 0),
+          include_test_signal: $('#cfg-bot-include-test').checked,
+        },
+        probe: {
+          admin_password: $('#cfg-probe-admin-password').value,
+          guest_password: $('#cfg-probe-guest-password').value,
+          default_guest_password: $('#cfg-probe-default-guest-password').value,
+          pre_login_advert_name: $('#cfg-probe-pre-login-advert').value,
+          poll_interval_secs: Number($('#cfg-probe-poll-interval').value || 0),
+          request_timeout_secs: Number($('#cfg-probe-request-timeout').value || 0),
+          route_freshness_secs: Number($('#cfg-probe-route-freshness').value || 0),
+          scheduled_reprobe_interval_secs: Number($('#cfg-probe-scheduled-interval').value || 0),
+          scheduled_reprobe_max_batch: Number($('#cfg-probe-scheduled-batch').value || 0),
+          scheduled_reprobe_seen_within_secs: Number($('#cfg-probe-seen-within').value || 0),
+          night_failed_retry_interval_secs: Number($('#cfg-probe-night-interval').value || 0),
+          night_failed_retry_max_batch: Number($('#cfg-probe-night-batch').value || 0),
+          advert_probe_min_interval_secs: Number($('#cfg-probe-advert-min-interval').value || 0),
+          advert_reprobe_failure_cooldown_secs: Number($('#cfg-probe-advert-failure-cooldown').value || 0),
+        },
+        gateway: {
+          traffic_watchdog_secs: Number($('#cfg-gateway-watchdog').value || 0),
+          close_timeout_secs: Number($('#cfg-gateway-close-timeout').value || 0),
+          console_probe_timeout_secs: Number($('#cfg-gateway-console-timeout').value || 0),
+        },
+        endpoints: collectEndpoints(),
+      };
+    }
+
+    async function refreshAll() {
+      const [dashboard, config, logs] = await Promise.all([
+        api('/api/admin/dashboard'),
+        api('/api/admin/config'),
+        api('/api/admin/logs'),
+      ]);
+      state.dashboard = dashboard;
+      state.config = config;
+      state.logs = logs;
+      renderStatus();
+      renderConfig();
+      renderLogs();
+      renderNodes();
+    }
+
+    async function initSession() {
+      const session = await api('/api/admin/session');
+      if (!session.authenticated) {
+        showLogin();
+        return;
+      }
+      showDashboard(session.username || 'admin');
+      await refreshAll();
+    }
+
+    $('#loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const payload = await api('/api/admin/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: $('#loginUsername').value,
+            password: $('#loginPassword').value,
+          }),
+        });
+        showDashboard(payload.session?.username || 'admin');
+        await refreshAll();
+        showToast('Zalogowano.');
+      } catch (error) {
+        showToast(error.message || 'Błąd logowania', true);
+      }
+    });
+
+    $('#logoutButton').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/logout', { method: 'POST' });
+      } catch {
+        // ignore logout failures and just reset UI
+      }
+      showLogin();
+      showToast('Wylogowano.');
+    });
+
+    $('#refreshButton').addEventListener('click', async () => {
+      try {
+        await refreshAll();
+        showToast('Odświeżono dane.');
+      } catch (error) {
+        showToast(error.message || 'Nie udało się odświeżyć', true);
+      }
+    });
+
+    $('#wakeupButton').addEventListener('click', async () => {
+      try {
+        const payload = await api('/api/admin/actions/wakeup', { method: 'POST' });
+        showToast(payload.notified ? 'Worker został obudzony.' : 'Nie udało się połączyć z wake socketem.', !payload.notified);
+      } catch (error) {
+        showToast(error.message || 'Wakeup failed', true);
+      }
+    });
+
+    $('#cleanupButton').addEventListener('click', async () => {
+      try {
+        const payload = await api('/api/admin/actions/cleanup-failed', {
+          method: 'POST',
+          body: JSON.stringify({ failed_older_than_hours: 24 }),
+        });
+        await refreshAll();
+        showToast(`Usunięto ${payload.deleted_count || 0} starych failed probe job.`);
+      } catch (error) {
+        showToast(error.message || 'Cleanup failed', true);
+      }
+    });
+
+    $('#saveConfigButton').addEventListener('click', async () => {
+      try {
+        const payload = await api('/api/admin/config', {
+          method: 'POST',
+          body: JSON.stringify(collectConfigPayload()),
+        });
+        state.config = payload.config;
+        renderConfig();
+        await refreshAll();
+        showToast(payload.restart_required ? 'Config zapisany. Worker może wymagać restartu.' : 'Config zapisany.');
+      } catch (error) {
+        showToast(error.message || 'Save failed', true);
+      }
+    });
+
+    $('#addEndpointButton').addEventListener('click', () => {
+      $('#endpointList').insertAdjacentHTML('beforeend', endpointRow({ enabled: true, raw_port: 5002, console_port: 5001 }));
+    });
+
+    document.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (target.matches('.tab-button')) {
+        setTab(target.dataset.tab || 'status');
+        return;
+      }
+      if (target.dataset.action === 'remove-endpoint') {
+        target.closest('.endpoint-row')?.remove();
+        return;
+      }
+      if (target.dataset.action === 'probe') {
+        try {
+          await api('/api/admin/actions/manual-probe', {
+            method: 'POST',
+            body: JSON.stringify({ repeater_id: Number(target.dataset.repeaterId || 0) }),
+          });
+          await refreshAll();
+          showToast('Probe job zakolejkowany.');
+        } catch (error) {
+          showToast(error.message || 'Queue probe failed', true);
+        }
+      }
+    });
+
+    setTab('status');
+    initSession().catch((error) => {
+      showLogin();
+      showToast(error.message || 'Nie udało się wczytać sesji', true);
+    });
+  </script>
+</body>
+</html>
+"""
+
+
+def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | Path = "config/config.toml") -> FastAPI:
     app = FastAPI(title="meshcore-bot", version="0.1.0")
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    config_holder: dict[str, AppConfig] = {"value": config}
+    config_path_holder: dict[str, Path] = {"value": Path(config_path).expanduser().resolve()}
+
+    def active_config() -> AppConfig:
+        return config_holder["value"]
+
+    def active_config_path() -> Path:
+        return config_path_holder["value"]
+
     state_cache = _StateSnapshotCache(
         payload_builder=_build_state_payload,
         ttl_builder=_state_cache_ttl_secs,
@@ -5437,6 +6823,78 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
         ttl_builder=_management_cache_ttl_secs,
         cache_control_builder=_management_cache_control,
     )
+
+    async def enqueue_manual_probe(repeater_id: int) -> dict[str, object]:
+      repeater = database.repeater_full_state(repeater_id=repeater_id)
+      if repeater is None:
+        raise HTTPException(status_code=404, detail="unknown repeater")
+
+      active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
+      if active_job is not None:
+        return {
+          "status": "already_pending",
+          "job_id": active_job.get("id"),
+          "endpoint_name": active_job.get("endpoint_name"),
+          "scheduled_at": active_job.get("scheduled_at"),
+        }
+
+      current_config = active_config()
+      endpoint_name = _resolve_manual_probe_endpoint_name(
+        config=current_config,
+        database=database,
+        repeater_id=repeater_id,
+        repeater_name=str(repeater.get("last_name_from_advert") or ""),
+      )
+      if not endpoint_name:
+        raise HTTPException(status_code=503, detail="no enabled endpoint available")
+
+      success_cooldown_secs = max(
+        MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS,
+        float(current_config.probe.advert_probe_min_interval_secs),
+      )
+      failure_cooldown_secs = max(
+        float(current_config.probe.advert_reprobe_failure_cooldown_secs),
+        float(current_config.probe.request_timeout_secs),
+      )
+      scheduled_at = _manual_probe_schedule_at(database, config=current_config)
+      job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name=endpoint_name,
+        reason=MANUAL_WEB_PROBE_REASON,
+        success_cooldown_secs=success_cooldown_secs,
+        failure_cooldown_secs=failure_cooldown_secs,
+        scheduled_at=scheduled_at,
+        max_recent_jobs=MANUAL_WEB_PROBE_MAX_PER_WINDOW,
+        recent_window_secs=MANUAL_WEB_PROBE_WINDOW_SECS,
+      )
+      if job_id is not None:
+        state_cache.invalidate()
+        management_cache.invalidate()
+        management_with_history_cache.invalidate()
+        if scheduled_at is None:
+          await _notify_probe_worker(current_config)
+        return {
+          "status": "queued",
+          "job_id": job_id,
+          "endpoint_name": endpoint_name,
+          "scheduled_at": scheduled_at,
+        }
+
+      active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
+      if active_job is not None:
+        return {
+          "status": "already_pending",
+          "job_id": active_job.get("id"),
+          "endpoint_name": active_job.get("endpoint_name"),
+          "scheduled_at": active_job.get("scheduled_at"),
+        }
+
+      return {
+        "status": "cooldown",
+        "job_id": None,
+        "endpoint_name": endpoint_name,
+        "scheduled_at": None,
+      }
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
@@ -5473,83 +6931,96 @@ def create_app(database: BotDatabase, config: AppConfig) -> FastAPI:
 
     @app.post("/api/probe-jobs")
     async def create_probe_job(payload: ProbeJobCreatePayload) -> JSONResponse:
-        repeater_id = int(payload.repeater_id)
-        repeater = database.repeater_full_state(repeater_id=repeater_id)
-        if repeater is None:
-            raise HTTPException(status_code=404, detail="unknown repeater")
+      return JSONResponse(await enqueue_manual_probe(int(payload.repeater_id)))
 
-        active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
-        if active_job is not None:
-            return JSONResponse(
-                {
-                    "status": "already_pending",
-                    "job_id": active_job.get("id"),
-                    "endpoint_name": active_job.get("endpoint_name"),
-                    "scheduled_at": active_job.get("scheduled_at"),
-                }
-            )
+    @app.get("/api/admin/session")
+    async def admin_session(request: Request) -> JSONResponse:
+      current_config = active_config()
+      if not _is_admin_authenticated(request, current_config):
+        return JSONResponse({"authenticated": False})
+      return JSONResponse(_admin_session_payload(current_config))
 
-        endpoint_name = _resolve_manual_probe_endpoint_name(
-            config=config,
-            database=database,
-            repeater_id=repeater_id,
-            repeater_name=str(repeater.get("last_name_from_advert") or ""),
-        )
-        if not endpoint_name:
-            raise HTTPException(status_code=503, detail="no enabled endpoint available")
+    @app.post("/api/admin/login")
+    async def admin_login(request: Request, payload: AdminLoginPayload) -> JSONResponse:
+      current_config = active_config()
+      if payload.username != _current_admin_username(current_config) or payload.password != current_config.web.admin_password:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+      response = JSONResponse({"status": "ok", "session": _admin_session_payload(current_config)})
+      _set_admin_cookie(response, request, current_config)
+      return response
 
-        success_cooldown_secs = max(
-            MANUAL_WEB_PROBE_MIN_SUCCESS_COOLDOWN_SECS,
-            float(config.probe.advert_probe_min_interval_secs),
-        )
-        failure_cooldown_secs = max(
-            float(config.probe.advert_reprobe_failure_cooldown_secs),
-            float(config.probe.request_timeout_secs),
-        )
-        scheduled_at = _manual_probe_schedule_at(database, config=config)
-        job_id = database.enqueue_probe_job(
-            repeater_id=repeater_id,
-            endpoint_name=endpoint_name,
-            reason=MANUAL_WEB_PROBE_REASON,
-            success_cooldown_secs=success_cooldown_secs,
-            failure_cooldown_secs=failure_cooldown_secs,
-            scheduled_at=scheduled_at,
-            max_recent_jobs=MANUAL_WEB_PROBE_MAX_PER_WINDOW,
-            recent_window_secs=MANUAL_WEB_PROBE_WINDOW_SECS,
-        )
-        if job_id is not None:
-            state_cache.invalidate()
-            management_cache.invalidate()
-            if scheduled_at is None:
-                await _notify_probe_worker(config)
-            return JSONResponse(
-                {
-                    "status": "queued",
-                    "job_id": job_id,
-                    "endpoint_name": endpoint_name,
-                    "scheduled_at": scheduled_at,
-                }
-            )
+    @app.post("/api/admin/logout")
+    async def admin_logout() -> JSONResponse:
+      response = JSONResponse({"status": "ok"})
+      _clear_admin_cookie(response)
+      return response
 
-        active_job = _active_probe_job_for_repeater(database, repeater_id=repeater_id)
-        if active_job is not None:
-            return JSONResponse(
-                {
-                    "status": "already_pending",
-                    "job_id": active_job.get("id"),
-                    "endpoint_name": active_job.get("endpoint_name"),
-                    "scheduled_at": active_job.get("scheduled_at"),
-                }
-            )
+    @app.get("/api/admin/dashboard")
+    async def admin_dashboard(request: Request) -> JSONResponse:
+      _require_admin(request, active_config())
+      return JSONResponse(_build_admin_dashboard_payload(database, active_config(), config_path=active_config_path()))
 
-        return JSONResponse(
-            {
-                "status": "cooldown",
-                "job_id": None,
-                "endpoint_name": endpoint_name,
-                "scheduled_at": None,
-            }
-        )
+    @app.get("/api/admin/config")
+    async def admin_config(request: Request) -> JSONResponse:
+      _require_admin(request, active_config())
+      return JSONResponse(_admin_config_payload(active_config(), config_path=active_config_path()))
+
+    @app.post("/api/admin/config")
+    async def admin_config_save(request: Request) -> JSONResponse:
+      _require_admin(request, active_config())
+      payload = await request.json()
+      try:
+        _, raw_config = load_raw_config(active_config_path())
+        updated_raw_config = _apply_admin_config_payload(raw_config, payload)
+        validated_config = _save_validated_config(active_config_path(), updated_raw_config)
+      except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+      except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"failed to save config: {exc}") from exc
+
+      config_holder["value"] = validated_config
+      state_cache.invalidate()
+      management_cache.invalidate()
+      management_with_history_cache.invalidate()
+      response = JSONResponse(
+        {
+          "status": "saved",
+          "config": _admin_config_payload(validated_config, config_path=active_config_path()),
+          "restart_required": True,
+        }
+      )
+      _set_admin_cookie(response, request, validated_config)
+      return response
+
+    @app.get("/api/admin/logs")
+    async def admin_logs(request: Request) -> JSONResponse:
+      _require_admin(request, active_config())
+      return JSONResponse(_build_admin_logs_payload(database, config_path=active_config_path()))
+
+    @app.post("/api/admin/actions/wakeup")
+    async def admin_wakeup(request: Request) -> JSONResponse:
+      _require_admin(request, active_config())
+      notified = await _notify_probe_worker(active_config())
+      return JSONResponse({"status": "ok", "notified": notified})
+
+    @app.post("/api/admin/actions/cleanup-failed")
+    async def admin_cleanup_failed(request: Request, payload: AdminCleanupPayload) -> JSONResponse:
+      _require_admin(request, active_config())
+      deleted_count = database.delete_failed_probe_jobs_older_than(
+        older_than_secs=max(0.0, float(payload.failed_older_than_hours)) * 3600.0,
+      )
+      management_cache.invalidate()
+      management_with_history_cache.invalidate()
+      return JSONResponse({"status": "ok", "deleted_count": deleted_count})
+
+    @app.post("/api/admin/actions/manual-probe")
+    async def admin_manual_probe(request: Request, payload: ProbeJobCreatePayload) -> JSONResponse:
+      _require_admin(request, active_config())
+      return JSONResponse(await enqueue_manual_probe(int(payload.repeater_id)))
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_root() -> HTMLResponse:
+      return HTMLResponse(ADMIN_HTML)
 
     @app.get("/", response_class=HTMLResponse)
     async def root() -> HTMLResponse:

@@ -990,7 +990,7 @@ def main() -> None:
 
     if command == "run-web":
         database.initialize()
-        app = create_app(database, config)
+        app = create_app(database, config, config_path=args.config)
         uvicorn.run(app, host=config.web.host, port=config.web.port, log_level=config.service.log_level.lower())
         return
 
