@@ -419,6 +419,101 @@
     .toolbar-toggle-button.active[data-toggle-archived]::after {
       transform: translateX(10px);
     }
+    /* === Tura 3 fix: dark-mode overrides for hardcoded white panels === */
+    [data-theme="dark"] .toolbar-search-input,
+    [data-theme="dark"] .sort-select,
+    [data-theme="dark"] .segmented-button,
+    [data-theme="dark"] .view-button,
+    [data-theme="dark"] .lang-button,
+    [data-theme="dark"] .filter-toggle,
+    [data-theme="dark"] .primary-toggle,
+    [data-theme="dark"] .ghost-button,
+    [data-theme="dark"] .panel-card,
+    [data-theme="dark"] .panel-section,
+    [data-theme="dark"] .panel-stack,
+    [data-theme="dark"] .panel-details,
+    [data-theme="dark"] .panel-details-body,
+    [data-theme="dark"] .panel-section-head,
+    [data-theme="dark"] .answer-strip,
+    [data-theme="dark"] .answer-stat,
+    [data-theme="dark"] .answer-state,
+    [data-theme="dark"] .route-card,
+    [data-theme="dark"] .route-control-bar,
+    [data-theme="dark"] .route-endpoint-stack,
+    [data-theme="dark"] .route-destination-item,
+    [data-theme="dark"] .route-destination-list,
+    [data-theme="dark"] .route-destination-action,
+    [data-theme="dark"] .relation-item,
+    [data-theme="dark"] .relation-list,
+    [data-theme="dark"] .node-row,
+    [data-theme="dark"] .node-row-button,
+    [data-theme="dark"] .node-state-tag,
+    [data-theme="dark"] .detail-cell,
+    [data-theme="dark"] .expand-head,
+    [data-theme="dark"] .neighbor-table,
+    [data-theme="dark"] .neighbor-table th,
+    [data-theme="dark"] .neighbor-table td,
+    [data-theme="dark"] .chart-shell,
+    [data-theme="dark"] .chart-head,
+    [data-theme="dark"] .probe-queue-card,
+    [data-theme="dark"] .probe-status-chip,
+    [data-theme="dark"] .empty-note,
+    [data-theme="dark"] .map-warning-note,
+    [data-theme="dark"] .toolbar-search,
+    [data-theme="dark"] .lang-toggle,
+    [data-theme="dark"] .analysis-tabs,
+    [data-theme="dark"] .mobile-view-toggle,
+    [data-theme="dark"] .stale-chip,
+    [data-theme="dark"] .direction-chip,
+    [data-theme="dark"] .answer-kicker {
+      background: rgba(26, 35, 48, 0.78) !important;
+      border-color: var(--line-strong) !important;
+      color: var(--ink);
+    }
+    [data-theme="dark"] .segmented-button.active,
+    [data-theme="dark"] .view-button.active,
+    [data-theme="dark"] .lang-button.active,
+    [data-theme="dark"] .node-row.active,
+    [data-theme="dark"] .route-destination-item.active,
+    [data-theme="dark"] .filter-toggle.active,
+    [data-theme="dark"] .primary-toggle.active {
+      background: rgba(91, 156, 240, 0.22) !important;
+      color: var(--ink);
+    }
+    [data-theme="dark"] .toolbar-search-input::placeholder {
+      color: var(--muted);
+    }
+    [data-theme="dark"] .panel-card strong,
+    [data-theme="dark"] .panel-card span,
+    [data-theme="dark"] .relation-main strong,
+    [data-theme="dark"] .relation-main span,
+    [data-theme="dark"] .answer-stat strong,
+    [data-theme="dark"] .route-card strong,
+    [data-theme="dark"] .route-card span,
+    [data-theme="dark"] .detail-cell strong,
+    [data-theme="dark"] .chart-title strong,
+    [data-theme="dark"] .toolbar-title,
+    [data-theme="dark"] .toolbar-subtitle,
+    [data-theme="dark"] .section-heading,
+    [data-theme="dark"] .panel-section-title,
+    [data-theme="dark"] .panel-section-note,
+    [data-theme="dark"] .node-name,
+    [data-theme="dark"] .node-age,
+    [data-theme="dark"] .answer-title,
+    [data-theme="dark"] .answer-title strong,
+    [data-theme="dark"] .answer-title span {
+      color: var(--ink);
+    }
+    [data-theme="dark"] .toolbar-search-input,
+    [data-theme="dark"] .sort-select {
+      color: var(--ink);
+    }
+    [data-theme="dark"] .legend,
+    [data-theme="dark"] .toolbar {
+      background: rgba(26, 35, 48, 0.92) !important;
+      color: var(--ink);
+      border-color: var(--line-strong) !important;
+    }
     .toolbar-head {
       display: flex;
       align-items: flex-start;
