@@ -238,7 +238,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             host=str(web.get("host", "0.0.0.0")),
             port=int(web.get("port", 8080)),
             admin_username=str(web.get("admin_username", "admin")).strip() or "admin",
-            admin_password=str(web.get("admin_password", "admin")),
+            admin_password=str(web.get("admin_password", "")),
         ),
         gateway=GatewayConfig(
             control_socket_path=_resolve_path(base_dir, str(gateway.get("control_socket_path", "./data/gateway/control.sock"))),

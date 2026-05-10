@@ -461,7 +461,9 @@ def _apply_admin_config_payload(raw_config: dict[str, object], payload: object) 
       if "admin_username" in web_payload:
         web["admin_username"] = _normalize_required_text(web_payload.get("admin_username"), "web.admin_username")
       if "admin_password" in web_payload:
-        web["admin_password"] = str(web_payload.get("admin_password") or "")
+        admin_password = str(web_payload.get("admin_password") or "")
+        if admin_password:
+          web["admin_password"] = admin_password
 
     if isinstance(payload.get("bot"), dict):
       bot = _section_dict(updated, "bot")
@@ -524,7 +526,12 @@ def _apply_admin_config_payload(raw_config: dict[str, object], payload: object) 
       }
       for field_name in string_fields:
         if field_name in probe_payload:
-          probe[field_name] = str(probe_payload.get(field_name) or "")
+          string_value = str(probe_payload.get(field_name) or "")
+          if field_name in {"admin_password", "guest_password"}:
+            if string_value:
+              probe[field_name] = string_value
+            continue
+          probe[field_name] = string_value
       for field_name in float_fields:
         if field_name in probe_payload:
           probe[field_name] = _normalize_float(probe_payload.get(field_name), f"probe.{field_name}")
@@ -576,7 +583,7 @@ def _admin_config_payload(config: AppConfig, *, config_path: Path) -> dict[str, 
         "host": config.web.host,
         "port": config.web.port,
         "admin_username": _current_admin_username(config),
-        "admin_password": config.web.admin_password,
+        "admin_password_configured": bool(config.web.admin_password),
       },
       "bot": {
         "enabled": config.bot.enabled,
@@ -592,8 +599,8 @@ def _admin_config_payload(config: AppConfig, *, config_path: Path) -> dict[str, 
         "include_test_signal": config.bot.include_test_signal,
       },
       "probe": {
-        "admin_password": config.probe.admin_password,
-        "guest_password": config.probe.guest_password,
+        "admin_password_configured": bool(config.probe.admin_password),
+        "guest_password_configured": bool(config.probe.guest_password),
         "default_guest_password": config.probe.default_guest_password,
         "pre_login_advert_name": config.probe.pre_login_advert_name,
         "poll_interval_secs": config.probe.poll_interval_secs,
@@ -6198,17 +6205,17 @@ ADMIN_HTML = """<!doctype html>
       <div class="section-head">
         <div>
           <h2 class="section-title">Logowanie administratora</h2>
-          <div class="subtle">Domyślnie: admin / admin.</div>
+          <div class="subtle">Podaj własne dane administratora.</div>
         </div>
       </div>
-      <form id="loginForm" class="form-grid">
+      <form id="loginForm" class="form-grid" autocomplete="off">
         <label>
           Login
-          <input id="loginUsername" type="text" value="admin" autocomplete="username">
+          <input id="loginUsername" type="text" value="" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="login administratora">
         </label>
         <label>
           Hasło
-          <input id="loginPassword" type="password" value="admin" autocomplete="current-password">
+          <input id="loginPassword" type="password" value="" autocomplete="off" placeholder="hasło administratora">
         </label>
         <div style="display:flex;align-items:flex-end;">
           <button class="button-primary" type="submit">Zaloguj</button>
@@ -6270,7 +6277,7 @@ ADMIN_HTML = """<!doctype html>
               <label>Web host<input id="cfg-web-host" type="text"></label>
               <label>Web port<input id="cfg-web-port" type="number"></label>
               <label>Admin login<input id="cfg-admin-username" type="text"></label>
-              <label>Admin hasło<input id="cfg-admin-password" type="text"></label>
+              <label>Nowe hasło admina<input id="cfg-admin-password" type="password" autocomplete="new-password" placeholder="zostaw puste, aby nie zmieniać"></label>
             </div>
           </div>
           <div class="card" style="padding:16px;">
@@ -6292,8 +6299,8 @@ ADMIN_HTML = """<!doctype html>
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Probe</h3>
             <div class="form-grid">
-              <label>Admin password<input id="cfg-probe-admin-password" type="text"></label>
-              <label>Guest password<input id="cfg-probe-guest-password" type="text"></label>
+              <label>Nowe admin password<input id="cfg-probe-admin-password" type="password" autocomplete="new-password" placeholder="zostaw puste, aby nie zmieniać"></label>
+              <label>Nowe guest password<input id="cfg-probe-guest-password" type="password" autocomplete="new-password" placeholder="zostaw puste, aby nie zmieniać"></label>
               <label>Default guest password<input id="cfg-probe-default-guest-password" type="text"></label>
               <label>Pre-login advert name<input id="cfg-probe-pre-login-advert" type="text"></label>
               <label>Poll interval<input id="cfg-probe-poll-interval" type="number" step="0.1"></label>
@@ -6503,7 +6510,10 @@ ADMIN_HTML = """<!doctype html>
       $('#cfg-web-host').value = config.web.host || '';
       $('#cfg-web-port').value = config.web.port ?? '';
       $('#cfg-admin-username').value = config.web.admin_username || '';
-      $('#cfg-admin-password').value = config.web.admin_password || '';
+      $('#cfg-admin-password').value = '';
+      $('#cfg-admin-password').placeholder = config.web.admin_password_configured
+        ? 'ustawione, wpisz nowe aby zmienić'
+        : 'nieustawione';
       $('#cfg-bot-enabled').checked = !!config.bot.enabled;
       $('#cfg-bot-sender-name').value = config.bot.sender_name || '';
       $('#cfg-bot-reply-endpoint').value = config.bot.reply_endpoint_name || '';
@@ -6515,8 +6525,14 @@ ADMIN_HTML = """<!doctype html>
       $('#cfg-bot-quiet-window').value = config.bot.quiet_window_secs ?? '';
       $('#cfg-bot-dedup-ttl').value = config.bot.command_dedup_ttl_secs ?? '';
       $('#cfg-bot-include-test').checked = !!config.bot.include_test_signal;
-      $('#cfg-probe-admin-password').value = config.probe.admin_password || '';
-      $('#cfg-probe-guest-password').value = config.probe.guest_password || '';
+      $('#cfg-probe-admin-password').value = '';
+      $('#cfg-probe-admin-password').placeholder = config.probe.admin_password_configured
+        ? 'ustawione, wpisz nowe aby zmienić'
+        : 'nieustawione';
+      $('#cfg-probe-guest-password').value = '';
+      $('#cfg-probe-guest-password').placeholder = config.probe.guest_password_configured
+        ? 'ustawione, wpisz nowe aby zmienić'
+        : 'nieustawione';
       $('#cfg-probe-default-guest-password').value = config.probe.default_guest_password || '';
       $('#cfg-probe-pre-login-advert').value = config.probe.pre_login_advert_name || '';
       $('#cfg-probe-poll-interval').value = config.probe.poll_interval_secs ?? '';
@@ -6606,17 +6622,42 @@ ADMIN_HTML = """<!doctype html>
     }
 
     function collectConfigPayload() {
+      const web = {
+        host: $('#cfg-web-host').value,
+        port: Number($('#cfg-web-port').value || 0),
+        admin_username: $('#cfg-admin-username').value,
+      };
+      if ($('#cfg-admin-password').value) {
+        web.admin_password = $('#cfg-admin-password').value;
+      }
+
+      const probe = {
+        default_guest_password: $('#cfg-probe-default-guest-password').value,
+        pre_login_advert_name: $('#cfg-probe-pre-login-advert').value,
+        poll_interval_secs: Number($('#cfg-probe-poll-interval').value || 0),
+        request_timeout_secs: Number($('#cfg-probe-request-timeout').value || 0),
+        route_freshness_secs: Number($('#cfg-probe-route-freshness').value || 0),
+        scheduled_reprobe_interval_secs: Number($('#cfg-probe-scheduled-interval').value || 0),
+        scheduled_reprobe_max_batch: Number($('#cfg-probe-scheduled-batch').value || 0),
+        scheduled_reprobe_seen_within_secs: Number($('#cfg-probe-seen-within').value || 0),
+        night_failed_retry_interval_secs: Number($('#cfg-probe-night-interval').value || 0),
+        night_failed_retry_max_batch: Number($('#cfg-probe-night-batch').value || 0),
+        advert_probe_min_interval_secs: Number($('#cfg-probe-advert-min-interval').value || 0),
+        advert_reprobe_failure_cooldown_secs: Number($('#cfg-probe-advert-failure-cooldown').value || 0),
+      };
+      if ($('#cfg-probe-admin-password').value) {
+        probe.admin_password = $('#cfg-probe-admin-password').value;
+      }
+      if ($('#cfg-probe-guest-password').value) {
+        probe.guest_password = $('#cfg-probe-guest-password').value;
+      }
+
       return {
         service: {
           name: $('#cfg-service-name').value,
           log_level: $('#cfg-log-level').value,
         },
-        web: {
-          host: $('#cfg-web-host').value,
-          port: Number($('#cfg-web-port').value || 0),
-          admin_username: $('#cfg-admin-username').value,
-          admin_password: $('#cfg-admin-password').value,
-        },
+        web,
         bot: {
           enabled: $('#cfg-bot-enabled').checked,
           sender_name: $('#cfg-bot-sender-name').value,
@@ -6630,22 +6671,7 @@ ADMIN_HTML = """<!doctype html>
           command_dedup_ttl_secs: Number($('#cfg-bot-dedup-ttl').value || 0),
           include_test_signal: $('#cfg-bot-include-test').checked,
         },
-        probe: {
-          admin_password: $('#cfg-probe-admin-password').value,
-          guest_password: $('#cfg-probe-guest-password').value,
-          default_guest_password: $('#cfg-probe-default-guest-password').value,
-          pre_login_advert_name: $('#cfg-probe-pre-login-advert').value,
-          poll_interval_secs: Number($('#cfg-probe-poll-interval').value || 0),
-          request_timeout_secs: Number($('#cfg-probe-request-timeout').value || 0),
-          route_freshness_secs: Number($('#cfg-probe-route-freshness').value || 0),
-          scheduled_reprobe_interval_secs: Number($('#cfg-probe-scheduled-interval').value || 0),
-          scheduled_reprobe_max_batch: Number($('#cfg-probe-scheduled-batch').value || 0),
-          scheduled_reprobe_seen_within_secs: Number($('#cfg-probe-seen-within').value || 0),
-          night_failed_retry_interval_secs: Number($('#cfg-probe-night-interval').value || 0),
-          night_failed_retry_max_batch: Number($('#cfg-probe-night-batch').value || 0),
-          advert_probe_min_interval_secs: Number($('#cfg-probe-advert-min-interval').value || 0),
-          advert_reprobe_failure_cooldown_secs: Number($('#cfg-probe-advert-failure-cooldown').value || 0),
-        },
+        probe,
         gateway: {
           traffic_watchdog_secs: Number($('#cfg-gateway-watchdog').value || 0),
           close_timeout_secs: Number($('#cfg-gateway-close-timeout').value || 0),
