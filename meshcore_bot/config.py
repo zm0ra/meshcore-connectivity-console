@@ -50,7 +50,7 @@ class ProbeConfig:
     route_freshness_secs: float
     neighbours_page_size: int
     neighbours_prefix_len: int
-    scheduled_reprobe_seen_within_secs: float = 2592000.0
+    scheduled_reprobe_seen_within_secs: float = 43200.0
     maintenance_interval_secs: float = 900.0
     inactive_probe_job_retention_secs: float = 86400.0
     probe_run_retention_secs: float = 86400.0
@@ -215,7 +215,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             neighbours_prefix_len=int(probe.get("neighbours_prefix_len", 4)),
             scheduled_reprobe_seen_within_secs=max(
                 0.0,
-                float(probe.get("scheduled_reprobe_seen_within_secs", 2592000.0)),
+                float(probe.get("scheduled_reprobe_seen_within_secs", 43200.0)),
             ),
             maintenance_interval_secs=max(0.0, float(probe.get("maintenance_interval_secs", 900.0))),
             inactive_probe_job_retention_secs=max(

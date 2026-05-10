@@ -6251,7 +6251,7 @@ ADMIN_HTML = """<!doctype html>
           </div>
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Ostatnie błędy</h3>
-            <div class="table-wrap"><table><thead><tr><th>Job</th><th>Endpoint</th><th>Node</th><th>Błąd</th></tr></thead><tbody id="failureBody"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Job</th><th>Czas</th><th>Endpoint</th><th>Node</th><th>Błąd</th></tr></thead><tbody id="failureBody"></tbody></table></div>
           </div>
         </div>
       </section>
@@ -6492,6 +6492,7 @@ ADMIN_HTML = """<!doctype html>
       $('#failureBody').innerHTML = (dashboard.recent_failures || []).map((job) => `
         <tr>
           <td>#${escapeHtml(job.id)}</td>
+          <td>${escapeHtml(job.finished_at || job.started_at || job.scheduled_at || 'brak')}</td>
           <td>${escapeHtml(job.endpoint_name || '')}</td>
           <td>${escapeHtml(job.last_name_from_advert || job.pubkey_hex || '')}</td>
           <td>${escapeHtml(job.last_error || 'brak')}</td>

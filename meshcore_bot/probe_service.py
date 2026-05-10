@@ -348,11 +348,11 @@ class GuestProbeWorker:
         if not endpoint_names:
             return
         if interval_secs > 0:
+            seen_within_cap_secs = self.config.probe.scheduled_reprobe_seen_within_secs
             normal_seen_within_secs = max(interval_secs * 3, interval_secs)
-            recovery_seen_within_secs = max(
-                normal_seen_within_secs,
-                self.config.probe.scheduled_reprobe_seen_within_secs,
-            )
+            if seen_within_cap_secs > 0:
+                normal_seen_within_secs = min(normal_seen_within_secs, seen_within_cap_secs)
+            recovery_seen_within_secs = normal_seen_within_secs
             selected_seen_within_secs = normal_seen_within_secs
             enqueued = self.database.schedule_stale_repeater_probe_jobs(
                 endpoint_names=endpoint_names,
@@ -400,6 +400,9 @@ class GuestProbeWorker:
             self.config.probe.advert_reprobe_failure_cooldown_secs,
             1800.0,
         )
+        seen_within_cap_secs = self.config.probe.scheduled_reprobe_seen_within_secs
+        if seen_within_cap_secs > 0:
+            night_seen_within_secs = min(night_seen_within_secs, seen_within_cap_secs)
         enqueued_failed = self.database.schedule_recent_failed_repeater_probe_jobs(
             endpoint_names=endpoint_names,
             seen_within_secs=night_seen_within_secs,
