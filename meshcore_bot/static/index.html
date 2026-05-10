@@ -24,6 +24,7 @@
       --unknown: #98a4ad;
       --shadow: 0 20px 48px rgba(21, 33, 42, 0.14);
       --shadow-soft: 0 8px 22px rgba(21, 33, 42, 0.08);
+      --surface-rgb: 255, 255, 255;
     }
     html, body {
       margin: 0;
@@ -55,7 +56,7 @@
       padding: 10px 14px;
       border-radius: 999px;
       border: 1px solid rgba(21, 33, 42, 0.14);
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
       color: var(--ink);
       text-decoration: none;
       font-size: 0.82rem;
@@ -109,7 +110,7 @@
       height: 5px;
       border-radius: 999px;
       background: rgba(21, 33, 42, 0.18);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+      box-shadow: inset 0 0 0 1px rgba(var(--surface-rgb), 0.8);
     }
     .sheet-label {
       display: none;
@@ -132,7 +133,7 @@
       gap: 10px;
       padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 248, 0.72));
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.84), rgba(248, 250, 248, 0.72));
     }
     .summary-shell {
       display: grid;
@@ -185,7 +186,7 @@
       padding: 10px 8px;
       border-radius: 12px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
       box-shadow: var(--shadow-soft);
       text-align: center;
     }
@@ -248,7 +249,7 @@
       padding: 8px 12px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(var(--surface-rgb), 0.92);
       color: var(--muted);
       font: inherit;
       font-size: 0.74rem;
@@ -279,11 +280,11 @@
       --bg: #0f1620;
       --panel: rgba(24, 33, 44, 0.94);
       --panel-strong: #1a2330;
-      --section: rgba(255, 255, 255, 0.04);
+      --section: rgba(var(--surface-rgb), 0.04);
       --ink: #e6ecf2;
       --muted: #8b97a3;
-      --line: rgba(255, 255, 255, 0.1);
-      --line-strong: rgba(255, 255, 255, 0.18);
+      --line: rgba(var(--surface-rgb), 0.1);
+      --line-strong: rgba(var(--surface-rgb), 0.18);
       --green: #4cb87a;
       --blue: #5b9cf0;
       --red: #e57262;
@@ -292,11 +293,12 @@
       --unknown: #6f7d88;
       --shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
       --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.4);
+      --surface-rgb: 26, 35, 48;
     }
     [data-theme="dark"] #map { background: #0f1822; }
     [data-theme="dark"] .admin-link {
       background: rgba(26, 35, 48, 0.92);
-      border-color: rgba(255, 255, 255, 0.12);
+      border-color: rgba(var(--surface-rgb), 0.12);
     }
     [data-theme="dark"] .toolbar-toggle-button {
       background: rgba(26, 35, 48, 0.85);
@@ -308,11 +310,11 @@
         --bg: #0f1620;
         --panel: rgba(24, 33, 44, 0.94);
         --panel-strong: #1a2330;
-        --section: rgba(255, 255, 255, 0.04);
+        --section: rgba(var(--surface-rgb), 0.04);
         --ink: #e6ecf2;
         --muted: #8b97a3;
-        --line: rgba(255, 255, 255, 0.1);
-        --line-strong: rgba(255, 255, 255, 0.18);
+        --line: rgba(var(--surface-rgb), 0.1);
+        --line-strong: rgba(var(--surface-rgb), 0.18);
         --green: #4cb87a;
         --blue: #5b9cf0;
         --red: #e57262;
@@ -321,6 +323,7 @@
         --unknown: #6f7d88;
         --shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
         --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.4);
+        --surface-rgb: 26, 35, 48;
       }
       :root:not([data-theme="light"]) #map { background: #0f1822; }
       :root:not([data-theme="light"]) .leaflet-tile { filter: brightness(0.78) contrast(1.05) hue-rotate(180deg) invert(0.9); }
@@ -344,7 +347,7 @@
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid var(--line-strong);
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
       color: var(--ink);
       font: inherit;
       font-size: 0.78rem;
@@ -364,7 +367,7 @@
       height: 8px;
       border-radius: 50%;
       background: var(--unknown);
-      box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
+      box-shadow: 0 0 0 2px rgba(var(--surface-rgb), 0.25);
     }
     .health-pill.health-ok::before { background: var(--green); }
     .health-pill.health-warn::before { background: var(--yellow); animation: healthPulse 1.6s ease-in-out infinite; }
@@ -576,7 +579,7 @@
       padding: 3px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.6);
+      background: rgba(var(--surface-rgb), 0.6);
       flex-wrap: wrap;
     }
     .primary-toggle {
@@ -614,7 +617,7 @@
     .segmented-button.active {
       background: rgba(44, 113, 209, 0.18);
       color: var(--ink);
-      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16), 0 1px 0 rgba(255, 255, 255, 0.9);
+      box-shadow: inset 0 0 0 1px rgba(44, 113, 209, 0.16), 0 1px 0 rgba(var(--surface-rgb), 0.9);
     }
     .segmented-button:disabled,
     .segmented-button.disabled {
@@ -630,7 +633,7 @@
       padding: 3px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.6);
+      background: rgba(var(--surface-rgb), 0.6);
     }
     .view-button {
       border: 0;
@@ -649,7 +652,7 @@
     .sort-select {
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(var(--surface-rgb), 0.92);
       color: var(--ink);
       padding: 8px 10px;
       font: inherit;
@@ -665,7 +668,7 @@
       min-height: 38px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       color: var(--ink);
       padding: 8px 12px;
       font: inherit;
@@ -681,7 +684,7 @@
       padding: 4px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.82);
+      background: rgba(var(--surface-rgb), 0.82);
     }
     .lang-button {
       border: 0;
@@ -714,7 +717,7 @@
     .node-row {
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       box-shadow: var(--shadow-soft);
       overflow: hidden;
     }
@@ -737,13 +740,13 @@
       font: inherit;
     }
     .node-row-button:hover {
-      background: rgba(255, 255, 255, 0.28);
+      background: rgba(var(--surface-rgb), 0.28);
     }
     .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 999px;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.96);
+      box-shadow: 0 0 0 2px rgba(var(--surface-rgb), 0.96);
       flex: 0 0 auto;
     }
     .node-main {
@@ -783,7 +786,7 @@
       padding: 7px 8px;
       border-radius: 10px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.84);
+      background: rgba(var(--surface-rgb), 0.84);
       font-size: 0.78rem;
       color: var(--muted);
       line-height: 1.22;
@@ -806,7 +809,7 @@
     }
     .ghost-button {
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.5);
+      background: rgba(var(--surface-rgb), 0.5);
       border-radius: 999px;
       color: var(--muted);
       padding: 3px 8px;
@@ -820,7 +823,7 @@
       padding: 9px 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
     }
     .probe-queue-controls {
       display: flex;
@@ -915,7 +918,7 @@
     .chart-shell {
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
       padding: 8px;
     }
     .chart-head {
@@ -980,7 +983,7 @@
       padding: 10px 11px;
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       box-shadow: none;
     }
     .panel-card strong {
@@ -1020,7 +1023,7 @@
       padding: 12px;
       border: 1px solid rgba(21, 33, 42, 0.08);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(var(--surface-rgb), 0.96);
     }
     .answer-head {
       display: flex;
@@ -1111,7 +1114,7 @@
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       box-shadow: none;
     }
     .route-card {
@@ -1145,7 +1148,7 @@
       padding: 8px 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       box-shadow: none;
     }
     .relation-main {
@@ -1185,7 +1188,7 @@
     .panel-details {
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(var(--surface-rgb), 0.88);
       overflow: hidden;
     }
     .panel-details summary {
@@ -1264,7 +1267,7 @@
       padding: 9px 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       color: var(--ink);
       cursor: pointer;
       text-align: left;
@@ -1385,7 +1388,7 @@
       min-height: 0;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(var(--surface-rgb), 0.94);
       box-shadow: none;
       text-align: left;
       cursor: pointer;
@@ -1465,7 +1468,7 @@
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(var(--surface-rgb), 0.96);
       color: var(--ink);
       padding: 8px 10px;
       font: inherit;
@@ -1560,7 +1563,7 @@
       padding: 5px 9px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(var(--surface-rgb), 0.96);
       min-width: 0;
       text-align: center;
     }
@@ -1582,7 +1585,7 @@
       padding: 8px 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(var(--surface-rgb), 0.92);
       color: var(--muted);
       font-size: 0.72rem;
       line-height: 1.28;
@@ -1607,7 +1610,7 @@
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.95);
+      background: rgba(var(--surface-rgb), 0.95);
     }
     .mobile-overview-card {
       display: grid;
@@ -1616,7 +1619,7 @@
       margin-bottom: 8px;
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.95);
+      background: rgba(var(--surface-rgb), 0.95);
       box-shadow: var(--shadow-soft);
     }
     .mobile-overview-head {
@@ -1715,7 +1718,7 @@
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(var(--surface-rgb), 0.92);
       color: inherit;
       padding: 8px 10px;
       display: grid;
@@ -1728,7 +1731,7 @@
     }
     .mobile-relation-button.active {
       border-color: rgba(44, 113, 209, 0.24);
-      background: rgba(255, 255, 255, 0.98);
+      background: rgba(var(--surface-rgb), 0.98);
     }
     .mobile-relation-main {
       min-width: 0;
@@ -1772,7 +1775,7 @@
       width: 8px;
       height: 8px;
       border-radius: 999px;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.96);
+      box-shadow: 0 0 0 2px rgba(var(--surface-rgb), 0.96);
     }
     .legend-line {
       width: 18px;
@@ -1788,7 +1791,7 @@
       height: 18px;
       border-radius: 999px;
       border: 1px solid rgba(21, 33, 42, 0.08);
-      background: rgba(255, 255, 255, 0.82);
+      background: rgba(var(--surface-rgb), 0.82);
       color: var(--ink);
       font-size: 0.8rem;
       line-height: 1;
@@ -1814,7 +1817,7 @@
       height: 19px;
       border-radius: 999px;
       border: 1px solid rgba(21, 33, 42, 0.1);
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(var(--surface-rgb), 0.9);
       box-shadow: 0 6px 14px rgba(21, 33, 42, 0.12);
       color: var(--ink);
       font-size: 13px;
@@ -1824,7 +1827,7 @@
     .node-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.1);
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.76);
+      background: rgba(var(--surface-rgb), 0.76);
       box-shadow: 0 8px 18px rgba(21, 33, 42, 0.08);
       color: var(--ink);
       padding: 5px 8px;
@@ -1846,7 +1849,7 @@
     .signal-label-chip {
       border: 1px solid rgba(21, 33, 42, 0.08);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.74);
+      background: rgba(var(--surface-rgb), 0.74);
       box-shadow: 0 8px 18px rgba(21, 33, 42, 0.06);
       color: var(--ink);
       padding: 4px 8px;
@@ -1859,11 +1862,11 @@
     }
     .node-label-chip.focused {
       border-color: rgba(21, 33, 42, 0.18);
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(var(--surface-rgb), 0.92);
       box-shadow: 0 10px 24px rgba(21, 33, 42, 0.14);
     }
     .node-label-chip.active-peer {
-      background: rgba(255, 255, 255, 0.86);
+      background: rgba(var(--surface-rgb), 0.86);
     }
     .signal-label-chip strong,
     .signal-label-chip span {
