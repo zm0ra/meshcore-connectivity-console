@@ -51,7 +51,7 @@ class BotDatabase:
     def initialize(self) -> None:
         now_iso = utc_now_iso()
         with self.connect() as connection:
-            connection.execute("PRAGMA journal_mode=DELETE")
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=NORMAL")
             connection.executescript(
                 """
