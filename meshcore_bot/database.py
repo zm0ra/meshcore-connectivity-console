@@ -974,6 +974,162 @@ class BotDatabase:
 
         return self._run_with_retry(operation)
 
+    def delete_inactive_probe_jobs_older_than(
+        self,
+        *,
+        older_than_secs: float,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> int:
+        if older_than_secs <= 0:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        cutoff_iso = (now - timedelta(seconds=older_than_secs)).isoformat()
+
+        def operation(connection: sqlite3.Connection) -> int:
+            count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM probe_jobs
+                    WHERE status NOT IN ('pending', 'running')
+                      AND COALESCE(finished_at, started_at, scheduled_at) < ?
+                    """,
+                    (cutoff_iso,),
+                ).fetchone()[0]
+            )
+            if dry_run or count == 0:
+                return count
+            connection.execute(
+                """
+                DELETE FROM probe_jobs
+                WHERE status NOT IN ('pending', 'running')
+                  AND COALESCE(finished_at, started_at, scheduled_at) < ?
+                """,
+                (cutoff_iso,),
+            )
+            return count
+
+        return self._run_with_retry(operation)
+
+    def delete_raw_mesh_packets_older_than(
+        self,
+        *,
+        older_than_secs: float,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> int:
+        if older_than_secs <= 0:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        cutoff_iso = (now - timedelta(seconds=older_than_secs)).isoformat()
+
+        def operation(connection: sqlite3.Connection) -> int:
+            count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM raw_mesh_packets
+                    WHERE observed_at < ?
+                    """,
+                    (cutoff_iso,),
+                ).fetchone()[0]
+            )
+            if dry_run or count == 0:
+                return count
+            connection.execute(
+                """
+                DELETE FROM raw_mesh_packets
+                WHERE observed_at < ?
+                """,
+                (cutoff_iso,),
+            )
+            return count
+
+        return self._run_with_retry(operation)
+
+    def _delete_probe_run_ids(
+        self,
+        connection: sqlite3.Connection,
+        probe_run_ids: list[int],
+        *,
+        delete_runs: bool = True,
+    ) -> None:
+        if not probe_run_ids:
+            return
+        for index in range(0, len(probe_run_ids), 500):
+            chunk = probe_run_ids[index : index + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            for table_name in (
+                "repeater_owner_snapshots",
+                "repeater_status_snapshots",
+                "repeater_telemetry_snapshots",
+                "repeater_neighbour_snapshots",
+                "raw_mesh_packets",
+            ):
+                connection.execute(f"DELETE FROM {table_name} WHERE probe_run_id IN ({placeholders})", chunk)
+            if delete_runs:
+                connection.execute(f"DELETE FROM repeater_probe_runs WHERE id IN ({placeholders})", chunk)
+
+    def delete_probe_runs_older_than(
+        self,
+        *,
+        older_than_secs: float,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> int:
+        if older_than_secs <= 0:
+            return 0
+        if now is None:
+            now = datetime.now(tz=UTC)
+        cutoff_iso = (now - timedelta(seconds=older_than_secs)).isoformat()
+
+        def operation(connection: sqlite3.Connection) -> int:
+            probe_run_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    """
+                    WITH latest_runs AS (
+                        SELECT repeater_id, MAX(id) AS keep_id
+                        FROM repeater_probe_runs
+                        GROUP BY repeater_id
+                    ),
+                    latest_successful_runs AS (
+                        SELECT repeater_id, MAX(id) AS keep_id
+                        FROM repeater_probe_runs
+                        WHERE result = 'success'
+                        GROUP BY repeater_id
+                    ),
+                    latest_neighbour_runs AS (
+                        SELECT pr.repeater_id, MAX(pr.id) AS keep_id
+                        FROM repeater_probe_runs pr
+                        JOIN repeater_neighbour_snapshots ns ON ns.probe_run_id = pr.id
+                        GROUP BY pr.repeater_id
+                    )
+                    SELECT pr.id
+                    FROM repeater_probe_runs pr
+                    LEFT JOIN latest_runs lr ON lr.repeater_id = pr.repeater_id
+                    LEFT JOIN latest_successful_runs lsr ON lsr.repeater_id = pr.repeater_id
+                    LEFT JOIN latest_neighbour_runs lnr ON lnr.repeater_id = pr.repeater_id
+                    WHERE COALESCE(pr.finished_at, pr.started_at) < ?
+                      AND pr.result != 'running'
+                      AND pr.id != COALESCE(lr.keep_id, -1)
+                      AND (lsr.keep_id IS NULL OR pr.id != lsr.keep_id)
+                      AND (lnr.keep_id IS NULL OR pr.id != lnr.keep_id)
+                    """,
+                    (cutoff_iso,),
+                ).fetchall()
+            ]
+            count = len(probe_run_ids)
+            if dry_run or count == 0:
+                return count
+            self._delete_probe_run_ids(connection, probe_run_ids)
+            return count
+
+        return self._run_with_retry(operation)
+
     def create_probe_run(self, *, repeater_id: int, endpoint_name: str) -> int:
         started_at = utc_now_iso()
         def operation(connection: sqlite3.Connection) -> int:
@@ -2074,14 +2230,8 @@ class BotDatabase:
                 ).fetchall()
             ]
             if probe_run_ids:
-                placeholders = ",".join("?" for _ in probe_run_ids)
-                connection.execute(f"DELETE FROM repeater_owner_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
-                connection.execute(f"DELETE FROM repeater_status_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
-                connection.execute(f"DELETE FROM repeater_telemetry_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
-                connection.execute(f"DELETE FROM repeater_neighbour_snapshots WHERE probe_run_id IN ({placeholders})", probe_run_ids)
-                connection.execute(f"DELETE FROM raw_mesh_packets WHERE probe_run_id IN ({placeholders})", probe_run_ids)
+                self._delete_probe_run_ids(connection, probe_run_ids)
             connection.execute("DELETE FROM probe_jobs WHERE repeater_id = ?", (repeater_id,))
-            connection.execute("DELETE FROM repeater_probe_runs WHERE repeater_id = ?", (repeater_id,))
             connection.execute("DELETE FROM repeater_paths WHERE repeater_id = ?", (repeater_id,))
             connection.execute("DELETE FROM repeater_adverts WHERE repeater_id = ?", (repeater_id,))
             connection.execute("DELETE FROM repeaters WHERE id = ?", (repeater_id,))

@@ -150,7 +150,7 @@ def build_test_app_config(tmp_path) -> AppConfig:
             command_dedup_ttl_secs=30.0,
             include_test_signal=True,
         ),
-        web=WebConfig(host="127.0.0.1", port=8080),
+        web=WebConfig(host="127.0.0.1", port=8080, admin_username="admin", admin_password=""),
         gateway=GatewayConfig(
             control_socket_path=tmp_path / "gateway-control.sock",
             event_socket_path=tmp_path / "gateway-events.sock",
@@ -2406,6 +2406,245 @@ def test_delete_failed_probe_jobs_older_than_keeps_fresh_rows(tmp_path) -> None:
     with database.connect() as connection:
         rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
     assert [tuple(row) for row in rows] == [(fresh_failed_job_id, "failed")]
+
+
+def test_delete_inactive_probe_jobs_older_than_keeps_active_rows(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 12, 0, tzinfo=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="cleanup-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    old_success_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="scheduled stale refresh",
+    )
+    assert old_success_job_id is not None
+    database.finish_probe_job(old_success_job_id, status="success")
+
+    old_interrupted_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual live verification",
+    )
+    assert old_interrupted_job_id is not None
+    database.finish_probe_job(old_interrupted_job_id, status="interrupted", last_error="worker restart recovery")
+
+    pending_job_id = database.enqueue_probe_job(
+        repeater_id=repeater_id,
+        endpoint_name="test-endpoint",
+        reason="manual keep alive",
+    )
+    assert pending_job_id is not None
+
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE probe_jobs SET finished_at = ?, started_at = ?, scheduled_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 10, 0, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 9, 59, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 9, 58, tzinfo=UTC).isoformat(),
+                old_success_job_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE probe_jobs SET finished_at = ?, started_at = ?, scheduled_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 11, 0, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 10, 59, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 10, 58, tzinfo=UTC).isoformat(),
+                old_interrupted_job_id,
+            ),
+        )
+
+    deleted_count = database.delete_inactive_probe_jobs_older_than(
+        older_than_secs=12 * 3600,
+        now=datetime(2026, 3, 14, 12, 0, tzinfo=UTC),
+    )
+
+    assert deleted_count == 2
+    with database.connect() as connection:
+        rows = connection.execute("SELECT id, status FROM probe_jobs ORDER BY id ASC").fetchall()
+    assert [tuple(row) for row in rows] == [(pending_job_id, "pending")]
+
+
+def test_delete_probe_runs_older_than_preserves_latest_current_topology(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 12, 0, tzinfo=UTC).isoformat(),
+        public_key=LocalIdentity.generate().public_key,
+        advert_name="cleanup-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+
+    deleted_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        deleted_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=2,
+        login_server_time=3,
+        error_message=None,
+    )
+    database.insert_raw_packet(
+        probe_run_id=deleted_run_id,
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 13, 8, 0, tzinfo=UTC).isoformat(),
+        direction="rx",
+        transport="tcp",
+        mesh_packet_hex="AA",
+        payload_type=1,
+        route_type=1,
+    )
+
+    latest_successful_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        latest_successful_run_id,
+        repeater_id=repeater_id,
+        result="success",
+        guest_login_ok=True,
+        guest_permissions=1,
+        firmware_capability_level=2,
+        login_server_time=3,
+        error_message=None,
+    )
+    database.save_neighbour_snapshot_page(
+        probe_run_id=latest_successful_run_id,
+        page_offset=0,
+        total_neighbours_count=1,
+        results_count=1,
+        entries=[
+            {
+                "neighbour_pubkey_prefix_hex": "A1B2C3D4",
+                "heard_seconds_ago": 12,
+                "snr": 7.5,
+            }
+        ],
+    )
+
+    latest_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
+    database.complete_probe_run(
+        latest_run_id,
+        repeater_id=repeater_id,
+        result="failed",
+        guest_login_ok=False,
+        guest_permissions=None,
+        firmware_capability_level=None,
+        login_server_time=None,
+        error_message="timeout",
+    )
+
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE repeater_probe_runs SET started_at = ?, finished_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 7, 55, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 8, 0, tzinfo=UTC).isoformat(),
+                deleted_run_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE repeater_probe_runs SET started_at = ?, finished_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 8, 55, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 9, 0, tzinfo=UTC).isoformat(),
+                latest_successful_run_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE repeater_neighbour_snapshots SET observed_at = ? WHERE probe_run_id = ?",
+            (
+                datetime(2026, 3, 13, 9, 0, tzinfo=UTC).isoformat(),
+                latest_successful_run_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE repeater_probe_runs SET started_at = ?, finished_at = ? WHERE id = ?",
+            (
+                datetime(2026, 3, 13, 9, 55, tzinfo=UTC).isoformat(),
+                datetime(2026, 3, 13, 10, 0, tzinfo=UTC).isoformat(),
+                latest_run_id,
+            ),
+        )
+
+    deleted_count = database.delete_probe_runs_older_than(
+        older_than_secs=12 * 3600,
+        now=datetime(2026, 3, 14, 12, 0, tzinfo=UTC),
+    )
+
+    assert deleted_count == 1
+    with database.connect() as connection:
+        runs = connection.execute(
+            "SELECT id, result FROM repeater_probe_runs ORDER BY id ASC"
+        ).fetchall()
+        packets = connection.execute(
+            "SELECT probe_run_id, mesh_packet_hex FROM raw_mesh_packets ORDER BY id ASC"
+        ).fetchall()
+        snapshots = connection.execute(
+            "SELECT probe_run_id, neighbour_pubkey_prefix_hex FROM repeater_neighbour_snapshots ORDER BY id ASC"
+        ).fetchall()
+    assert [tuple(row) for row in runs] == [
+        (latest_successful_run_id, "success"),
+        (latest_run_id, "failed"),
+    ]
+    assert [tuple(row) for row in packets] == []
+    assert [tuple(row) for row in snapshots] == [(latest_successful_run_id, "A1B2C3D4")]
+
+
+def test_delete_raw_mesh_packets_older_than_keeps_fresh_rows(tmp_path) -> None:
+    config = build_test_app_config(tmp_path)
+    database = BotDatabase(config.storage.database_path)
+    database.initialize()
+
+    database.insert_raw_packet(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 13, 10, 0, tzinfo=UTC).isoformat(),
+        direction="rx",
+        transport="tcp",
+        mesh_packet_hex="AA",
+        payload_type=1,
+        route_type=1,
+    )
+    database.insert_raw_packet(
+        endpoint_name="test-endpoint",
+        observed_at=datetime(2026, 3, 14, 11, 55, tzinfo=UTC).isoformat(),
+        direction="tx",
+        transport="tcp",
+        mesh_packet_hex="BB",
+        payload_type=1,
+        route_type=1,
+    )
+
+    deleted_count = database.delete_raw_mesh_packets_older_than(
+        older_than_secs=12 * 3600,
+        now=datetime(2026, 3, 14, 12, 0, tzinfo=UTC),
+    )
+
+    assert deleted_count == 1
+    with database.connect() as connection:
+        rows = connection.execute("SELECT mesh_packet_hex FROM raw_mesh_packets ORDER BY id ASC").fetchall()
+    assert [tuple(row) for row in rows] == [("BB",)]
 
 
 def test_recover_interrupted_probe_work_marks_running_jobs_interrupted_without_requeue(tmp_path) -> None:

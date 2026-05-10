@@ -207,6 +207,7 @@ class GuestProbeWorker:
         self._local_hash = self.identity.public_hash(1)
         self._transport_factory = transport_factory or self._build_direct_transport
         self._next_scheduled_reprobe_scan_monotonic = 0.0
+        self._next_retention_maintenance_monotonic = 0.0
         self._progress_callback = progress_callback
         self._local_console_resolver = LocalConsoleEndpointResolver(config, logger=self.logger)
         self._wakeup_event = asyncio.Event()
@@ -239,6 +240,7 @@ class GuestProbeWorker:
                     recovered["runs_interrupted"],
                 )
             while not self._stop_event.is_set():
+                self._run_retention_maintenance_if_due()
                 self._schedule_stale_reprobes_if_due()
                 job = self.database.claim_probe_job()
                 if job is None:
@@ -301,6 +303,39 @@ class GuestProbeWorker:
             pass
         finally:
             self._wakeup_event.clear()
+
+    def _run_retention_maintenance_if_due(self) -> None:
+        interval_secs = max(0.0, self.config.probe.maintenance_interval_secs)
+        if interval_secs <= 0:
+            return
+        now_monotonic = time.monotonic()
+        if now_monotonic < self._next_retention_maintenance_monotonic:
+            return
+        self._next_retention_maintenance_monotonic = now_monotonic + interval_secs
+        now_utc = datetime.now(tz=UTC)
+        try:
+            deleted_jobs = self.database.delete_inactive_probe_jobs_older_than(
+                older_than_secs=self.config.probe.inactive_probe_job_retention_secs,
+                now=now_utc,
+            )
+            deleted_runs = self.database.delete_probe_runs_older_than(
+                older_than_secs=self.config.probe.probe_run_retention_secs,
+                now=now_utc,
+            )
+            deleted_packets = self.database.delete_raw_mesh_packets_older_than(
+                older_than_secs=self.config.probe.raw_packet_retention_secs,
+                now=now_utc,
+            )
+        except Exception as exc:
+            self.logger.exception("retention maintenance failed error=%s", exc)
+            return
+        if deleted_jobs or deleted_runs or deleted_packets:
+            self.logger.info(
+                "retention maintenance deleted jobs=%s probe_runs=%s raw_packets=%s",
+                deleted_jobs,
+                deleted_runs,
+                deleted_packets,
+            )
 
     def _schedule_stale_reprobes_if_due(self) -> None:
         now_utc = datetime.now(tz=UTC)

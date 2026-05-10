@@ -51,6 +51,10 @@ class ProbeConfig:
     neighbours_page_size: int
     neighbours_prefix_len: int
     scheduled_reprobe_seen_within_secs: float = 2592000.0
+    maintenance_interval_secs: float = 900.0
+    inactive_probe_job_retention_secs: float = 86400.0
+    probe_run_retention_secs: float = 86400.0
+    raw_packet_retention_secs: float = 3600.0
 
 
 @dataclass(frozen=True)
@@ -213,6 +217,13 @@ def load_config(config_path: str | Path) -> AppConfig:
                 0.0,
                 float(probe.get("scheduled_reprobe_seen_within_secs", 2592000.0)),
             ),
+            maintenance_interval_secs=max(0.0, float(probe.get("maintenance_interval_secs", 900.0))),
+            inactive_probe_job_retention_secs=max(
+                0.0,
+                float(probe.get("inactive_probe_job_retention_secs", 86400.0)),
+            ),
+            probe_run_retention_secs=max(0.0, float(probe.get("probe_run_retention_secs", 86400.0))),
+            raw_packet_retention_secs=max(0.0, float(probe.get("raw_packet_retention_secs", 3600.0))),
         ),
         bot=BotConfig(
             enabled=bool(bot.get("enabled", True)),
