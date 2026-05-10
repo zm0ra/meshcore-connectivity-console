@@ -239,13 +239,130 @@
       color: var(--accent-strong);
       font-size: 0.82rem;
     }
-    .pill.warn {
+    .pill::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.65;
+    }
+    .pill.warn,
+    .pill.warning {
       background: rgba(185, 105, 24, 0.1);
       color: #8b4f12;
     }
-    .pill.danger {
+    .pill.danger,
+    .pill.error {
       background: rgba(177, 60, 46, 0.1);
       color: var(--danger);
+    }
+    .pill.success,
+    .pill.ok {
+      background: rgba(20, 99, 86, 0.12);
+      color: var(--accent-strong);
+    }
+    .pill.muted,
+    .pill.idle {
+      background: rgba(104, 117, 126, 0.12);
+      color: var(--muted);
+    }
+    .pill.info {
+      background: rgba(46, 102, 177, 0.1);
+      color: #2a5cad;
+    }
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .filter-bar input,
+    .filter-bar select {
+      width: auto;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      border-radius: 10px;
+    }
+    .filter-bar .filter-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    th.sortable {
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th.sortable::after {
+      content: " \2195";
+      opacity: 0.35;
+    }
+    th.sortable.sort-asc::after { content: " \25B2"; opacity: 1; }
+    th.sortable.sort-desc::after { content: " \25BC"; opacity: 1; }
+    .copy-btn {
+      padding: 2px 8px;
+      font-size: 0.74rem;
+      border-radius: 8px;
+      margin-left: 4px;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82rem;
+    }
+    time[data-iso] {
+      cursor: help;
+      border-bottom: 1px dotted rgba(23, 33, 43, 0.2);
+    }
+    .refresh-meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      align-self: center;
+    }
+    .is-spinning {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .is-spinning::after {
+      content: " \2026";
+    }
+    button:focus-visible,
+    .tab-button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-color: transparent;
+    }
+    details.config-group {
+      border: 1px solid rgba(23, 33, 43, 0.1);
+      border-radius: 14px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.45);
+    }
+    details.config-group > summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 4px 0;
+    }
+    details.config-group[open] > summary {
+      margin-bottom: 10px;
+    }
+    label small.hint {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-style: italic;
+      font-weight: normal;
+      margin-top: 2px;
     }
     .log-block {
       border-radius: 18px;
@@ -283,6 +400,12 @@
       .card,
       .tab-panel { border-radius: 20px; }
       table { min-width: 580px; }
+      .section-head { flex-wrap: wrap; }
+      .actions { width: 100%; }
+    }
+    @media (max-width: 600px) {
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .form-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -291,7 +414,7 @@
     <header class="topbar">
       <div>
         <h1>MeshCore Admin</h1>
-        <div class="subtle">Konfiguracja backendów, kolejki probe, logi i stan node bez wychodzenia ze strony.</div>
+        <div class="subtle">Konfiguracja backendów, kolejki probe, logi i stan node.</div>
       </div>
       <div class="actions">
         <span id="sessionBadge" class="pill">Niezalogowany</span>
@@ -339,17 +462,38 @@
           <div class="actions">
             <button id="refreshButton" type="button">Odśwież</button>
             <button id="wakeupButton" type="button">Wake probe worker</button>
+            <label class="filter-label" for="cleanupHours" style="margin-left:6px;">Czyść starsze niż</label>
+            <select id="cleanupHours" style="width:auto;padding:6px 10px;border-radius:10px;">
+              <option value="3">3h</option>
+              <option value="6">6h</option>
+              <option value="12">12h</option>
+              <option value="24" selected>24h</option>
+              <option value="72">72h</option>
+            </select>
             <button id="cleanupButton" type="button">Czyść stare błędy</button>
+            <label class="checkbox-row" style="margin-left:6px;"><input id="autoRefreshToggle" type="checkbox" checked>Auto 30s</label>
+            <span id="lastRefreshAt" class="refresh-meta">—</span>
           </div>
         </div>
         <div id="metrics" class="metrics"></div>
         <div class="grid dashboard-grid" style="margin-top:16px;">
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Backendy</h3>
+            <div class="filter-bar">
+              <input id="endpointFilter" type="search" placeholder="Filtruj backend / repeater...">
+              <select id="endpointStateFilter">
+                <option value="">Wszystkie stany</option>
+                <option value="enabled">Aktywne</option>
+                <option value="disabled">Wyłączone</option>
+              </select>
+            </div>
             <div class="table-wrap"><table><thead><tr><th>Nazwa</th><th>Adres</th><th>Stan</th><th>Ruch</th><th>Ostatni advert</th></tr></thead><tbody id="endpointStatusBody"></tbody></table></div>
           </div>
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Ostatnie błędy</h3>
+            <div class="filter-bar">
+              <input id="failureFilter" type="search" placeholder="Filtruj endpoint / node / błąd...">
+            </div>
             <div class="table-wrap"><table><thead><tr><th>Job</th><th>Czas</th><th>Endpoint</th><th>Node</th><th>Błąd</th></tr></thead><tbody id="failureBody"></tbody></table></div>
           </div>
         </div>
@@ -436,24 +580,71 @@
         <div class="grid dashboard-grid">
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Probe jobs</h3>
+            <div class="filter-bar">
+              <input id="jobFilter" type="search" placeholder="Filtruj endpoint / node / błąd...">
+              <select id="jobStatusFilter">
+                <option value="">Wszystkie statusy</option>
+                <option value="pending">pending</option>
+                <option value="running">running</option>
+                <option value="succeeded">succeeded</option>
+                <option value="failed">failed</option>
+              </select>
+            </div>
             <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Endpoint</th><th>Node</th><th>Szczegóły</th></tr></thead><tbody id="jobBody"></tbody></table></div>
           </div>
           <div class="card" style="padding:16px;">
             <h3 class="section-title">Raw packets</h3>
+            <div class="filter-bar">
+              <input id="packetFilter" type="search" placeholder="Filtruj endpoint / typ / remote...">
+              <select id="packetDirFilter">
+                <option value="">Każdy kierunek</option>
+                <option value="in">in</option>
+                <option value="out">out</option>
+              </select>
+            </div>
             <div class="table-wrap"><table><thead><tr><th>ID</th><th>Endpoint</th><th>Kierunek</th><th>Typ</th><th>Remote</th></tr></thead><tbody id="packetBody"></tbody></table></div>
           </div>
         </div>
-        <div id="fileLogs" class="grid" style="margin-top:16px;"></div>
+        <div class="filter-bar" style="margin-top:16px;">
+          <span class="filter-label">Pliki logów:</span>
+          <input id="logFileFilter" type="search" placeholder="Filtruj zawartość...">
+          <select id="logLevelFilter">
+            <option value="">Wszystkie poziomy</option>
+            <option value="DEBUG">DEBUG+</option>
+            <option value="INFO">INFO+</option>
+            <option value="WARNING">WARNING+</option>
+            <option value="ERROR">ERROR+</option>
+          </select>
+        </div>
+        <div id="fileLogs" class="grid" style="margin-top:8px;"></div>
       </section>
 
       <section id="tab-nodes" class="tab-panel" hidden>
         <div class="section-head">
           <div>
             <h2 class="section-title">Node i repeatery</h2>
-            <div class="subtle">Ręczne kolejkowanie probe dla wybranych wpisów.</div>
+            <div class="subtle">Ręczne kolejkowanie probe dla wybranych wpisów. Kliknij nagłówek, aby posortować.</div>
           </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Nazwa</th><th>Identity</th><th>Last advert</th><th>Last probe</th><th>Data</th><th>Akcja</th></tr></thead><tbody id="nodeBody"></tbody></table></div>
+        <div class="filter-bar">
+          <input id="nodeFilter" type="search" placeholder="Filtruj nazwę / pubkey / rolę...">
+          <select id="nodeStatusFilter">
+            <option value="">Wszystkie</option>
+            <option value="online">Online (≤6h)</option>
+            <option value="offline">Offline (&gt;24h)</option>
+            <option value="data-ok">Data OK</option>
+            <option value="data-missing">Brak danych</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table><thead><tr>
+          <th class="sortable" data-sort="id">ID</th>
+          <th class="sortable" data-sort="name">Nazwa</th>
+          <th class="sortable" data-sort="identity">Identity</th>
+          <th class="sortable" data-sort="advert">Last advert</th>
+          <th class="sortable" data-sort="probe">Last probe</th>
+          <th>Data</th>
+          <th>Akcja</th>
+        </tr></thead><tbody id="nodeBody"></tbody></table></div>
       </section>
     </section>
   </div>
@@ -466,6 +657,17 @@
       config: null,
       logs: null,
     };
+    const filters = {
+      endpoint: '', endpointState: '',
+      failure: '',
+      job: '', jobStatus: '',
+      packet: '', packetDir: '',
+      node: '', nodeStatus: '',
+      logFile: '', logLevel: '',
+    };
+    const nodeSort = { key: 'advert', dir: 'desc' };
+    let autoRefreshTimer = null;
+    let lastRefreshAt = null;
 
     const $ = (selector) => document.querySelector(selector);
     const escapeHtml = (value) => String(value ?? '')
@@ -474,6 +676,54 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+    function parseIso(value) {
+      if (!value) return null;
+      const text = String(value).trim();
+      if (!text) return null;
+      const normalized = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}Z`;
+      const d = new Date(normalized);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    function fmtAbs(value) {
+      const d = parseIso(value);
+      if (!d) return '';
+      return d.toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'medium' });
+    }
+    function fmtRel(value) {
+      const d = parseIso(value);
+      if (!d) return '';
+      const diffMs = d.getTime() - Date.now();
+      const diffSec = Math.round(diffMs / 1000);
+      const abs = Math.abs(diffSec);
+      const fmt = new Intl.RelativeTimeFormat('pl', { numeric: 'auto' });
+      if (abs < 60) return fmt.format(diffSec, 'second');
+      if (abs < 3600) return fmt.format(Math.round(diffSec / 60), 'minute');
+      if (abs < 86400) return fmt.format(Math.round(diffSec / 3600), 'hour');
+      return fmt.format(Math.round(diffSec / 86400), 'day');
+    }
+    function fmtBoth(value) {
+      const d = parseIso(value);
+      if (!d) return '<span class="subtle">brak</span>';
+      const abs = fmtAbs(value);
+      const rel = fmtRel(value);
+      return `<time data-iso="${escapeHtml(value)}" title="${escapeHtml(abs)}">${escapeHtml(rel)}</time>`;
+    }
+    function statusPill(status) {
+      const raw = String(status || '').toLowerCase();
+      const map = {
+        succeeded: 'success', success: 'success', ok: 'success', enabled: 'success',
+        running: 'info', pending: 'warning', warn: 'warning', warning: 'warning',
+        failed: 'danger', error: 'danger', disabled: 'danger',
+      };
+      const cls = map[raw] || 'muted';
+      return `<span class="pill ${cls}">${escapeHtml(status || 'n/a')}</span>`;
+    }
+    function matchesText(needle, ...haystacks) {
+      const q = String(needle || '').trim().toLowerCase();
+      if (!q) return true;
+      return haystacks.some((h) => String(h ?? '').toLowerCase().includes(q));
+    }
 
     async function api(url, options = {}) {
       const headers = new Headers(options.headers || {});
@@ -515,6 +765,7 @@
       document.querySelectorAll('.tab-panel').forEach((panel) => {
         panel.hidden = panel.id !== `tab-${name}`;
       });
+      updateAutoRefreshTimer(name);
     }
 
     function showLogin() {
@@ -579,24 +830,32 @@
           <strong>${escapeHtml(value)}</strong>
         </div>
       `).join('');
-      $('#endpointStatusBody').innerHTML = (dashboard.endpoints || []).map((endpoint) => `
+      const endpoints = (dashboard.endpoints || []).filter((endpoint) => {
+        if (filters.endpointState === 'enabled' && !endpoint.enabled) return false;
+        if (filters.endpointState === 'disabled' && endpoint.enabled) return false;
+        return matchesText(filters.endpoint, endpoint.name, endpoint.raw_host, (endpoint.sample_repeaters || []).join(' '));
+      });
+      $('#endpointStatusBody').innerHTML = endpoints.length ? endpoints.map((endpoint) => `
         <tr>
           <td><strong>${escapeHtml(endpoint.name)}</strong><br><span class="subtle">${escapeHtml((endpoint.sample_repeaters || []).join(', '))}</span></td>
-          <td>${escapeHtml(endpoint.raw_host)}:${escapeHtml(endpoint.raw_port)}</td>
-          <td>${endpoint.enabled ? '<span class="pill">enabled</span>' : '<span class="pill danger">disabled</span>'}</td>
+          <td class="mono">${escapeHtml(endpoint.raw_host)}:${escapeHtml(endpoint.raw_port)}</td>
+          <td>${endpoint.enabled ? statusPill('enabled') : statusPill('disabled')}</td>
           <td>${escapeHtml(endpoint.seen_repeater_count)} node<br><span class="subtle">jobs ${escapeHtml(endpoint.recent_job_count)} | fail ${escapeHtml(endpoint.recent_failed_count)}</span></td>
-          <td>${escapeHtml(endpoint.last_advert_at || 'brak')}</td>
+          <td>${fmtBoth(endpoint.last_advert_at)}</td>
         </tr>
-      `).join('');
-      $('#failureBody').innerHTML = (dashboard.recent_failures || []).map((job) => `
+      `).join('') : '<tr><td colspan="5" class="subtle">Brak wyników dla filtra.</td></tr>';
+      const failures = (dashboard.recent_failures || []).filter((job) => matchesText(
+        filters.failure, job.endpoint_name, job.last_name_from_advert, job.pubkey_hex, job.last_error,
+      ));
+      $('#failureBody').innerHTML = failures.length ? failures.map((job) => `
         <tr>
           <td>#${escapeHtml(job.id)}</td>
-          <td>${escapeHtml(job.finished_at || job.started_at || job.scheduled_at || 'brak')}</td>
+          <td>${fmtBoth(job.finished_at || job.started_at || job.scheduled_at)}</td>
           <td>${escapeHtml(job.endpoint_name || '')}</td>
           <td>${escapeHtml(job.last_name_from_advert || job.pubkey_hex || '')}</td>
           <td>${escapeHtml(job.last_error || 'brak')}</td>
         </tr>
-      `).join('');
+      `).join('') : '<tr><td colspan="5" class="subtle">Brak błędów pasujących do filtra.</td></tr>';
     }
 
     function renderConfig() {
@@ -656,25 +915,51 @@
       if (!logs) {
         return;
       }
-      $('#jobBody').innerHTML = (logs.recent_jobs || []).map((job) => `
+      const jobs = (logs.recent_jobs || []).filter((job) => {
+        if (filters.jobStatus && String(job.status || '').toLowerCase() !== filters.jobStatus) return false;
+        return matchesText(filters.job, job.endpoint_name, job.last_name_from_advert, job.pubkey_hex, job.last_error, job.reason);
+      });
+      $('#jobBody').innerHTML = jobs.length ? jobs.map((job) => `
         <tr>
           <td>#${escapeHtml(job.id)}</td>
-          <td>${escapeHtml(job.status || '')}</td>
+          <td>${statusPill(job.status)}</td>
           <td>${escapeHtml(job.endpoint_name || '')}</td>
           <td>${escapeHtml(job.last_name_from_advert || job.pubkey_hex || '')}</td>
           <td>${escapeHtml(job.last_error || job.reason || '')}</td>
         </tr>
-      `).join('');
-      $('#packetBody').innerHTML = (logs.recent_packets || []).map((packet) => `
+      `).join('') : '<tr><td colspan="5" class="subtle">Brak jobów dla filtra.</td></tr>';
+      const packets = (logs.recent_packets || []).filter((p) => {
+        if (filters.packetDir && String(p.direction || '').toLowerCase() !== filters.packetDir) return false;
+        return matchesText(filters.packet, p.endpoint_name, p.payload_type, p.route_type, p.remote_pubkey_hex, p.request_tag, p.notes);
+      });
+      $('#packetBody').innerHTML = packets.length ? packets.map((packet) => `
         <tr>
           <td>#${escapeHtml(packet.id)}</td>
-          <td>${escapeHtml(packet.endpoint_name || '')}<br><span class="subtle">${escapeHtml(packet.observed_at || '')}</span></td>
+          <td>${escapeHtml(packet.endpoint_name || '')}<br>${fmtBoth(packet.observed_at)}</td>
           <td>${escapeHtml(packet.direction || '')}</td>
           <td>${escapeHtml(packet.payload_type || '')}<br><span class="subtle">${escapeHtml(packet.route_type || '')}</span></td>
-          <td>${escapeHtml(packet.remote_pubkey_hex || '')}<br><span class="subtle">${escapeHtml(packet.request_tag || packet.notes || '')}</span></td>
+          <td class="mono">${escapeHtml(packet.remote_pubkey_hex || '')}<br><span class="subtle">${escapeHtml(packet.request_tag || packet.notes || '')}</span></td>
         </tr>
-      `).join('');
-      $('#fileLogs').innerHTML = (logs.file_logs || []).map((entry) => `
+      `).join('') : '<tr><td colspan="5" class="subtle">Brak pakietów dla filtra.</td></tr>';
+      const levelOrder = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40, CRITICAL: 50 };
+      const minLevel = filters.logLevel ? (levelOrder[filters.logLevel] || 0) : 0;
+      const fileNeedle = String(filters.logFile || '').trim().toLowerCase();
+      function filterLogTail(tail) {
+        if (!tail) return '';
+        if (!minLevel && !fileNeedle) return tail;
+        return tail.split('\n').filter((line) => {
+          if (fileNeedle && !line.toLowerCase().includes(fileNeedle)) return false;
+          if (minLevel) {
+            const m = line.match(/\b(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b/);
+            const lv = m ? (levelOrder[m[1]] || 0) : 0;
+            if (lv < minLevel) return false;
+          }
+          return true;
+        }).join('\n');
+      }
+      $('#fileLogs').innerHTML = (logs.file_logs || []).map((entry) => {
+        const tail = filterLogTail(entry.tail || '');
+        return `
         <div class="card" style="padding:16px;">
           <div class="section-head">
             <div>
@@ -682,9 +967,10 @@
               <div class="subtle">${escapeHtml(entry.path)}</div>
             </div>
           </div>
-          <div class="log-block">${escapeHtml(entry.tail || '')}</div>
+          <div class="log-block">${escapeHtml(tail) || '<span class="subtle">Brak linii pasujących do filtra.</span>'}</div>
         </div>
-      `).join('') || '<div class="subtle">Brak plików logów w katalogu logs/.</div>';
+      `;
+      }).join('') || '<div class="subtle">Brak plików logów w katalogu logs/.</div>';
     }
 
     function renderNodes() {
@@ -692,17 +978,75 @@
       if (!dashboard) {
         return;
       }
-      $('#nodeBody').innerHTML = (dashboard.repeaters || []).map((repeater) => `
+      const nowMs = Date.now();
+      const onlineCutoff = nowMs - 6 * 3600 * 1000;
+      const offlineCutoff = nowMs - 24 * 3600 * 1000;
+      function lastSeenMs(r) {
+        const d = parseIso(r.last_advert_at) || parseIso(r.last_seen_at);
+        return d ? d.getTime() : 0;
+      }
+      function lastProbeMs(r) {
+        const d = parseIso(r.last_probe_at);
+        return d ? d.getTime() : 0;
+      }
+      function nodeOnlineState(r) {
+        const t = lastSeenMs(r);
+        if (!t) return 'unknown';
+        if (t >= onlineCutoff) return 'online';
+        if (t < offlineCutoff) return 'offline';
+        return 'stale';
+      }
+      const sortKeys = {
+        id: (r) => Number(r.id) || 0,
+        name: (r) => String(r.name || '').toLowerCase(),
+        identity: (r) => String(r.identity_hex || '').toLowerCase(),
+        advert: (r) => lastSeenMs(r),
+        probe: (r) => lastProbeMs(r),
+      };
+      const rows = (dashboard.repeaters || []).filter((r) => {
+        const oState = nodeOnlineState(r);
+        if (filters.nodeStatus === 'online' && oState !== 'online') return false;
+        if (filters.nodeStatus === 'offline' && oState !== 'offline') return false;
+        if (filters.nodeStatus === 'data-ok' && !r.data_fetch_ok) return false;
+        if (filters.nodeStatus === 'data-missing' && r.data_fetch_ok) return false;
+        return matchesText(filters.node, r.name, r.role, r.identity_hex, r.last_probe_status);
+      });
+      const sorter = sortKeys[nodeSort.key] || sortKeys.advert;
+      rows.sort((a, b) => {
+        const va = sorter(a);
+        const vb = sorter(b);
+        if (va < vb) return nodeSort.dir === 'asc' ? -1 : 1;
+        if (va > vb) return nodeSort.dir === 'asc' ? 1 : -1;
+        return 0;
+      });
+      document.querySelectorAll('#tab-nodes th.sortable').forEach((th) => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (th.dataset.sort === nodeSort.key) {
+          th.classList.add(nodeSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+      });
+      $('#nodeBody').innerHTML = rows.length ? rows.map((repeater) => {
+        const oState = nodeOnlineState(repeater);
+        const onlinePill = oState === 'online' ? statusPill('online')
+          : oState === 'offline' ? statusPill('offline')
+          : oState === 'stale' ? `<span class="pill warning">stale</span>`
+          : `<span class="pill muted">brak</span>`;
+        const idHex = String(repeater.identity_hex || '');
+        const copyBtn = idHex
+          ? ` <button type="button" class="copy-btn" data-action="copy" data-copy="${escapeHtml(idHex)}" title="Skopiuj pubkey">kopiuj</button>`
+          : '';
+        return `
         <tr>
           <td>${escapeHtml(repeater.id)}</td>
-          <td><strong>${escapeHtml(repeater.name || '')}</strong><br><span class="subtle">${escapeHtml(repeater.role || '')}</span></td>
-          <td>${escapeHtml(repeater.identity_hex || '')}</td>
-          <td>${escapeHtml(repeater.last_advert_at || repeater.last_seen_at || 'brak')}</td>
-          <td>${escapeHtml(repeater.last_probe_status || 'n/a')}<br><span class="subtle">${escapeHtml(repeater.last_probe_at || '')}</span></td>
-          <td>${repeater.data_fetch_ok ? '<span class="pill">OK</span>' : '<span class="pill warn">brak</span>'}</td>
+          <td><strong>${escapeHtml(repeater.name || '')}</strong> ${onlinePill}<br><span class="subtle">${escapeHtml(repeater.role || '')}</span></td>
+          <td class="mono">${escapeHtml(idHex)}${copyBtn}</td>
+          <td>${fmtBoth(repeater.last_advert_at || repeater.last_seen_at)}</td>
+          <td>${statusPill(repeater.last_probe_status || 'n/a')}<br>${fmtBoth(repeater.last_probe_at)}</td>
+          <td>${repeater.data_fetch_ok ? statusPill('ok') : '<span class="pill warning">brak</span>'}</td>
           <td><button type="button" data-action="probe" data-repeater-id="${escapeHtml(repeater.id)}">Queue probe</button></td>
         </tr>
-      `).join('');
+      `;
+      }).join('') : '<tr><td colspan="7" class="subtle">Brak node pasujących do filtra.</td></tr>';
     }
 
     function collectEndpoints() {
@@ -790,10 +1134,40 @@
       state.dashboard = dashboard;
       state.config = config;
       state.logs = logs;
+      lastRefreshAt = new Date();
       renderStatus();
       renderConfig();
       renderLogs();
       renderNodes();
+      updateRefreshIndicator();
+    }
+
+    function updateRefreshIndicator() {
+      const el = $('#lastRefreshAt');
+      if (!el) return;
+      if (!lastRefreshAt) { el.textContent = '—'; return; }
+      const abs = lastRefreshAt.toLocaleTimeString('pl-PL');
+      el.textContent = `ostatnio: ${abs}`;
+      el.title = lastRefreshAt.toISOString();
+    }
+
+    function isStatusTabActive() {
+      const panel = document.getElementById('tab-status');
+      return panel && !panel.hidden;
+    }
+
+    function updateAutoRefreshTimer(tabName) {
+      const wantAuto = ($('#autoRefreshToggle')?.checked) && (tabName ? tabName === 'status' : isStatusTabActive());
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+      }
+      if (wantAuto) {
+        autoRefreshTimer = setInterval(() => {
+          if (document.hidden) return;
+          refreshAll().catch(() => {});
+        }, 30000);
+      }
     }
 
     async function initSession() {
@@ -853,19 +1227,25 @@
     });
 
     $('#cleanupButton').addEventListener('click', async () => {
+      const hours = Number($('#cleanupHours').value || 24);
       try {
         const payload = await api('/api/admin/actions/cleanup-failed', {
           method: 'POST',
-          body: JSON.stringify({ failed_older_than_hours: 24 }),
+          body: JSON.stringify({ failed_older_than_hours: hours }),
         });
         await refreshAll();
-        showToast(`Usunięto ${payload.deleted_count || 0} starych failed probe job.`);
+        showToast(`Usunięto ${payload.deleted_count || 0} probe job starszych niż ${hours}h.`);
       } catch (error) {
         showToast(error.message || 'Cleanup failed', true);
       }
     });
 
     $('#saveConfigButton').addEventListener('click', async () => {
+      const button = $('#saveConfigButton');
+      const original = button.textContent;
+      button.classList.add('is-spinning');
+      button.disabled = true;
+      button.textContent = 'Zapisywanie';
       try {
         const payload = await api('/api/admin/config', {
           method: 'POST',
@@ -877,6 +1257,10 @@
         showToast(payload.restart_required ? 'Config zapisany. Worker może wymagać restartu.' : 'Config zapisany.');
       } catch (error) {
         showToast(error.message || 'Save failed', true);
+      } finally {
+        button.classList.remove('is-spinning');
+        button.disabled = false;
+        button.textContent = original;
       }
     });
 
@@ -891,6 +1275,28 @@
       }
       if (target.matches('.tab-button')) {
         setTab(target.dataset.tab || 'status');
+        return;
+      }
+      const sortHead = target.closest('#tab-nodes th.sortable');
+      if (sortHead) {
+        const key = sortHead.dataset.sort || 'name';
+        if (nodeSort.key === key) {
+          nodeSort.dir = nodeSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          nodeSort.key = key;
+          nodeSort.dir = key === 'name' || key === 'identity' ? 'asc' : 'desc';
+        }
+        renderNodes();
+        return;
+      }
+      if (target.dataset.action === 'copy') {
+        const text = target.dataset.copy || '';
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('Skopiowano pubkey.');
+        } catch {
+          showToast('Nie udało się skopiować pubkey.', true);
+        }
         return;
       }
       if (target.dataset.action === 'remove-endpoint') {
@@ -908,6 +1314,37 @@
         } catch (error) {
           showToast(error.message || 'Queue probe failed', true);
         }
+      }
+    });
+
+    function bindFilter(id, key, renderer) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        filters[key] = el.value;
+        renderer();
+      });
+      el.addEventListener('change', () => {
+        filters[key] = el.value;
+        renderer();
+      });
+    }
+    bindFilter('endpointFilter', 'endpoint', renderStatus);
+    bindFilter('endpointStateFilter', 'endpointState', renderStatus);
+    bindFilter('failureFilter', 'failure', renderStatus);
+    bindFilter('jobFilter', 'job', renderLogs);
+    bindFilter('jobStatusFilter', 'jobStatus', renderLogs);
+    bindFilter('packetFilter', 'packet', renderLogs);
+    bindFilter('packetDirFilter', 'packetDir', renderLogs);
+    bindFilter('nodeFilter', 'node', renderNodes);
+    bindFilter('nodeStatusFilter', 'nodeStatus', renderNodes);
+    bindFilter('logFileFilter', 'logFile', renderLogs);
+    bindFilter('logLevelFilter', 'logLevel', renderLogs);
+
+    $('#autoRefreshToggle')?.addEventListener('change', () => updateAutoRefreshTimer());
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && isStatusTabActive() && $('#autoRefreshToggle')?.checked) {
+        refreshAll().catch(() => {});
       }
     });
 

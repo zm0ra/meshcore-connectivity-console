@@ -5,7 +5,9 @@ import copy
 import hmac
 import hashlib
 import json
+import secrets
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,6 +39,10 @@ MANAGEMENT_SHARED_CACHE_ACTIVE_TTL_SECS = 60
 STATE_CACHE_STALE_WHILE_REVALIDATE_SECS = 300
 ADMIN_COOKIE_NAME = "meshcore_admin"
 ADMIN_COOKIE_MAX_AGE_SECS = 12 * 60 * 60
+ADMIN_LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
+ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECS = 300.0
+_ADMIN_SESSION_SECRET = secrets.token_bytes(32)
+_ADMIN_LOGIN_ATTEMPTS: dict[str, deque[float]] = {}
 ADMIN_NODE_LIMIT = 300
 ADMIN_PROBE_JOB_LIMIT = 120
 ADMIN_PACKET_LOG_LIMIT = 80
@@ -317,9 +323,65 @@ def _current_admin_username(config: AppConfig) -> str:
     return config.web.admin_username.strip() or "admin"
 
 
+def _sign_admin_cookie(username: str, expires_at: int) -> str:
+    msg = f"{username}|{expires_at}".encode("utf-8")
+    sig = hmac.new(_ADMIN_SESSION_SECRET, msg, hashlib.sha256).hexdigest()
+    return f"{username}|{expires_at}|{sig}"
+
+
 def _admin_cookie_value(config: AppConfig) -> str:
-    token_seed = f"{_current_admin_username(config)}\0{config.web.admin_password}\0{config.service.name}\0admin"
-    return hashlib.sha256(token_seed.encode("utf-8")).hexdigest()
+    expires_at = int(time.time()) + ADMIN_COOKIE_MAX_AGE_SECS
+    return _sign_admin_cookie(_current_admin_username(config), expires_at)
+
+
+def _verify_admin_cookie(cookie: str, config: AppConfig) -> bool:
+    parts = cookie.split("|")
+    if len(parts) != 3:
+        return False
+    username, exp_raw, sig = parts
+    if username != _current_admin_username(config):
+        return False
+    try:
+        expires_at = int(exp_raw)
+    except ValueError:
+        return False
+    if expires_at < int(time.time()):
+        return False
+    expected = _sign_admin_cookie(username, expires_at)
+    return hmac.compare_digest(cookie, expected)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-for", "")).split(",", 1)[0].strip()
+    if forwarded:
+        return forwarded
+    if request.client is not None:
+        return request.client.host or "unknown"
+    return "unknown"
+
+
+def _check_login_rate_limit(request: Request) -> None:
+    now = time.monotonic()
+    ip = _client_ip(request)
+    bucket = _ADMIN_LOGIN_ATTEMPTS.setdefault(ip, deque())
+    cutoff = now - ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECS
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    if len(bucket) >= ADMIN_LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
+        retry_after = max(1, int(ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECS - (now - bucket[0])))
+        raise HTTPException(
+            status_code=429,
+            detail=f"too many login attempts, retry in {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+    bucket.append(now)
+    if len(_ADMIN_LOGIN_ATTEMPTS) > 1024:
+        for stale_ip in [k for k, v in _ADMIN_LOGIN_ATTEMPTS.items() if not v or v[-1] < cutoff]:
+            _ADMIN_LOGIN_ATTEMPTS.pop(stale_ip, None)
+
+
+def _reset_login_rate_limit(request: Request) -> None:
+    _ADMIN_LOGIN_ATTEMPTS.pop(_client_ip(request), None)
 
 
 def _request_uses_https(request: Request) -> bool:
@@ -331,7 +393,7 @@ def _is_admin_authenticated(request: Request, config: AppConfig) -> bool:
     cookie = request.cookies.get(ADMIN_COOKIE_NAME)
     if not cookie:
       return False
-    return hmac.compare_digest(cookie, _admin_cookie_value(config))
+    return _verify_admin_cookie(cookie, config)
 
 
 def _require_admin(request: Request, config: AppConfig) -> None:
@@ -904,9 +966,11 @@ def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | P
 
     @app.post("/api/admin/login")
     async def admin_login(request: Request, payload: AdminLoginPayload) -> JSONResponse:
+      _check_login_rate_limit(request)
       current_config = active_config()
       if payload.username != _current_admin_username(current_config) or payload.password != current_config.web.admin_password:
         raise HTTPException(status_code=401, detail="invalid credentials")
+      _reset_login_rate_limit(request)
       response = JSONResponse({"status": "ok", "session": _admin_session_payload(current_config)})
       _set_admin_cookie(response, request, current_config)
       return response
