@@ -273,6 +273,152 @@
     .toolbar-note strong {
       color: var(--ink);
     }
+    /* === Tura 3: dark mode, health pill, focus styles === */
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f1620;
+      --panel: rgba(24, 33, 44, 0.94);
+      --panel-strong: #1a2330;
+      --section: rgba(255, 255, 255, 0.04);
+      --ink: #e6ecf2;
+      --muted: #8b97a3;
+      --line: rgba(255, 255, 255, 0.1);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --green: #4cb87a;
+      --blue: #5b9cf0;
+      --red: #e57262;
+      --yellow: #e0c25a;
+      --orange: #ee9d5a;
+      --unknown: #6f7d88;
+      --shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+      --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.4);
+    }
+    [data-theme="dark"] #map { background: #0f1822; }
+    [data-theme="dark"] .admin-link {
+      background: rgba(26, 35, 48, 0.92);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+    [data-theme="dark"] .toolbar-toggle-button {
+      background: rgba(26, 35, 48, 0.85);
+    }
+    [data-theme="dark"] .leaflet-tile { filter: brightness(0.78) contrast(1.05) hue-rotate(180deg) invert(0.9); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f1620;
+        --panel: rgba(24, 33, 44, 0.94);
+        --panel-strong: #1a2330;
+        --section: rgba(255, 255, 255, 0.04);
+        --ink: #e6ecf2;
+        --muted: #8b97a3;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.18);
+        --green: #4cb87a;
+        --blue: #5b9cf0;
+        --red: #e57262;
+        --yellow: #e0c25a;
+        --orange: #ee9d5a;
+        --unknown: #6f7d88;
+        --shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+        --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.4);
+      }
+      :root:not([data-theme="light"]) #map { background: #0f1822; }
+      :root:not([data-theme="light"]) .leaflet-tile { filter: brightness(0.78) contrast(1.05) hue-rotate(180deg) invert(0.9); }
+    }
+    .top-utility-bar {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 1500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .top-utility-bar > .admin-link { position: static; }
+    .util-button,
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line-strong);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+    }
+    [data-theme="dark"] .util-button,
+    [data-theme="dark"] .health-pill {
+      background: rgba(26, 35, 48, 0.92);
+    }
+    .health-pill { cursor: help; }
+    .health-pill::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--unknown);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
+    }
+    .health-pill.health-ok::before { background: var(--green); }
+    .health-pill.health-warn::before { background: var(--yellow); animation: healthPulse 1.6s ease-in-out infinite; }
+    .health-pill.health-bad::before { background: var(--red); animation: healthPulse 1s ease-in-out infinite; }
+    @keyframes healthPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    button:focus-visible,
+    a:focus-visible,
+    .toolbar-toggle-button:focus-visible,
+    .util-button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+    /* Switch-style archived toggle */
+    .toolbar-toggle-button[data-toggle-archived] {
+      position: relative;
+      padding-left: 36px;
+    }
+    .toolbar-toggle-button[data-toggle-archived]::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 50%;
+      width: 24px;
+      height: 14px;
+      margin-top: -7px;
+      background: rgba(106, 120, 131, 0.35);
+      border-radius: 999px;
+      transition: background 0.18s ease;
+    }
+    .toolbar-toggle-button[data-toggle-archived]::after {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      margin-top: -5px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+      transition: transform 0.18s ease;
+    }
+    .toolbar-toggle-button.active[data-toggle-archived]::before {
+      background: var(--blue);
+    }
+    .toolbar-toggle-button.active[data-toggle-archived]::after {
+      transform: translateX(10px);
+    }
     .toolbar-head {
       display: flex;
       align-items: flex-start;
@@ -1877,7 +2023,11 @@
   </style>
 </head>
 <body>
-  <a class="admin-link" href="/admin">Admin</a>
+  <div class="top-utility-bar">
+    <a class="admin-link" href="/admin">Admin</a>
+    <button id="themeToggle" class="util-button" type="button" aria-label="Przełącz motyw" title="Przełącz motyw (jasny / ciemny)">☽</button>
+    <span id="healthPill" class="health-pill" title="Stan połączenia z API">—</span>
+  </div>
   <div id="app">
     <div id="map"></div>
     <div id="map-legend" class="overlay"></div>
@@ -4968,13 +5118,16 @@
           cache: force ? 'no-store' : 'default',
         });
         if (response.status === 304) {
+          markHealth('ok');
           return;
         }
         if (!response.ok) {
+          markHealth('bad');
           throw new Error(`state refresh failed: ${response.status}`);
         }
         latestStateEtag = response.headers.get('etag') || latestStateEtag;
         const state = commitState(await response.json());
+        markHealth('ok');
         if (isSidebarInteractionActive()) {
           pendingRefreshState = state;
           return;
@@ -4986,6 +5139,7 @@
         await refreshInFlight;
       } catch (error) {
         console.error('Dashboard refresh failed', error);
+        markHealth('bad');
         scheduleRefresh(ERROR_REFRESH_INTERVAL_MS);
       } finally {
         refreshInFlight = null;
@@ -5137,6 +5291,54 @@
     document.documentElement.lang = currentLanguage;
     applyMobileView();
     renderLegend();
+
+    // === Tura 3: theme toggle + health pill ===
+    (function setupTheme() {
+      const root = document.documentElement;
+      const stored = (() => { try { return localStorage.getItem('mc_theme'); } catch { return null; } })();
+      if (stored === 'light' || stored === 'dark') root.setAttribute('data-theme', stored);
+      const button = document.getElementById('themeToggle');
+      function effective() {
+        const explicit = root.getAttribute('data-theme');
+        if (explicit) return explicit;
+        return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      function syncIcon() {
+        if (!button) return;
+        button.textContent = effective() === 'dark' ? '\u2600' : '\u263d';
+      }
+      syncIcon();
+      button?.addEventListener('click', () => {
+        const next = effective() === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('mc_theme', next); } catch {}
+        syncIcon();
+      });
+      matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncIcon);
+    })();
+
+    let lastHealthOkMs = 0;
+    function markHealth(state) {
+      const pill = document.getElementById('healthPill');
+      if (!pill) return;
+      if (state === 'ok') lastHealthOkMs = Date.now();
+      pill.classList.toggle('health-ok', state === 'ok');
+      pill.classList.toggle('health-warn', state === 'warn');
+      pill.classList.toggle('health-bad', state === 'bad');
+      const txt = state === 'ok' ? 'live' : state === 'warn' ? 'opóźnione' : state === 'bad' ? 'błąd API' : '—';
+      pill.textContent = txt;
+      pill.title = lastHealthOkMs ? `Ostatnia odpowiedź: ${new Date(lastHealthOkMs).toLocaleTimeString('pl-PL')}` : 'Brak odpowiedzi';
+    }
+    setInterval(() => {
+      if (!lastHealthOkMs) return;
+      const age = Date.now() - lastHealthOkMs;
+      const pill = document.getElementById('healthPill');
+      if (!pill) return;
+      if (pill.classList.contains('health-bad')) return;
+      if (age > 120000) markHealth('bad');
+      else if (age > 60000) markHealth('warn');
+    }, 5000);
+
     void refresh(true);
   </script>
 </body>
