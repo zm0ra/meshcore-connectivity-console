@@ -2161,13 +2161,23 @@
     /* === Big feature batch (2026-05-11): clusters, chips, favs, watchlist, etc. === */
     .mc-cluster-icon { background: transparent; border: none; }
     .mc-cluster-bubble {
-      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
       border-radius: 50%;
       background: radial-gradient(circle at 30% 30%, rgba(44,113,209,0.92), rgba(21,33,42,0.85));
-      color: #fff; font-weight: 700; font-size: 0.82rem;
+      color: #fff; font-weight: 700; font-size: 0.82rem; line-height: 1.05;
       border: 2px solid rgba(255,255,255,0.85);
       box-shadow: 0 4px 14px rgba(21,33,42,0.32);
+      text-align: center;
     }
+    .mc-cluster-bubble .mc-cluster-total { font-size: 0.95rem; }
+    .mc-cluster-bubble .mc-cluster-split {
+      display: inline-flex; gap: 6px; margin-top: 2px;
+      font-size: 0.66rem; font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+    }
+    .mc-cluster-bubble .mc-cluster-split .g { color: #b9f5cf; }
+    .mc-cluster-bubble .mc-cluster-split .b { color: #c8def7; }
+    .mc-cluster-bubble .mc-cluster-split .r { color: #fbc6bd; }
     [data-theme="dark"] .mc-cluster-bubble {
       border-color: rgba(255,255,255,0.6);
       background: radial-gradient(circle at 30% 30%, rgba(70,140,230,0.92), rgba(10,18,28,0.92));
@@ -2898,14 +2908,30 @@
       ? L.markerClusterGroup({
           showCoverageOnHover: false,
           spiderfyOnMaxZoom: true,
+          zoomToBoundsOnClick: true,
           disableClusteringAtZoom: 15,
           maxClusterRadius: 48,
+          spiderfyDistanceMultiplier: 1.6,
           chunkedLoading: true,
           iconCreateFunction(cluster) {
-            const n = cluster.getChildCount();
-            const size = n < 10 ? 34 : n < 50 ? 40 : n < 200 ? 48 : 56;
+            let g = 0, b = 0, r = 0;
+            try {
+              for (const m of cluster.getAllChildMarkers()) {
+                const s = m.options && m.options.nodeState;
+                if (s === 'ok') g++;
+                else if (s === 'missing') b++;
+                else r++;
+              }
+            } catch {}
+            const n = g + b + r || cluster.getChildCount();
+            const size = n < 10 ? 38 : n < 50 ? 46 : n < 200 ? 54 : 62;
+            const parts = [];
+            if (g) parts.push(`<b class="g">●${g}</b>`);
+            if (b) parts.push(`<b class="b">●${b}</b>`);
+            if (r) parts.push(`<b class="r">●${r}</b>`);
+            const split = parts.length > 1 ? `<span class="mc-cluster-split">${parts.join('')}</span>` : '';
             return L.divIcon({
-              html: `<div class="mc-cluster-bubble"><span>${n}</span></div>`,
+              html: `<div class="mc-cluster-bubble"><span class="mc-cluster-total">${n}</span>${split}</div>`,
               className: 'mc-cluster-icon',
               iconSize: [size, size],
             });
@@ -2914,13 +2940,31 @@
       : L.layerGroup();
     markersLayer.addTo(map);
     if (typeof markersLayer.on === 'function' && typeof markersLayer.zoomToShowLayer === 'function') {
-      // hover-spiderfy: open the cluster on mouseover, close on mouseout
+      // Hover-spiderfy with grace window: keep cluster open while cursor moves to a child marker.
+      let _unspiderTimer = null;
+      let _activeCluster = null;
+      const cancelUnspider = () => { if (_unspiderTimer) { clearTimeout(_unspiderTimer); _unspiderTimer = null; } };
+      const scheduleUnspider = () => {
+        cancelUnspider();
+        _unspiderTimer = setTimeout(() => {
+          if (_activeCluster) { try { _activeCluster.unspiderfy(); } catch {} }
+          _activeCluster = null;
+          _unspiderTimer = null;
+        }, 550);
+      };
       markersLayer.on('clustermouseover', (event) => {
+        cancelUnspider();
+        _activeCluster = event.layer;
         try { event.layer.spiderfy(); } catch {}
       });
-      markersLayer.on('clustermouseout', (event) => {
-        try { event.layer.unspiderfy(); } catch {}
+      markersLayer.on('clustermouseout', scheduleUnspider);
+      markersLayer.on('spiderfied', (event) => {
+        for (const m of (event.markers || [])) {
+          m.on('mouseover', cancelUnspider);
+          m.on('mouseout', scheduleUnspider);
+        }
       });
+      markersLayer.on('unspiderfied', () => { _activeCluster = null; cancelUnspider(); });
     }
     const halosLayer = L.layerGroup().addTo(map);
     const linksLayer = L.layerGroup().addTo(map);
@@ -5205,7 +5249,7 @@
         if (selected) {
           drawFocusHalo(node, nodeColor(node), nodeColor(node), 17, 12);
         }
-        const marker = L.circleMarker([node.latitude, node.longitude], markerStyle(node, isolated, selected, neighbor)).addTo(markersLayer);
+        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, isolated, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) }).addTo(markersLayer);
         marker.on('click', (event) => {
           L.DomEvent.stopPropagation(event);
           selectNode(node.identity_hex);
@@ -5263,7 +5307,7 @@
         if (!isFiniteCoordinate(node.latitude, node.longitude)) continue;
         const selected = node.identity_hex === focusId;
         const neighbor = highlightedIds.has(node.identity_hex);
-        const marker = L.circleMarker([node.latitude, node.longitude], markerStyle(node, false, selected, neighbor)).addTo(markersLayer);
+        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, false, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) }).addTo(markersLayer);
         marker.on('click', (event) => {
           L.DomEvent.stopPropagation(event);
           if (currentPanel === 'route') {
@@ -5937,8 +5981,20 @@
       }
 
       // ------- 4. filtering: chip + fav + watch + repeatersOnly -------
+      function nodePasses(n) {
+        if (!n) return false;
+        const pk = nodeKey(n);
+        if (!chipPredicate()(n)) return false;
+        if (state.favOnly && !state.favs.has(pk)) return false;
+        if (state.watchOnly && !state.watch.has(pk)) return false;
+        if (state.repeatersOnly) {
+          const role = String(n.role || '').toLowerCase();
+          if (!(role.includes('repeater') || role.includes('rpt') || role === '')) return false;
+        }
+        return true;
+      }
+      function getFilteredNodes() { return nodesArr().filter(nodePasses); }
       function hideFilteredRows() {
-        const pred = chipPredicate();
         const nodes = nodesArr();
         const byPk = new Map(nodes.map((n) => [nodeKey(n), n]));
         const rows = document.querySelectorAll('.node-row, .node-card, [data-identity-hex], [data-node-id]');
@@ -5947,14 +6003,21 @@
           if (!pk) continue;
           const n = byPk.get(pk);
           if (!n) continue;
-          let visible = pred(n);
-          if (visible && state.favOnly) visible = state.favs.has(pk);
-          if (visible && state.watchOnly) visible = state.watch.has(pk);
-          if (visible && state.repeatersOnly) {
-            const role = String(n.role || '').toLowerCase();
-            visible = role.includes('repeater') || role.includes('rpt') || role === '';
-          }
-          el.style.display = visible ? '' : 'none';
+          el.style.display = nodePasses(n) ? '' : 'none';
+        }
+      }
+      function applyMapFilters() {
+        if (!latestState || !markersLayer || typeof markersLayer.eachLayer !== 'function') return;
+        const byPk = new Map(nodesArr().map((n) => [nodeKey(n), n]));
+        const toRemove = [];
+        markersLayer.eachLayer((m) => {
+          const pk = m && m.options && m.options.identityHex;
+          if (!pk) return;
+          const n = byPk.get(pk);
+          if (!n || !nodePasses(n)) toRemove.push(m);
+        });
+        for (const m of toRemove) {
+          try { markersLayer.removeLayer(m); } catch {}
         }
       }
 
@@ -6074,7 +6137,7 @@
           if (heatLayer) { try { map.removeLayer(heatLayer); } catch {} heatLayer = null; }
           return;
         }
-        const points = nodesArr()
+        const points = getFilteredNodes()
           .filter((n) => isFiniteCoordinate(n.latitude, n.longitude))
           .map((n) => {
             const a = ageMs(n.last_advert_at);
@@ -6404,6 +6467,7 @@
         try { renderChips(); } catch (e) { console.warn('renderChips', e); }
         try { injectRowActions(); } catch (e) { console.warn('injectRowActions', e); }
         try { hideFilteredRows(); } catch (e) { console.warn('hideFilteredRows', e); }
+        try { applyMapFilters(); } catch (e) { console.warn('applyMapFilters', e); }
         try { injectExpandedExtras(); } catch (e) { console.warn('injectExpandedExtras', e); }
         try { refreshHeatLayer(); } catch (e) { console.warn('refreshHeatLayer', e); }
         try { maybeNotifyWatchlist(); } catch (e) { console.warn('notify', e); }
