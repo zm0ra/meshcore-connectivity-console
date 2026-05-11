@@ -5925,7 +5925,7 @@
           btn.innerHTML = `${c.label}<span class="mc-chip-count">${n}</span>`;
           btn.setAttribute('aria-pressed', state.chip === c.id ? 'true' : 'false');
           btn.addEventListener('click', () => {
-            state.chip = c.id; LSset('mc_chip', c.id); syncUrl(); applyAll();
+            state.chip = c.id; LSset('mc_chip', c.id); syncUrl(); applyAll(); fitMapToFiltered();
           });
           bar.appendChild(btn);
         }
@@ -6019,6 +6019,20 @@
           try { markersLayer.removeLayer(m); } catch {}
         }
       }
+      function fitMapToFiltered() {
+        try {
+          if (!map) return;
+          const pts = getFilteredNodes()
+            .filter((n) => isFiniteCoordinate(n.latitude, n.longitude))
+            .map((n) => [n.latitude, n.longitude]);
+          if (!pts.length) return;
+          if (pts.length === 1) {
+            map.setView(pts[0], Math.max(map.getZoom(), 12), { animate: true });
+          } else {
+            map.fitBounds(pts, { padding: [40, 40], maxZoom: 15, animate: true });
+          }
+        } catch (e) { console.warn('fitMapToFiltered', e); }
+      }
 
       // ------- 5. countdown + back-off -------
       let errorBackoff = 0;
@@ -6080,7 +6094,7 @@
         btn.addEventListener('click', () => {
           state[key] = !state[key];
           LSset('mc_' + key, state[key] ? '1' : '0');
-          sync(); onChange && onChange(); syncUrl(); applyAll();
+          sync(); onChange && onChange(); syncUrl(); applyAll(); fitMapToFiltered();
         });
       }
       bindToggle('mcBtnFavOnly', 'favOnly');
