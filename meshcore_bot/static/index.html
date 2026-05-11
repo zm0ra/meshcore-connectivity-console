@@ -2939,6 +2939,18 @@
         })
       : L.layerGroup();
     markersLayer.addTo(map);
+    // Registry of ALL node markers ever added to markersLayer, keyed by identityHex.
+    // Used by applyMapFilters() to re-add markers when the filter widens
+    // (markerClusterGroup with chunkedLoading also delays insertions, so
+    // eachLayer() alone misses pending markers).
+    const _allNodeMarkers = new Map();
+    window._allNodeMarkers = _allNodeMarkers;
+    markersLayer.on('layeradd', (e) => {
+      try {
+        const pk = e && e.layer && e.layer.options && e.layer.options.identityHex;
+        if (pk) _allNodeMarkers.set(pk, e.layer);
+      } catch {}
+    });
     if (typeof markersLayer.on === 'function' && typeof markersLayer.zoomToShowLayer === 'function') {
       // Hover-spiderfy with grace window: keep cluster open while cursor moves to a child marker.
       let _unspiderTimer = null;
@@ -6006,17 +6018,28 @@
         }
       }
       function applyMapFilters() {
-        if (!latestState || !markersLayer || typeof markersLayer.eachLayer !== 'function') return;
+        if (!latestState || !markersLayer) return;
+        const reg = window._allNodeMarkers;
+        if (!reg || !reg.size) return;
         const byPk = new Map(nodesArr().map((n) => [nodeKey(n), n]));
+        const toAdd = [];
         const toRemove = [];
-        markersLayer.eachLayer((m) => {
-          const pk = m && m.options && m.options.identityHex;
-          if (!pk) return;
+        for (const [pk, marker] of reg.entries()) {
           const n = byPk.get(pk);
-          if (!n || !nodePasses(n)) toRemove.push(m);
-        });
+          const pass = !!(n && nodePasses(n));
+          const has = typeof markersLayer.hasLayer === 'function' ? markersLayer.hasLayer(marker) : true;
+          if (pass && !has) toAdd.push(marker);
+          else if (!pass && has) toRemove.push(marker);
+        }
         for (const m of toRemove) {
           try { markersLayer.removeLayer(m); } catch {}
+        }
+        if (toAdd.length) {
+          if (typeof markersLayer.addLayers === 'function') {
+            try { markersLayer.addLayers(toAdd); } catch {}
+          } else {
+            for (const m of toAdd) { try { markersLayer.addLayer(m); } catch {} }
+          }
         }
       }
       function computeMapPadding() {
