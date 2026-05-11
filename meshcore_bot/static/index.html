@@ -2172,35 +2172,38 @@
       border-color: rgba(255,255,255,0.6);
       background: radial-gradient(circle at 30% 30%, rgba(70,140,230,0.92), rgba(10,18,28,0.92));
     }
-    /* Blackout (OLED) override */
-    [data-theme="blackout"] {
+    /* Blackout (OLED) override — layered on top of data-theme="dark" */
+    [data-blackout="1"] {
       --bg: #000;
       --panel: rgba(0,0,0,0.96);
       --panel-strong: #050505;
       --section: rgba(255,255,255,0.04);
-      --ink: #e8eef4;
-      --muted: #8b97a3;
       --line: rgba(255,255,255,0.08);
       --line-strong: rgba(255,255,255,0.14);
       --shadow: 0 12px 28px rgba(0,0,0,0.85);
       --shadow-soft: 0 4px 12px rgba(0,0,0,0.6);
       --surface-rgb: 0,0,0;
-      color-scheme: dark;
     }
-    [data-theme="blackout"] .leaflet-tile {
+    [data-blackout="1"] body { background: #000; }
+    [data-blackout="1"] #sidebar { background: rgba(0,0,0,0.96) !important; }
+    [data-blackout="1"] .leaflet-tile {
       filter: brightness(0.55) contrast(1.15) hue-rotate(180deg) invert(0.96) saturate(0.7);
     }
-    [data-theme="blackout"] .mc-cluster-bubble {
+    [data-blackout="1"] .mc-cluster-bubble {
       background: radial-gradient(circle at 30% 30%, #2e8b57, #000);
       border-color: rgba(255,255,255,0.4);
     }
-    /* Top utility bar extras */
+    /* Top utility bar extras — positioned to the left of the sidebar */
     .mc-util-extra {
-      position: fixed; top: 16px; right: 16px; z-index: 1400;
+      position: fixed; top: 16px;
+      left: clamp(16px, 220px, 50vw);
+      right: calc(min(438px, 100vw - 32px) + 32px);
+      z-index: 1400;
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-      max-width: calc(100vw - 32px);
       justify-content: flex-end;
+      pointer-events: none;
     }
+    .mc-util-extra > * { pointer-events: auto; }
     .mc-util-extra .util-button,
     .mc-util-extra .mc-util-btn {
       display: inline-flex; align-items: center; gap: 6px;
@@ -2233,9 +2236,11 @@
       font-size: 0.74rem;
       opacity: 0.85;
     }
-    /* Map search */
+    /* Map search — under util-extra, left of sidebar */
     .mc-map-search {
-      position: fixed; top: 72px; right: 16px; z-index: 1390;
+      position: fixed; top: 64px; left: 16px;
+      width: min(340px, calc(100vw - min(438px, 100vw - 32px) - 48px));
+      z-index: 1390;
       display: flex; gap: 6px; align-items: center;
       padding: 8px 10px;
       border-radius: 14px;
@@ -2243,7 +2248,6 @@
       background: rgba(var(--surface-rgb), 0.94);
       box-shadow: var(--shadow-soft);
       backdrop-filter: blur(10px);
-      max-width: min(360px, calc(100vw - 32px));
     }
     .mc-map-search input {
       flex: 1; min-width: 0;
@@ -2382,11 +2386,21 @@
     .mc-sparkline { width: 120px; height: 28px; vertical-align: middle; }
     .mc-sparkline path { fill: none; stroke: var(--blue); stroke-width: 1.5; }
     .mc-sparkline .mc-spark-fill { fill: rgba(44,113,209,0.18); stroke: none; }
+    /* When sidebar collapses to bottom-sheet, take full top width */
+    @media (max-width: 860px) {
+      .mc-util-extra {
+        top: 60px; left: 16px; right: 16px;
+        justify-content: flex-start;
+      }
+      .mc-map-search {
+        top: 108px; left: 16px; right: 16px; width: auto;
+      }
+    }
     /* Mobile tweak */
     @media (max-width: 640px) {
-      .mc-util-extra { top: 60px; right: 8px; gap: 4px; }
+      .mc-util-extra { top: 56px; left: 8px; right: 8px; gap: 4px; }
       .mc-util-extra .mc-util-btn { padding: 6px 8px; font-size: 0.7rem; }
-      .mc-map-search { top: 116px; right: 8px; }
+      .mc-map-search { top: 100px; left: 8px; right: 8px; }
       .mc-chip-bar { bottom: 10px; padding: 6px 8px; gap: 4px; }
       .mc-chip { padding: 4px 8px; font-size: 0.68rem; }
     }
@@ -5716,6 +5730,7 @@
       const root = document.documentElement;
       const stored = (() => { try { return localStorage.getItem('mc_theme'); } catch { return null; } })();
       if (stored === 'light' || stored === 'dark') root.setAttribute('data-theme', stored);
+      else if (stored === 'blackout') { root.setAttribute('data-theme', 'dark'); root.setAttribute('data-blackout', '1'); }
       const button = document.getElementById('themeToggle');
       function effective() {
         const explicit = root.getAttribute('data-theme');
@@ -5730,8 +5745,10 @@
       button?.addEventListener('click', () => {
         const next = effective() === 'dark' ? 'light' : 'dark';
         root.setAttribute('data-theme', next);
+        root.removeAttribute('data-blackout');
         try { localStorage.setItem('mc_theme', next); } catch {}
         syncIcon();
+        try { const u = new URL(location.href); if (u.searchParams.get('theme') === 'blackout') { u.searchParams.delete('theme'); history.replaceState(null, '', u.toString()); } } catch {}
       });
       matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncIcon);
     })();
@@ -5816,7 +5833,11 @@
           if (chip) state.chip = chip;
           if (fav === '1') state.favOnly = true;
           if (watch === '1') state.watchOnly = true;
-          if (black === 'blackout') document.documentElement.setAttribute('data-theme', 'blackout');
+          if (black === 'blackout') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.setAttribute('data-blackout', '1');
+            try { localStorage.setItem('mc_theme', 'blackout'); } catch {}
+          }
         } catch {}
       }
       let urlSyncRaf = 0;
@@ -5832,8 +5853,8 @@
             if (state.chip && state.chip !== 'all') p.set('chip', state.chip); else p.delete('chip');
             if (state.favOnly) p.set('fav', '1'); else p.delete('fav');
             if (state.watchOnly) p.set('watch', '1'); else p.delete('watch');
-            const t = document.documentElement.getAttribute('data-theme');
-            if (t === 'blackout') p.set('theme', 'blackout'); else if (p.get('theme') === 'blackout') p.delete('theme');
+            const isBlack = document.documentElement.getAttribute('data-blackout') === '1';
+            if (isBlack) p.set('theme', 'blackout'); else if (p.get('theme') === 'blackout') p.delete('theme');
             history.replaceState(null, '', u.toString());
           } catch {}
         });
@@ -5961,20 +5982,30 @@
         el.textContent = fmtCountdown(getNextRefreshMs());
       }, 1000);
 
-      // ------- 6. blackout / theme -------
+      // ------- 6. blackout / theme (blackout = dark + data-blackout=1) -------
       function syncBlackoutBtn() {
         const btn = $('mcBtnBlackout'); if (!btn) return;
-        btn.classList.toggle('is-on', document.documentElement.getAttribute('data-theme') === 'blackout');
+        btn.classList.toggle('is-on', document.documentElement.getAttribute('data-blackout') === '1');
       }
       $('mcBtnBlackout')?.addEventListener('click', () => {
         const root = document.documentElement;
-        const isBlack = root.getAttribute('data-theme') === 'blackout';
-        if (isBlack) { root.removeAttribute('data-theme'); LSset('mc_theme', 'auto'); }
-        else { root.setAttribute('data-theme', 'blackout'); LSset('mc_theme', 'blackout'); }
+        const isBlack = root.getAttribute('data-blackout') === '1';
+        if (isBlack) {
+          root.removeAttribute('data-blackout');
+          LSset('mc_theme', 'dark');
+        } else {
+          root.setAttribute('data-theme', 'dark');
+          root.setAttribute('data-blackout', '1');
+          LSset('mc_theme', 'blackout');
+        }
         syncBlackoutBtn(); syncUrl();
       });
       // honor stored blackout on startup
-      if (LS('mc_theme') === 'blackout') document.documentElement.setAttribute('data-theme', 'blackout');
+      if (LS('mc_theme') === 'blackout') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-blackout', '1');
+      }
+      syncBlackoutBtn();
 
       // ------- 7. util-bar toggles -------
       function bindToggle(id, key, onChange) {
