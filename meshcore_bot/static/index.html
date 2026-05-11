@@ -3125,7 +3125,8 @@
     }
 
     function archivedVisible(state) {
-      return showArchived || autoShowArchived(state);
+      // Archived toggle removed from toolbar; chip bar (≤1h/≤6h/≤24h/>24h/b/d) now handles age filtering.
+      return true;
     }
 
     function nodeMatchesSearch(node) {
@@ -5021,9 +5022,7 @@
             </div>
           `
         : '';
-      const archivedHtml = currentPanel === 'new'
-        ? ''
-        : `<button type="button" class="toolbar-toggle-button${showArchived ? ' active' : ''}" data-toggle-archived="1">${archivedCount ? trFormat('archivedToggleCount', archivedCount) : tr('archivedToggle')}</button>`;
+      const archivedHtml = '';
       const metaHtml = `${searchHtml}${sortHtml}`;
       const langHtml = `<div class="lang-toggle" role="group" aria-label="${tr('languageLabel')}"><button type="button" class="lang-button" data-global-language="pl">PL</button><button type="button" class="lang-button" data-global-language="en">EN</button></div>`;
       const archivedNoteHtml = archivedAutoFallback
