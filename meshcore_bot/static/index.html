@@ -4573,12 +4573,31 @@
       return node.data_fetch_ok ? tr('probeDataSaved') : tr('probePending');
     }
 
-    function linkLabel(link, sourceNode) {
+    function findReverseLink(link) {
+      try {
+        const all = (latestState && latestState.management && latestState.management.map_links) || [];
+        return all.find((other) => other.source_identity_hex === link.target_identity_hex
+          && other.target_identity_hex === link.source_identity_hex) || null;
+      } catch { return null; }
+    }
+
+    function formatLinkMetric(link) {
       const metric = lineSignalMetric(link);
+      if (metric.value === null) return tr('signalMissing');
+      const unit = metric.kind === 'RSSI' ? 'dBm' : 'dB';
+      return `${metric.kind}: ${metric.value.toFixed(1)} ${unit}`;
+    }
+
+    function linkLabel(link, sourceNode) {
       const distance = neighborDistanceKm(sourceNode, link);
-      const metricLine = metric.value !== null ? `${metric.kind}: ${metric.value.toFixed(1)} ${metric.kind === 'RSSI' ? 'dBm' : 'dB'}` : tr('signalMissing');
+      const forwardLine = formatLinkMetric(link);
+      const reverse = findReverseLink(link);
       const distanceLine = distance !== null ? `${tr('distancePrefix')}: ${distance.toFixed(1)} km` : tr('distanceMissing');
-      return `<strong>${metricLine}</strong><span>${distanceLine}</span>`;
+      if (reverse) {
+        const reverseLine = formatLinkMetric(reverse);
+        return `<strong>→ ${forwardLine}</strong><strong>← ${reverseLine}</strong><span>${distanceLine}</span>`;
+      }
+      return `<strong>${forwardLine}</strong><span>${distanceLine}</span>`;
     }
 
     function lineColor(link) {
@@ -4671,11 +4690,13 @@
       if (forced && isFocusedNode) {
         return `<div class="${chipClass}"><strong>${shortName}</strong><span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span></div>`;
       }
+      const isHovered = node.identity_hex === hoveredNodeId;
+      const hoverMeta = isHovered ? `<span class="label-meta">${tr('lastAdvertLabel')}: ${formatShortWhen(node.last_advert_at)}</span>` : '';
       if (forced || zoom >= HIGH_ZOOM_LABEL_THRESHOLD) {
-        return `<div class="${chipClass}"><strong>${shortName}</strong></div>`;
+        return `<div class="${chipClass}"><strong>${shortName}</strong>${hoverMeta}</div>`;
       }
-      if (zoom >= LOW_ZOOM_LABEL_THRESHOLD && (isFocusedNode || node.identity_hex === hoveredNodeId)) {
-        return `<div class="${chipClass}"><strong>${shortName}</strong></div>`;
+      if (zoom >= LOW_ZOOM_LABEL_THRESHOLD && (isFocusedNode || isHovered)) {
+        return `<div class="${chipClass}"><strong>${shortName}</strong>${hoverMeta}</div>`;
       }
       return null;
     }
