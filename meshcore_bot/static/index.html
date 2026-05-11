@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MeshCore Bot</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <style>
     :root {
       color-scheme: light;
@@ -2155,6 +2157,239 @@
         padding: 10px 10px 16px;
       }
     }
+
+    /* === Big feature batch (2026-05-11): clusters, chips, favs, watchlist, etc. === */
+    .mc-cluster-icon { background: transparent; border: none; }
+    .mc-cluster-bubble {
+      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(44,113,209,0.92), rgba(21,33,42,0.85));
+      color: #fff; font-weight: 700; font-size: 0.82rem;
+      border: 2px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 14px rgba(21,33,42,0.32);
+    }
+    [data-theme="dark"] .mc-cluster-bubble {
+      border-color: rgba(255,255,255,0.6);
+      background: radial-gradient(circle at 30% 30%, rgba(70,140,230,0.92), rgba(10,18,28,0.92));
+    }
+    /* Blackout (OLED) override */
+    [data-theme="blackout"] {
+      --bg: #000;
+      --panel: rgba(0,0,0,0.96);
+      --panel-strong: #050505;
+      --section: rgba(255,255,255,0.04);
+      --ink: #e8eef4;
+      --muted: #8b97a3;
+      --line: rgba(255,255,255,0.08);
+      --line-strong: rgba(255,255,255,0.14);
+      --shadow: 0 12px 28px rgba(0,0,0,0.85);
+      --shadow-soft: 0 4px 12px rgba(0,0,0,0.6);
+      --surface-rgb: 0,0,0;
+      color-scheme: dark;
+    }
+    [data-theme="blackout"] .leaflet-tile {
+      filter: brightness(0.55) contrast(1.15) hue-rotate(180deg) invert(0.96) saturate(0.7);
+    }
+    [data-theme="blackout"] .mc-cluster-bubble {
+      background: radial-gradient(circle at 30% 30%, #2e8b57, #000);
+      border-color: rgba(255,255,255,0.4);
+    }
+    /* Top utility bar extras */
+    .mc-util-extra {
+      position: fixed; top: 16px; right: 16px; z-index: 1400;
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      max-width: calc(100vw - 32px);
+      justify-content: flex-end;
+    }
+    .mc-util-extra .util-button,
+    .mc-util-extra .mc-util-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(21,33,42,0.14);
+      background: rgba(var(--surface-rgb), 0.88);
+      color: var(--ink);
+      font-size: 0.78rem; font-weight: 600;
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      text-decoration: none;
+    }
+    .mc-util-extra .mc-util-btn:hover { filter: brightness(1.05); }
+    .mc-util-extra .mc-util-btn:focus-visible,
+    .mc-util-extra .util-button:focus-visible,
+    .mc-fav-star:focus-visible,
+    .mc-chip:focus-visible,
+    .mc-watch-btn:focus-visible,
+    .mc-qr-btn:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+    .mc-util-extra .mc-util-btn.is-on {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+    }
+    .mc-countdown {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+    /* Map search */
+    .mc-map-search {
+      position: fixed; top: 72px; right: 16px; z-index: 1390;
+      display: flex; gap: 6px; align-items: center;
+      padding: 8px 10px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(var(--surface-rgb), 0.94);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      max-width: min(360px, calc(100vw - 32px));
+    }
+    .mc-map-search input {
+      flex: 1; min-width: 0;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(var(--surface-rgb), 1);
+      color: var(--ink);
+      font-size: 0.82rem;
+    }
+    .mc-map-search input:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 1px;
+    }
+    .mc-map-search-results {
+      position: absolute; top: 100%; left: 0; right: 0;
+      margin-top: 4px;
+      max-height: 50vh; overflow-y: auto;
+      padding: 4px 0;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow);
+      display: none;
+    }
+    .mc-map-search-results.is-open { display: block; }
+    .mc-map-search-results button {
+      display: block; width: 100%; text-align: left;
+      padding: 8px 12px;
+      border: 0; background: transparent;
+      color: var(--ink);
+      font-size: 0.82rem; cursor: pointer;
+    }
+    .mc-map-search-results button:hover,
+    .mc-map-search-results button:focus-visible {
+      background: rgba(var(--surface-rgb), 0.6);
+      outline: none;
+    }
+    .mc-map-search-results .mc-mini { color: var(--muted); font-size: 0.72rem; margin-left: 6px; }
+    /* Chip filter bar */
+    .mc-chip-bar {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      z-index: 1300;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(var(--surface-rgb), 0.92);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      max-width: calc(100vw - 32px);
+      justify-content: center;
+    }
+    .mc-chip {
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      font-size: 0.72rem; font-weight: 600;
+      cursor: pointer;
+    }
+    .mc-chip.is-on {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+    }
+    .mc-chip .mc-chip-count {
+      margin-left: 4px; opacity: 0.85; font-weight: 500;
+    }
+    /* Favourite star and watch button on node rows */
+    .mc-fav-star, .mc-watch-btn, .mc-qr-btn {
+      background: transparent; border: 0; cursor: pointer;
+      padding: 2px 6px; font-size: 0.9rem; line-height: 1;
+      color: var(--muted);
+      border-radius: 6px;
+    }
+    .mc-fav-star.is-on { color: var(--yellow); }
+    .mc-watch-btn.is-on { color: var(--orange); }
+    .mc-fav-star:hover, .mc-watch-btn:hover, .mc-qr-btn:hover { color: var(--ink); }
+    .mc-node-actions {
+      display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle;
+    }
+    /* QR / Compare / History / Matrix modal */
+    .mc-modal-backdrop {
+      position: fixed; inset: 0; z-index: 2000;
+      background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .mc-modal {
+      max-width: min(720px, 100%);
+      max-height: 86vh; overflow: auto;
+      background: var(--panel-strong);
+      color: var(--ink);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+    }
+    .mc-modal h3 { margin: 0 0 10px; font-size: 1rem; }
+    .mc-modal-close {
+      float: right; border: 0; background: transparent; color: var(--muted);
+      font-size: 1.1rem; cursor: pointer; padding: 0 4px;
+    }
+    .mc-modal pre {
+      background: var(--section); padding: 10px; border-radius: 8px;
+      white-space: pre-wrap; font-size: 0.78rem;
+    }
+    .mc-compare-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    @media (max-width: 600px) { .mc-compare-grid { grid-template-columns: 1fr; } }
+    .mc-matrix-table { border-collapse: collapse; font-size: 0.7rem; }
+    .mc-matrix-table th, .mc-matrix-table td {
+      padding: 4px 6px; border: 1px solid var(--line);
+      text-align: center; white-space: nowrap;
+    }
+    .mc-matrix-table th { background: var(--section); position: sticky; top: 0; }
+    /* Compass + sparkline inline */
+    .mc-compass {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-size: 0.78rem;
+    }
+    .mc-compass-dial {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 2px solid var(--line-strong);
+      position: relative; flex: none;
+    }
+    .mc-compass-needle {
+      position: absolute; left: 50%; top: 50%;
+      width: 2px; height: 14px; background: var(--red);
+      transform-origin: 50% 100%;
+      transform: translate(-50%, -100%) rotate(0deg);
+    }
+    .mc-sparkline { width: 120px; height: 28px; vertical-align: middle; }
+    .mc-sparkline path { fill: none; stroke: var(--blue); stroke-width: 1.5; }
+    .mc-sparkline .mc-spark-fill { fill: rgba(44,113,209,0.18); stroke: none; }
+    /* Mobile tweak */
+    @media (max-width: 640px) {
+      .mc-util-extra { top: 60px; right: 8px; gap: 4px; }
+      .mc-util-extra .mc-util-btn { padding: 6px 8px; font-size: 0.7rem; }
+      .mc-map-search { top: 116px; right: 8px; }
+      .mc-chip-bar { bottom: 10px; padding: 6px 8px; gap: 4px; }
+      .mc-chip { padding: 4px 8px; font-size: 0.68rem; }
+    }
   </style>
 </head>
 <body>
@@ -2163,6 +2398,25 @@
     <button id="themeToggle" class="util-button" type="button" aria-label="Przełącz motyw" title="Przełącz motyw (jasny / ciemny)">☽</button>
     <span id="healthPill" class="health-pill" title="Stan połączenia z API">—</span>
   </div>
+  <div class="mc-util-extra" id="mcUtilExtra" role="toolbar" aria-label="Dodatkowe akcje">
+    <span class="mc-countdown" id="mcCountdown" title="Następne odświeżenie"></span>
+    <button class="mc-util-btn" id="mcBtnBlackout" type="button" title="Tryb OLED / blackout">⬛</button>
+    <button class="mc-util-btn" id="mcBtnFavOnly" type="button" title="Pokaż tylko ulubione" aria-pressed="false">★</button>
+    <button class="mc-util-btn" id="mcBtnWatchOnly" type="button" title="Tylko obserwowane" aria-pressed="false">👁</button>
+    <button class="mc-util-btn" id="mcBtnNotif" type="button" title="Włącz powiadomienia o zniknięciu obserwowanych">🔔</button>
+    <button class="mc-util-btn" id="mcBtnRepeatersOnly" type="button" title="Tylko aktywne repeatery" aria-pressed="false">📡</button>
+    <button class="mc-util-btn" id="mcBtnMatrix" type="button" title="Macierz jakości linków">▦</button>
+    <button class="mc-util-btn" id="mcBtnCompare" type="button" title="Porównaj dwa node">⇄</button>
+    <button class="mc-util-btn" id="mcBtnHeatmap" type="button" title="Heatmapa pokrycia" aria-pressed="false">🌡</button>
+    <button class="mc-util-btn" id="mcBtnCsv" type="button" title="Eksport CSV">⬇ CSV</button>
+    <button class="mc-util-btn" id="mcBtnPng" type="button" title="Zrzut mapy (PNG)">⬇ PNG</button>
+  </div>
+  <div class="mc-map-search" id="mcMapSearch" role="search">
+    <span aria-hidden="true">🔎</span>
+    <input id="mcSearchInput" type="search" placeholder="Szukaj na mapie (nazwa, prefix, hex)" aria-label="Wyszukiwarka na mapie">
+    <div class="mc-map-search-results" id="mcSearchResults" role="listbox"></div>
+  </div>
+  <nav class="mc-chip-bar" id="mcChipBar" aria-label="Filtry online"></nav>
   <div id="app">
     <div id="map"></div>
     <div id="map-legend" class="overlay"></div>
@@ -2177,6 +2431,9 @@
     </aside>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <script>
     const ACTIVE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
     const LINK_STALE_SECONDS = 6 * 60 * 60;
@@ -2623,7 +2880,34 @@
       maxZoom: 20,
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(map);
-    const markersLayer = L.layerGroup().addTo(map);
+    const markersLayer = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({
+          showCoverageOnHover: false,
+          spiderfyOnMaxZoom: true,
+          disableClusteringAtZoom: 15,
+          maxClusterRadius: 48,
+          chunkedLoading: true,
+          iconCreateFunction(cluster) {
+            const n = cluster.getChildCount();
+            const size = n < 10 ? 34 : n < 50 ? 40 : n < 200 ? 48 : 56;
+            return L.divIcon({
+              html: `<div class="mc-cluster-bubble"><span>${n}</span></div>`,
+              className: 'mc-cluster-icon',
+              iconSize: [size, size],
+            });
+          },
+        })
+      : L.layerGroup();
+    markersLayer.addTo(map);
+    if (typeof markersLayer.on === 'function' && typeof markersLayer.zoomToShowLayer === 'function') {
+      // hover-spiderfy: open the cluster on mouseover, close on mouseout
+      markersLayer.on('clustermouseover', (event) => {
+        try { event.layer.spiderfy(); } catch {}
+      });
+      markersLayer.on('clustermouseout', (event) => {
+        try { event.layer.unspiderfy(); } catch {}
+      });
+    }
     const halosLayer = L.layerGroup().addTo(map);
     const linksLayer = L.layerGroup().addTo(map);
     const labelsLayer = L.layerGroup().addTo(map);
@@ -5475,6 +5759,679 @@
     }, 5000);
 
     void refresh(true);
+
+    /* ====================================================================
+       BIG FEATURE BATCH (2026-05-11): clustering UX, chips, favs, watchlist,
+       URL state, CSV/PNG export, countdown, blackout, map search,
+       repeaters-only, compass, QR, compare, history, matrix, heatmap,
+       sparkline + advert timeline (client-side ring buffer).
+       Built as a self-contained module that hooks into the existing
+       `render`, `refresh`, `selectNode` symbols without altering them.
+       ==================================================================== */
+    (function bigFeatureBatch() {
+      const LS = (k, fb) => { try { return localStorage.getItem(k) ?? fb; } catch { return fb; } };
+      const LSset = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+      const LSjson = (k, fb) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } };
+      const LSsetJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+      const state = {
+        favs: new Set(LSjson('mc_favs', [])),
+        watch: new Set(LSjson('mc_watch', [])),
+        chip: LS('mc_chip', 'all'),
+        favOnly: LS('mc_favOnly', '0') === '1',
+        watchOnly: LS('mc_watchOnly', '0') === '1',
+        repeatersOnly: LS('mc_repOnly', '0') === '1',
+        notif: LS('mc_notif', '0') === '1',
+        heatmapOn: false,
+        compareIds: [],
+        signalBuffer: new Map(), // pubkey -> array of {t, rssi, snr}
+        advertBuffer: new Map(), // pubkey -> array of last_advert_at timestamps (ms)
+        lastWatchSeen: new Map(), // pubkey -> last_advert_at ms
+      };
+
+      // ------- helpers -------
+      const $ = (id) => document.getElementById(id);
+      const nodeKey = (n) => n.identity_hex || n.pubkey || '';
+      const ageMs = (iso) => {
+        if (!iso) return Infinity;
+        const t = Date.parse(iso);
+        if (Number.isNaN(t)) return Infinity;
+        return Date.now() - t;
+      };
+      function nodesArr() { return (latestState && latestState.nodes) || []; }
+
+      // ------- 1. URL state load/save -------
+      function readUrlState() {
+        try {
+          const u = new URL(location.href);
+          const p = u.searchParams;
+          const node = p.get('node');
+          const panel = p.get('panel');
+          const chip = p.get('chip');
+          const fav = p.get('fav');
+          const watch = p.get('watch');
+          const black = p.get('theme');
+          if (node) selectedSourceId = node;
+          if (panel && ['map','new','connectivity','route'].includes(panel)) currentPanel = panel;
+          if (chip) state.chip = chip;
+          if (fav === '1') state.favOnly = true;
+          if (watch === '1') state.watchOnly = true;
+          if (black === 'blackout') document.documentElement.setAttribute('data-theme', 'blackout');
+        } catch {}
+      }
+      let urlSyncRaf = 0;
+      function syncUrl() {
+        if (urlSyncRaf) return;
+        urlSyncRaf = requestAnimationFrame(() => {
+          urlSyncRaf = 0;
+          try {
+            const u = new URL(location.href);
+            const p = u.searchParams;
+            if (selectedSourceId) p.set('node', selectedSourceId); else p.delete('node');
+            if (currentPanel && currentPanel !== 'map') p.set('panel', currentPanel); else p.delete('panel');
+            if (state.chip && state.chip !== 'all') p.set('chip', state.chip); else p.delete('chip');
+            if (state.favOnly) p.set('fav', '1'); else p.delete('fav');
+            if (state.watchOnly) p.set('watch', '1'); else p.delete('watch');
+            const t = document.documentElement.getAttribute('data-theme');
+            if (t === 'blackout') p.set('theme', 'blackout'); else if (p.get('theme') === 'blackout') p.delete('theme');
+            history.replaceState(null, '', u.toString());
+          } catch {}
+        });
+      }
+
+      // ------- 2. quick filter chips -------
+      const CHIPS = [
+        { id: 'all',  label: 'Wszystkie',  test: () => true },
+        { id: 'h1',   label: '≤1h',        test: (n) => ageMs(n.last_advert_at) <= 3600e3 },
+        { id: 'h6',   label: '≤6h',        test: (n) => ageMs(n.last_advert_at) <= 6*3600e3 },
+        { id: 'h24',  label: '≤24h',       test: (n) => ageMs(n.last_advert_at) <= 24*3600e3 },
+        { id: 'old',  label: '>24h',       test: (n) => ageMs(n.last_advert_at) > 24*3600e3 },
+        { id: 'none', label: 'b/d',        test: (n) => !n.last_advert_at },
+      ];
+      function renderChips() {
+        const bar = $('mcChipBar');
+        if (!bar) return;
+        const nodes = nodesArr();
+        bar.innerHTML = '';
+        for (const c of CHIPS) {
+          const n = nodes.filter(c.test).length;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'mc-chip' + (state.chip === c.id ? ' is-on' : '');
+          btn.innerHTML = `${c.label}<span class="mc-chip-count">${n}</span>`;
+          btn.setAttribute('aria-pressed', state.chip === c.id ? 'true' : 'false');
+          btn.addEventListener('click', () => {
+            state.chip = c.id; LSset('mc_chip', c.id); syncUrl(); applyAll();
+          });
+          bar.appendChild(btn);
+        }
+      }
+      function chipPredicate() {
+        const c = CHIPS.find((x) => x.id === state.chip) || CHIPS[0];
+        return c.test;
+      }
+
+      // ------- 3. favourites + watchlist -------
+      function toggleFav(pk) {
+        if (state.favs.has(pk)) state.favs.delete(pk); else state.favs.add(pk);
+        LSsetJson('mc_favs', [...state.favs]);
+        applyAll();
+      }
+      function toggleWatch(pk) {
+        if (state.watch.has(pk)) state.watch.delete(pk); else state.watch.add(pk);
+        LSsetJson('mc_watch', [...state.watch]);
+        applyAll();
+      }
+
+      // inject star + watch + qr buttons next to node names
+      function injectRowActions() {
+        const rows = document.querySelectorAll('.node-row, .node-card, [data-identity-hex], [data-node-id]');
+        const seen = new Set();
+        for (const el of rows) {
+          const pk = el.getAttribute('data-identity-hex') || el.getAttribute('data-node-id');
+          if (!pk || seen.has(el)) continue;
+          seen.add(el);
+          if (el.querySelector('.mc-node-actions')) continue;
+          const nameEl = el.querySelector('.node-name, .node-title, .node-header, h3, h4, strong') || el;
+          const wrap = document.createElement('span');
+          wrap.className = 'mc-node-actions';
+          const fav = document.createElement('button');
+          fav.type = 'button'; fav.className = 'mc-fav-star' + (state.favs.has(pk) ? ' is-on' : '');
+          fav.textContent = state.favs.has(pk) ? '★' : '☆';
+          fav.title = 'Ulubiony'; fav.setAttribute('aria-label', 'Ulubiony');
+          fav.addEventListener('click', (e) => { e.stopPropagation(); toggleFav(pk); });
+          const watch = document.createElement('button');
+          watch.type = 'button'; watch.className = 'mc-watch-btn' + (state.watch.has(pk) ? ' is-on' : '');
+          watch.textContent = '👁'; watch.title = 'Obserwuj (notifikacje gdy zniknie)';
+          watch.setAttribute('aria-label', 'Obserwuj');
+          watch.addEventListener('click', (e) => { e.stopPropagation(); toggleWatch(pk); });
+          const qr = document.createElement('button');
+          qr.type = 'button'; qr.className = 'mc-qr-btn';
+          qr.textContent = '⬚'; qr.title = 'Pokaż QR z linkiem';
+          qr.setAttribute('aria-label', 'QR');
+          qr.addEventListener('click', (e) => { e.stopPropagation(); showQrModal(pk); });
+          wrap.appendChild(fav); wrap.appendChild(watch); wrap.appendChild(qr);
+          try { nameEl.appendChild(wrap); } catch {}
+        }
+      }
+
+      // ------- 4. filtering: chip + fav + watch + repeatersOnly -------
+      function hideFilteredRows() {
+        const pred = chipPredicate();
+        const nodes = nodesArr();
+        const byPk = new Map(nodes.map((n) => [nodeKey(n), n]));
+        const rows = document.querySelectorAll('.node-row, .node-card, [data-identity-hex], [data-node-id]');
+        for (const el of rows) {
+          const pk = el.getAttribute('data-identity-hex') || el.getAttribute('data-node-id');
+          if (!pk) continue;
+          const n = byPk.get(pk);
+          if (!n) continue;
+          let visible = pred(n);
+          if (visible && state.favOnly) visible = state.favs.has(pk);
+          if (visible && state.watchOnly) visible = state.watch.has(pk);
+          if (visible && state.repeatersOnly) {
+            const role = String(n.role || '').toLowerCase();
+            visible = role.includes('repeater') || role.includes('rpt') || role === '';
+          }
+          el.style.display = visible ? '' : 'none';
+        }
+      }
+
+      // ------- 5. countdown + back-off -------
+      let errorBackoff = 0;
+      function fmtCountdown(ms) {
+        if (ms == null || !isFinite(ms)) return '';
+        if (ms <= 0) return 'odśw...';
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return `↻ ${s}s`;
+        const m = Math.floor(s / 60); return `↻ ${m}min`;
+      }
+      function getNextRefreshMs() {
+        // mirror existing refreshIntervalMs() but provide approximate countdown
+        try {
+          if (document.hidden) return null;
+          const base = (typeof hasActiveProbeJobs === 'function' && hasActiveProbeJobs(latestState))
+            ? ACTIVE_PROBE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS;
+          const start = bigFeatureBatch.__lastRefreshAt || Date.now();
+          return Math.max(0, (start + base + errorBackoff) - Date.now());
+        } catch { return null; }
+      }
+      setInterval(() => {
+        const el = $('mcCountdown'); if (!el) return;
+        el.textContent = fmtCountdown(getNextRefreshMs());
+      }, 1000);
+
+      // ------- 6. blackout / theme -------
+      function syncBlackoutBtn() {
+        const btn = $('mcBtnBlackout'); if (!btn) return;
+        btn.classList.toggle('is-on', document.documentElement.getAttribute('data-theme') === 'blackout');
+      }
+      $('mcBtnBlackout')?.addEventListener('click', () => {
+        const root = document.documentElement;
+        const isBlack = root.getAttribute('data-theme') === 'blackout';
+        if (isBlack) { root.removeAttribute('data-theme'); LSset('mc_theme', 'auto'); }
+        else { root.setAttribute('data-theme', 'blackout'); LSset('mc_theme', 'blackout'); }
+        syncBlackoutBtn(); syncUrl();
+      });
+      // honor stored blackout on startup
+      if (LS('mc_theme') === 'blackout') document.documentElement.setAttribute('data-theme', 'blackout');
+
+      // ------- 7. util-bar toggles -------
+      function bindToggle(id, key, onChange) {
+        const btn = $(id); if (!btn) return;
+        const sync = () => {
+          btn.classList.toggle('is-on', !!state[key]);
+          btn.setAttribute('aria-pressed', state[key] ? 'true' : 'false');
+        };
+        sync();
+        btn.addEventListener('click', () => {
+          state[key] = !state[key];
+          LSset('mc_' + key, state[key] ? '1' : '0');
+          sync(); onChange && onChange(); syncUrl(); applyAll();
+        });
+      }
+      bindToggle('mcBtnFavOnly', 'favOnly');
+      bindToggle('mcBtnWatchOnly', 'watchOnly');
+      bindToggle('mcBtnRepeatersOnly', 'repeatersOnly');
+
+      // ------- 8. notifications -------
+      $('mcBtnNotif')?.addEventListener('click', async () => {
+        try {
+          if (!('Notification' in window)) { alert('Twoja przeglądarka nie obsługuje powiadomień.'); return; }
+          if (Notification.permission === 'granted') {
+            state.notif = !state.notif; LSset('mc_notif', state.notif ? '1' : '0');
+            $('mcBtnNotif').classList.toggle('is-on', state.notif);
+            return;
+          }
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') {
+            state.notif = true; LSset('mc_notif', '1');
+            $('mcBtnNotif').classList.add('is-on');
+            new Notification('MeshCore', { body: 'Powiadomienia o obserwowanych włączone.' });
+          }
+        } catch (e) { console.warn('notif', e); }
+      });
+      if (state.notif && 'Notification' in window && Notification.permission === 'granted') {
+        $('mcBtnNotif')?.classList.add('is-on');
+      }
+      function maybeNotifyWatchlist() {
+        if (!state.notif) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const nodes = nodesArr();
+        const now = Date.now();
+        for (const n of nodes) {
+          const pk = nodeKey(n);
+          if (!state.watch.has(pk)) continue;
+          const last = n.last_advert_at ? Date.parse(n.last_advert_at) : 0;
+          const prev = state.lastWatchSeen.get(pk) || 0;
+          if (last) state.lastWatchSeen.set(pk, last);
+          if (prev && last && (now - last > 30*60*1000) && (now - prev <= 30*60*1000)) {
+            try {
+              new Notification('MeshCore: węzeł zniknął', {
+                body: `${n.name || pk.slice(0,8)} nie nadaje od ponad 30 min.`,
+                tag: 'mc-watch-' + pk,
+              });
+            } catch {}
+          }
+        }
+      }
+
+      // ------- 9. heatmap layer -------
+      let heatLayer = null;
+      function refreshHeatLayer() {
+        if (!state.heatmapOn) {
+          if (heatLayer) { try { map.removeLayer(heatLayer); } catch {} heatLayer = null; }
+          return;
+        }
+        const points = nodesArr()
+          .filter((n) => isFiniteCoordinate(n.latitude, n.longitude))
+          .map((n) => {
+            const a = ageMs(n.last_advert_at);
+            const w = a < 3600e3 ? 1.0 : a < 6*3600e3 ? 0.7 : a < 24*3600e3 ? 0.4 : 0.15;
+            return [n.latitude, n.longitude, w];
+          });
+        if (heatLayer) try { map.removeLayer(heatLayer); } catch {}
+        if (typeof L.heatLayer === 'function') {
+          heatLayer = L.heatLayer(points, { radius: 28, blur: 22, minOpacity: 0.25 }).addTo(map);
+        }
+      }
+      $('mcBtnHeatmap')?.addEventListener('click', () => {
+        state.heatmapOn = !state.heatmapOn;
+        $('mcBtnHeatmap').classList.toggle('is-on', state.heatmapOn);
+        $('mcBtnHeatmap').setAttribute('aria-pressed', state.heatmapOn ? 'true' : 'false');
+        refreshHeatLayer();
+      });
+
+      // ------- 10. map search -------
+      function renderSearchResults(q) {
+        const box = $('mcSearchResults'); if (!box) return;
+        const norm = (s) => String(s || '').toLowerCase();
+        const query = norm(q).trim();
+        box.innerHTML = '';
+        if (query.length < 2) { box.classList.remove('is-open'); return; }
+        const matches = nodesArr().filter((n) => {
+          return norm(n.name).includes(query) || norm(n.identity_hex).includes(query) || norm(n.short_name).includes(query) || norm(n.role).includes(query);
+        }).slice(0, 25);
+        if (!matches.length) { box.classList.remove('is-open'); return; }
+        for (const n of matches) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          const pk = nodeKey(n);
+          b.innerHTML = `${escapeText(n.name || pk.slice(0,10))}<span class="mc-mini">${escapeText(pk.slice(0,10))}</span>`;
+          b.addEventListener('click', () => {
+            box.classList.remove('is-open');
+            $('mcSearchInput').value = n.name || pk;
+            if (isFiniteCoordinate(n.latitude, n.longitude)) {
+              map.setView([n.latitude, n.longitude], Math.max(map.getZoom(), 13), { animate: true });
+            }
+            try { selectNode(pk); } catch { selectedSourceId = pk; render(latestState); }
+          });
+          box.appendChild(b);
+        }
+        box.classList.add('is-open');
+      }
+      function escapeText(s) {
+        return String(s || '').replace(/[<>&"']/g, (c) => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
+      }
+      const searchInput = $('mcSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => renderSearchResults(e.target.value));
+        searchInput.addEventListener('focus', (e) => renderSearchResults(e.target.value));
+        document.addEventListener('click', (e) => {
+          if (!$('mcMapSearch').contains(e.target)) $('mcSearchResults').classList.remove('is-open');
+        });
+      }
+
+      // ------- 11. CSV export -------
+      $('mcBtnCsv')?.addEventListener('click', () => {
+        const cols = ['identity_hex','name','role','last_advert_at','first_seen_at','latitude','longitude','rssi','snr'];
+        const lines = [cols.join(',')];
+        for (const n of nodesArr()) {
+          lines.push(cols.map((k) => {
+            let v = n[k];
+            if (v == null) return '';
+            v = String(v).replace(/"/g, '""');
+            return /[",\n]/.test(v) ? `"${v}"` : v;
+          }).join(','));
+        }
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `meshcore-nodes-${new Date().toISOString().slice(0,16).replace(':','')}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      });
+
+      // ------- 12. PNG screenshot via html2canvas (dynamic) -------
+      let html2canvasLoading = null;
+      function ensureHtml2canvas() {
+        if (window.html2canvas) return Promise.resolve(window.html2canvas);
+        if (html2canvasLoading) return html2canvasLoading;
+        html2canvasLoading = new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+          s.onload = () => res(window.html2canvas); s.onerror = rej;
+          document.head.appendChild(s);
+        });
+        return html2canvasLoading;
+      }
+      $('mcBtnPng')?.addEventListener('click', async () => {
+        const btn = $('mcBtnPng'); const orig = btn.textContent; btn.textContent = '...';
+        try {
+          const h2c = await ensureHtml2canvas();
+          const canvas = await h2c(document.getElementById('map'), { useCORS: true, allowTaint: true, backgroundColor: null });
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/png');
+          a.download = `meshcore-map-${new Date().toISOString().slice(0,16).replace(':','')}.png`;
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (e) { console.warn('png export', e); alert('Nie udało się wygenerować PNG.'); }
+        finally { btn.textContent = orig; }
+      });
+
+      // ------- 13. modal helper -------
+      function showModal(html) {
+        const old = document.querySelector('.mc-modal-backdrop');
+        if (old) old.remove();
+        const back = document.createElement('div');
+        back.className = 'mc-modal-backdrop';
+        back.innerHTML = `<div class="mc-modal" role="dialog" aria-modal="true"><button class="mc-modal-close" aria-label="Zamknij">×</button>${html}</div>`;
+        back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
+        back.querySelector('.mc-modal-close').addEventListener('click', () => back.remove());
+        document.body.appendChild(back);
+        return back;
+      }
+
+      // ------- 14. QR modal -------
+      function showQrModal(pk) {
+        const u = new URL(location.href); u.searchParams.set('node', pk); u.searchParams.delete('panel');
+        const link = u.toString();
+        let svg = '';
+        try {
+          if (window.qrcode) {
+            const q = window.qrcode(0, 'M');
+            q.addData(link); q.make();
+            svg = q.createSvgTag({ scalable: true, cellSize: 6, margin: 2 });
+          }
+        } catch (e) { console.warn('qr', e); }
+        const html = `
+          <h3>QR z linkiem do węzła</h3>
+          <p style="font-size:.8rem;color:var(--muted);word-break:break-all">${escapeText(link)}</p>
+          <div style="display:flex;justify-content:center;padding:10px 0">${svg || '<em>Generator QR niedostępny.</em>'}</div>
+          <p style="font-size:.75rem;color:var(--muted)">Zeskanuj, aby otworzyć ten widok z wybranym węzłem.</p>
+        `;
+        showModal(html);
+      }
+
+      // ------- 15. compare modal -------
+      function nodeSummaryHtml(n) {
+        if (!n) return '<em>Brak danych.</em>';
+        const rows = [
+          ['Nazwa', n.name],
+          ['Rola', n.role],
+          ['Hex', n.identity_hex],
+          ['Ostatnio widziany', n.last_advert_at],
+          ['Pierwsze wykrycie', n.first_seen_at],
+          ['Pozycja', isFiniteCoordinate(n.latitude, n.longitude) ? `${n.latitude.toFixed(4)}, ${n.longitude.toFixed(4)}` : '—'],
+          ['RSSI', n.rssi ?? '—'],
+          ['SNR', n.snr ?? '—'],
+        ];
+        return `<div><strong>${escapeText(n.name || nodeKey(n).slice(0,10))}</strong><dl style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:.78rem">${rows.map(([k,v]) => `<dt style="color:var(--muted)">${k}</dt><dd style="margin:0">${escapeText(v ?? '—')}</dd>`).join('')}</dl></div>`;
+      }
+      $('mcBtnCompare')?.addEventListener('click', () => {
+        const favs = [...state.favs];
+        const ns = nodesArr();
+        const byPk = new Map(ns.map((n) => [nodeKey(n), n]));
+        const picks = (state.compareIds.length ? state.compareIds : (selectedSourceId ? [selectedSourceId, favs[0]].filter(Boolean) : favs.slice(0,2)));
+        const a = byPk.get(picks[0]); const b = byPk.get(picks[1]);
+        const options = ns.slice(0, 200).map((n) => `<option value="${escapeText(nodeKey(n))}">${escapeText(n.name || nodeKey(n).slice(0,10))}</option>`).join('');
+        const html = `
+          <h3>Porównaj dwa node</h3>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <select id="mcCmpA" style="flex:1;padding:6px"><option value="">— A —</option>${options}</select>
+            <select id="mcCmpB" style="flex:1;padding:6px"><option value="">— B —</option>${options}</select>
+          </div>
+          <div class="mc-compare-grid" id="mcCmpGrid">
+            <div>${nodeSummaryHtml(a)}</div>
+            <div>${nodeSummaryHtml(b)}</div>
+          </div>
+        `;
+        const back = showModal(html);
+        const selA = back.querySelector('#mcCmpA'); const selB = back.querySelector('#mcCmpB');
+        if (picks[0]) selA.value = picks[0]; if (picks[1]) selB.value = picks[1];
+        const upd = () => {
+          state.compareIds = [selA.value, selB.value];
+          back.querySelector('#mcCmpGrid').innerHTML = `<div>${nodeSummaryHtml(byPk.get(selA.value))}</div><div>${nodeSummaryHtml(byPk.get(selB.value))}</div>`;
+        };
+        selA.addEventListener('change', upd); selB.addEventListener('change', upd);
+      });
+
+      // ------- 16. link-quality matrix -------
+      $('mcBtnMatrix')?.addEventListener('click', () => {
+        const ns = nodesArr();
+        const links = (latestManagement && latestManagement.map_links) || [];
+        const idx = new Map(); const order = [];
+        for (const n of ns.slice(0, 24)) { idx.set(nodeKey(n), n); order.push(nodeKey(n)); }
+        const grid = new Map();
+        for (const l of links) {
+          const a = l.source_id || l.source || l.from;
+          const b = l.target_id || l.target || l.to;
+          const s = (l.snr ?? l.rssi);
+          if (!a || !b) continue;
+          grid.set(a + '|' + b, s);
+        }
+        const colorFor = (v) => {
+          if (v == null) return 'transparent';
+          const x = Math.max(-25, Math.min(25, Number(v)));
+          const hue = (x + 25) * 4; // -25 → 0 (red), +25 → 200 (blue)
+          return `hsl(${hue}, 70%, 55%)`;
+        };
+        let rows = '<tr><th></th>' + order.map((k) => `<th title="${escapeText(idx.get(k).name || k)}">${escapeText((idx.get(k).name || k).slice(0,4))}</th>`).join('') + '</tr>';
+        for (const a of order) {
+          rows += `<tr><th title="${escapeText(idx.get(a).name || a)}">${escapeText((idx.get(a).name || a).slice(0,8))}</th>`;
+          for (const b of order) {
+            if (a === b) { rows += '<td style="background:var(--section)">·</td>'; continue; }
+            const v = grid.get(a + '|' + b);
+            rows += `<td style="background:${colorFor(v)};color:#fff" title="${escapeText(a)} → ${escapeText(b)}: ${v ?? 'b/d'}">${v != null ? Math.round(v) : ''}</td>`;
+          }
+          rows += '</tr>';
+        }
+        showModal(`<h3>Macierz jakości linków (SNR/RSSI)</h3><p style="font-size:.75rem;color:var(--muted)">Pierwsze 24 węzły. Kolor: czerwony = słaby, zielony/niebieski = mocny.</p><div style="overflow:auto;max-height:64vh"><table class="mc-matrix-table">${rows}</table></div>`);
+      });
+
+      // ------- 17. compass + sparkline + advert-timeline injection -------
+      function bearingDeg(lat1, lon1, lat2, lon2) {
+        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+        const Δλ = (lon2 - lon1) * Math.PI/180;
+        const y = Math.sin(Δλ) * Math.cos(φ2);
+        const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+        return (Math.atan2(y, x) * 180/Math.PI + 360) % 360;
+      }
+      function sparklineSvg(samples, key) {
+        if (!samples || samples.length < 2) return '';
+        const vals = samples.map((s) => s[key]).filter((v) => Number.isFinite(v));
+        if (vals.length < 2) return '';
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const w = 120, h = 28, pad = 2;
+        const span = Math.max(0.1, max - min);
+        const xs = (i) => pad + (i / (vals.length - 1)) * (w - 2*pad);
+        const ys = (v) => h - pad - ((v - min) / span) * (h - 2*pad);
+        const d = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join('');
+        const fill = `M${xs(0)},${h-pad} ${d.replace(/^M/, 'L')} L${xs(vals.length-1)},${h-pad} Z`;
+        return `<svg class="mc-sparkline" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path class="mc-spark-fill" d="${fill}"/><path d="${d}"/></svg>`;
+      }
+      function advertTimelineSvg(stamps) {
+        if (!stamps || !stamps.length) return '';
+        const now = Date.now(); const span = 24*3600e3;
+        const w = 240, h = 18;
+        const ticks = stamps.filter((t) => now - t <= span).map((t) => {
+          const x = w - ((now - t) / span) * w;
+          return `<line x1="${x.toFixed(1)}" y1="2" x2="${x.toFixed(1)}" y2="${h-2}" stroke="var(--blue)" stroke-width="1.2"/>`;
+        }).join('');
+        return `<svg width="${w}" height="${h}" aria-hidden="true" style="background:var(--section);border-radius:6px"><line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" stroke="var(--line)"/>${ticks}</svg>`;
+      }
+      function injectExpandedExtras() {
+        const sel = selectedSourceId; if (!sel) return;
+        const sourceNode = nodesArr().find((n) => nodeKey(n) === sel); if (!sourceNode) return;
+        const targets = document.querySelectorAll('[data-identity-hex="' + CSS.escape(sel) + '"] .node-expanded, [data-node-id="' + CSS.escape(sel) + '"] .node-expanded');
+        for (const t of targets) {
+          if (t.querySelector('.mc-extras')) continue;
+          const wrap = document.createElement('div');
+          wrap.className = 'mc-extras';
+          wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)';
+          // compass relative to first favourite (or first other node with coords)
+          let other = nodesArr().find((n) => state.favs.has(nodeKey(n)) && nodeKey(n) !== sel && isFiniteCoordinate(n.latitude, n.longitude));
+          if (!other) other = nodesArr().find((n) => nodeKey(n) !== sel && isFiniteCoordinate(n.latitude, n.longitude));
+          if (other && isFiniteCoordinate(sourceNode.latitude, sourceNode.longitude)) {
+            const br = bearingDeg(sourceNode.latitude, sourceNode.longitude, other.latitude, other.longitude);
+            const dist = haversineKm(sourceNode.latitude, sourceNode.longitude, other.latitude, other.longitude);
+            wrap.insertAdjacentHTML('beforeend', `<div class="mc-compass" title="Kierunek do ${escapeText(other.name || nodeKey(other))}"><div class="mc-compass-dial"><div class="mc-compass-needle" style="transform:translate(-50%,-100%) rotate(${br.toFixed(0)}deg)"></div></div><div><div><strong>${br.toFixed(0)}°</strong></div><div style="font-size:.7rem;color:var(--muted)">${dist.toFixed(1)} km → ${escapeText((other.name || '').slice(0,10))}</div></div></div>`);
+          }
+          const spark = sparklineSvg(state.signalBuffer.get(sel), 'rssi');
+          if (spark) wrap.insertAdjacentHTML('beforeend', `<div title="Historia RSSI">RSSI ${spark}</div>`);
+          const adv = advertTimelineSvg(state.advertBuffer.get(sel));
+          if (adv) wrap.insertAdjacentHTML('beforeend', `<div title="Adverty (24h)">Adverty 24h ${adv}</div>`);
+          const histBtn = document.createElement('button');
+          histBtn.type = 'button'; histBtn.className = 'mc-util-btn';
+          histBtn.style.cssText = 'padding:4px 10px;font-size:.72rem';
+          histBtn.textContent = 'Historia węzła';
+          histBtn.addEventListener('click', (e) => { e.stopPropagation(); showHistoryModal(sel); });
+          wrap.appendChild(histBtn);
+          t.appendChild(wrap);
+        }
+      }
+
+      // ------- 18. history modal -------
+      function showHistoryModal(pk) {
+        const n = nodesArr().find((x) => nodeKey(x) === pk);
+        const buf = state.advertBuffer.get(pk) || [];
+        const sig = state.signalBuffer.get(pk) || [];
+        const lines = [];
+        for (let i = buf.length - 1; i >= 0; i--) {
+          lines.push(`${new Date(buf[i]).toLocaleString('pl-PL')}  advert`);
+        }
+        for (let i = sig.length - 1; i >= Math.max(0, sig.length - 20); i--) {
+          const s = sig[i];
+          lines.push(`${new Date(s.t).toLocaleString('pl-PL')}  RSSI=${s.rssi ?? '—'} SNR=${s.snr ?? '—'}`);
+        }
+        const text = lines.length ? lines.join('\n') : '(Brak zarejestrowanych zdarzeń w tej sesji.)';
+        showModal(`<h3>Historia: ${escapeText(n ? (n.name || pk.slice(0,10)) : pk)}</h3><pre>${escapeText(text)}</pre><p style="font-size:.72rem;color:var(--muted)">Bufor klient-side z bieżącej sesji.</p>`);
+      }
+
+      // ------- 19. ring-buffer ingest -------
+      function ingestBuffers() {
+        const now = Date.now();
+        for (const n of nodesArr()) {
+          const pk = nodeKey(n); if (!pk) continue;
+          const rssi = Number.isFinite(+n.rssi) ? +n.rssi : null;
+          const snr = Number.isFinite(+n.snr) ? +n.snr : null;
+          if (rssi != null || snr != null) {
+            const buf = state.signalBuffer.get(pk) || [];
+            const last = buf[buf.length - 1];
+            if (!last || (last.rssi !== rssi || last.snr !== snr)) {
+              buf.push({ t: now, rssi, snr });
+              if (buf.length > 120) buf.shift();
+              state.signalBuffer.set(pk, buf);
+            }
+          }
+          if (n.last_advert_at) {
+            const t = Date.parse(n.last_advert_at);
+            if (Number.isFinite(t)) {
+              const buf = state.advertBuffer.get(pk) || [];
+              if (!buf.length || buf[buf.length - 1] !== t) {
+                buf.push(t);
+                while (buf.length && now - buf[0] > 24*3600e3) buf.shift();
+                state.advertBuffer.set(pk, buf);
+              }
+            }
+          }
+        }
+      }
+
+      // ------- master apply hook -------
+      function applyAll() {
+        try { ingestBuffers(); } catch (e) { console.warn('ingestBuffers', e); }
+        try { renderChips(); } catch (e) { console.warn('renderChips', e); }
+        try { injectRowActions(); } catch (e) { console.warn('injectRowActions', e); }
+        try { hideFilteredRows(); } catch (e) { console.warn('hideFilteredRows', e); }
+        try { injectExpandedExtras(); } catch (e) { console.warn('injectExpandedExtras', e); }
+        try { refreshHeatLayer(); } catch (e) { console.warn('refreshHeatLayer', e); }
+        try { maybeNotifyWatchlist(); } catch (e) { console.warn('notify', e); }
+        syncBlackoutBtn();
+        syncUrl();
+      }
+
+      // Patch render() so we re-apply after every render
+      const _origRender = render;
+      window.render = function patchedRender(s) {
+        const out = _origRender(s);
+        try { applyAll(); } catch (e) { console.warn('applyAll', e); }
+        return out;
+      };
+      // Note: existing internal callers reference `render` directly (closure),
+      // so we additionally observe DOM mutations on the node sections to cover them.
+      const sectionsEl = document.getElementById('node-sections');
+      if (sectionsEl) {
+        const mo = new MutationObserver(() => {
+          // debounce
+          if (mo._tid) clearTimeout(mo._tid);
+          mo._tid = setTimeout(() => { try { applyAll(); } catch {} }, 30);
+        });
+        mo.observe(sectionsEl, { childList: true, subtree: true });
+      }
+
+      // Track refresh-start timestamps for countdown
+      const _origRefresh = refresh;
+      window.refresh = async function patchedRefresh(force) {
+        bigFeatureBatch.__lastRefreshAt = Date.now();
+        try {
+          const r = await _origRefresh(force);
+          errorBackoff = 0;
+          return r;
+        } catch (e) {
+          errorBackoff = Math.min(120000, (errorBackoff || 5000) * 2);
+          throw e;
+        }
+      };
+
+      // ------- INIT -------
+      readUrlState();
+      renderChips();
+      // initial pass once state arrives
+      const waitForState = setInterval(() => {
+        if (latestState) { clearInterval(waitForState); applyAll(); }
+      }, 200);
+
+      // Escape key closes modals
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          document.querySelector('.mc-modal-backdrop')?.remove();
+          const r = $('mcSearchResults'); if (r) r.classList.remove('is-open');
+        }
+      });
+
+      // expose for debugging
+      window.MC_FEATURES = state;
+    })();
   </script>
 </body>
 </html>
