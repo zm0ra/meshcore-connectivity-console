@@ -2939,18 +2939,24 @@
         })
       : L.layerGroup();
     markersLayer.addTo(map);
-    // Registry of ALL node markers ever added to markersLayer, keyed by identityHex.
-    // Used by applyMapFilters() to re-add markers when the filter widens
-    // (markerClusterGroup with chunkedLoading also delays insertions, so
-    // eachLayer() alone misses pending markers).
+    // Registry of ALL node markers, keyed by identityHex. Filled synchronously
+    // by attachNodeMarker() at marker-creation sites. Used by applyMapFilters().
     const _allNodeMarkers = new Map();
     window._allNodeMarkers = _allNodeMarkers;
-    markersLayer.on('layeradd', (e) => {
+    // Synchronous helper: register a circleMarker and add to markersLayer ONLY
+    // if it passes the current filter (window._nodePasses). This guarantees
+    // archival/out-of-range nodes never enter the cluster group.
+    window.attachNodeMarker = function(marker, node) {
       try {
-        const pk = e && e.layer && e.layer.options && e.layer.options.identityHex;
-        if (pk) _allNodeMarkers.set(pk, e.layer);
-      } catch {}
-    });
+        const pk = node && node.identity_hex;
+        if (pk) _allNodeMarkers.set(pk, marker);
+        const pass = (typeof window._nodePasses === 'function') ? !!window._nodePasses(node) : true;
+        if (pass) marker.addTo(markersLayer);
+      } catch (e) {
+        try { marker.addTo(markersLayer); } catch {}
+      }
+      return marker;
+    };
     if (typeof markersLayer.on === 'function' && typeof markersLayer.zoomToShowLayer === 'function') {
       // Hover-spiderfy with grace window: keep cluster open while cursor moves to a child marker.
       let _unspiderTimer = null;
@@ -5260,7 +5266,8 @@
         if (selected) {
           drawFocusHalo(node, nodeColor(node), nodeColor(node), 17, 12);
         }
-        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, isolated, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) }).addTo(markersLayer);
+        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, isolated, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) });
+        window.attachNodeMarker(marker, node);
         marker.on('click', (event) => {
           L.DomEvent.stopPropagation(event);
           selectNode(node.identity_hex);
@@ -5318,7 +5325,8 @@
         if (!isFiniteCoordinate(node.latitude, node.longitude)) continue;
         const selected = node.identity_hex === focusId;
         const neighbor = highlightedIds.has(node.identity_hex);
-        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, false, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) }).addTo(markersLayer);
+        const marker = L.circleMarker([node.latitude, node.longitude], { ...markerStyle(node, false, selected, neighbor), identityHex: node.identity_hex, nodeState: nodeState(node) });
+        window.attachNodeMarker(marker, node);
         marker.on('click', (event) => {
           L.DomEvent.stopPropagation(event);
           if (currentPanel === 'route') {
@@ -6004,6 +6012,8 @@
         }
         return true;
       }
+      // Expose for the synchronous attachNodeMarker() helper in render paths.
+      window._nodePasses = nodePasses;
       function getFilteredNodes() { return nodesArr().filter(nodePasses); }
       function hideFilteredRows() {
         const nodes = nodesArr();
