@@ -4575,6 +4575,7 @@
 
     function findReverseLink(link) {
       try {
+        if (!link || link.source_identity_hex === link.target_identity_hex) return null;
         const all = (latestState && latestState.management && latestState.management.map_links) || [];
         return all.find((other) => other.source_identity_hex === link.target_identity_hex
           && other.target_identity_hex === link.source_identity_hex) || null;
@@ -4749,8 +4750,13 @@
     function renderLinkLabels(selectedLinks, sourceNode) {
       linkLabelsLayer.clearLayers();
       const alwaysVisible = Boolean(selectedSourceId);
+      const seen = new Set();
       for (const link of selectedLinks) {
         if (selectedNeighborId && link.target_identity_hex !== selectedNeighborId) continue;
+        if (link.source_identity_hex === link.target_identity_hex) continue;
+        const key = link.target_identity_hex || `${link.target_latitude},${link.target_longitude}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         const midpoint = [
           (link.source_latitude + link.target_latitude) / 2,
           (link.source_longitude + link.target_longitude) / 2,
@@ -5276,9 +5282,12 @@
       const neighborIds = selectedNeighborIds(state);
       const selectedLinks = getSelectedMapLinks(state);
       const sourceNode = getSelectedNode(state);
+      const passes = (n) => (typeof window._nodePasses === 'function') ? window._nodePasses(n) : true;
       const nodes = selectedSourceId
         ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
-        : (hasActiveNodeSearchQuery() ? allMapNodes.filter((node) => nodeMatchesSearch(node)) : allMapNodes);
+        : (hasActiveNodeSearchQuery()
+            ? allMapNodes.filter((node) => nodeMatchesSearch(node))
+            : allMapNodes.filter(passes));
       const bounds = [];
       for (const node of nodes) {
         const selected = node.identity_hex === selectedSourceId;
@@ -5304,7 +5313,12 @@
         if (selected) marker.bringToFront();
         bounds.push([node.latitude, node.longitude]);
       }
+      const drawnLinks = new Set();
       for (const link of selectedLinks) {
+        if (link.source_identity_hex === link.target_identity_hex) continue;
+        const linkKey = link.target_identity_hex || `${link.target_latitude},${link.target_longitude}`;
+        if (drawnLinks.has(linkKey)) continue;
+        drawnLinks.add(linkKey);
         const polyline = L.polyline([
           [link.source_latitude, link.source_longitude],
           [link.target_latitude, link.target_longitude],
