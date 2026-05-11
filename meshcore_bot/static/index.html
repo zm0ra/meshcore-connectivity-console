@@ -5837,7 +5837,7 @@
       const state = {
         favs: new Set(LSjson('mc_favs', [])),
         watch: new Set(LSjson('mc_watch', [])),
-        chip: LS('mc_chip', 'all'),
+        chip: LS('mc_chip', 'h24'),
         favOnly: LS('mc_favOnly', '0') === '1',
         watchOnly: LS('mc_watchOnly', '0') === '1',
         repeatersOnly: LS('mc_repOnly', '0') === '1',
@@ -6019,6 +6019,39 @@
           try { markersLayer.removeLayer(m); } catch {}
         }
       }
+      function computeMapPadding() {
+        const pad = { top: 60, right: 40, bottom: 90, left: 40 };
+        try {
+          const mapEl = document.getElementById('map');
+          const sb = document.getElementById('sidebar');
+          if (mapEl && sb) {
+            const mr = mapEl.getBoundingClientRect();
+            const sr = sb.getBoundingClientRect();
+            const style = window.getComputedStyle(sb);
+            const visible = sr.width > 0 && sr.height > 0
+              && style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && parseFloat(style.opacity || '1') > 0.05;
+            if (visible) {
+              const overlapRight = Math.max(0, mr.right - sr.left);
+              const overlapLeft = Math.max(0, sr.right - mr.left);
+              if (sr.left >= mr.left + mr.width / 2) {
+                pad.right = Math.max(pad.right, Math.min(overlapRight + 20, mr.width * 0.6));
+              } else if (sr.right <= mr.left + mr.width / 2) {
+                pad.left = Math.max(pad.left, Math.min(overlapLeft + 20, mr.width * 0.6));
+              } else {
+                pad.bottom = Math.max(pad.bottom, Math.min(sr.height + 20, mr.height * 0.6));
+              }
+            }
+          }
+          const chipBar = document.getElementById('mcChipBar');
+          if (chipBar) {
+            const cr = chipBar.getBoundingClientRect();
+            if (cr.height > 0) pad.bottom = Math.max(pad.bottom, cr.height + 20);
+          }
+        } catch {}
+        return pad;
+      }
       function fitMapToFiltered() {
         try {
           if (!map) return;
@@ -6026,10 +6059,18 @@
             .filter((n) => isFiniteCoordinate(n.latitude, n.longitude))
             .map((n) => [n.latitude, n.longitude]);
           if (!pts.length) return;
+          const pad = computeMapPadding();
+          const opts = {
+            paddingTopLeft: [pad.left, pad.top],
+            paddingBottomRight: [pad.right, pad.bottom],
+            maxZoom: 15,
+            animate: true,
+          };
           if (pts.length === 1) {
             map.setView(pts[0], Math.max(map.getZoom(), 12), { animate: true });
+            try { map.panBy([(pad.left - pad.right) / 2, (pad.top - pad.bottom) / 2], { animate: true }); } catch {}
           } else {
-            map.fitBounds(pts, { padding: [40, 40], maxZoom: 15, animate: true });
+            map.fitBounds(pts, opts);
           }
         } catch (e) { console.warn('fitMapToFiltered', e); }
       }
@@ -6490,9 +6531,14 @@
 
       // Patch render() so we re-apply after every render
       const _origRender = render;
+      let _didInitialFilteredFit = false;
       window.render = function patchedRender(s) {
         const out = _origRender(s);
         try { applyAll(); } catch (e) { console.warn('applyAll', e); }
+        if (!_didInitialFilteredFit && latestState && (latestState.nodes || []).length) {
+          _didInitialFilteredFit = true;
+          setTimeout(() => { try { fitMapToFiltered(); } catch {} }, 0);
+        }
         return out;
       };
       // Note: existing internal callers reference `render` directly (closure),
