@@ -6018,29 +6018,25 @@
         }
       }
       function applyMapFilters() {
-        if (!latestState || !markersLayer) return;
-        const reg = window._allNodeMarkers;
-        if (!reg || !reg.size) return;
-        const byPk = new Map(nodesArr().map((n) => [nodeKey(n), n]));
-        const toAdd = [];
-        const toRemove = [];
-        for (const [pk, marker] of reg.entries()) {
-          const n = byPk.get(pk);
-          const pass = !!(n && nodePasses(n));
-          const has = typeof markersLayer.hasLayer === 'function' ? markersLayer.hasLayer(marker) : true;
-          if (pass && !has) toAdd.push(marker);
-          else if (!pass && has) toRemove.push(marker);
-        }
-        for (const m of toRemove) {
-          try { markersLayer.removeLayer(m); } catch {}
-        }
-        if (toAdd.length) {
-          if (typeof markersLayer.addLayers === 'function') {
-            try { markersLayer.addLayers(toAdd); } catch {}
-          } else {
-            for (const m of toAdd) { try { markersLayer.addLayer(m); } catch {} }
+          if (!latestState || !markersLayer) return;
+          const reg = window._allNodeMarkers;
+          if (!reg || !reg.size) return;
+          const byPk = new Map(nodesArr().map((n) => [nodeKey(n), n]));
+          // 1. Usuń wszystkie markery z mapy (ale nie z rejestru)
+          try { markersLayer.clearLayers(); } catch {}
+          // 2. Dodaj tylko te, które przechodzą filtr
+          const toAdd = [];
+          for (const [pk, marker] of reg.entries()) {
+            const n = byPk.get(pk);
+            if (n && nodePasses(n)) toAdd.push(marker);
           }
-        }
+          if (toAdd.length) {
+            if (typeof markersLayer.addLayers === 'function') {
+              try { markersLayer.addLayers(toAdd); } catch {}
+            } else {
+              for (const m of toAdd) { try { markersLayer.addLayer(m); } catch {} }
+            }
+          }
       }
       function computeMapPadding() {
         const pad = { top: 60, right: 40, bottom: 90, left: 40 };
