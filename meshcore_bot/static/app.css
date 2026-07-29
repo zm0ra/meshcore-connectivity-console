@@ -1978,10 +1978,12 @@ textarea:focus-visible {
     width: 100%;
   }
   .toolbar-head {
+    /* Stack so the language toggle stops colliding with the wrapped subtitle. */
+    flex-direction: column;
     align-items: stretch;
   }
   .toolbar-head-actions {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
   .toolbar-meta-group {
     justify-content: space-between;
@@ -2231,6 +2233,33 @@ textarea:focus-visible {
 .mc-util-extra .mc-util-btn.is-on {
   background: var(--blue); color: #fff; border-color: var(--blue);
 }
+/* Labelled action groups. Icons alone were unreadable without hovering each one. */
+.mc-util-group {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 6px 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(var(--surface-rgb), 0.45);
+  backdrop-filter: blur(10px);
+}
+.mc-util-group-label {
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted);
+  margin-right: 2px;
+}
+.mc-util-extra { gap: 6px; }
+.mc-util-group .mc-util-btn {
+  box-shadow: none; border: none; background: transparent;
+  padding: 5px 8px; font-size: 0.72rem;
+}
+.mc-util-group .mc-util-btn:hover { background: rgba(var(--surface-rgb), 0.14); }
+@media (max-width: 1100px) {
+  /* Reclaim width: group labels and button text drop, tooltips still explain.
+     Selectors match .mc-util-extra .mc-util-btn so they win on specificity. */
+  .mc-util-extra .mc-util-group-label { display: none; }
+  .mc-util-extra .mc-util-group .mc-util-btn:not(.mc-util-btn-text) { font-size: 0; gap: 0; padding: 6px 8px; }
+  .mc-util-extra .mc-util-group .mc-util-btn [aria-hidden="true"] { font-size: 0.9rem; }
+}
 .mc-countdown {
   font-variant-numeric: tabular-nums;
   font-size: 0.74rem;
@@ -2400,7 +2429,10 @@ textarea:focus-visible {
 @media (max-width: 640px) {
   .mc-util-extra { top: 56px; left: 8px; right: 8px; gap: 4px; }
   .mc-util-extra .mc-util-btn { padding: 6px 8px; font-size: 0.7rem; }
-  .mc-map-search { top: 100px; left: 8px; right: 8px; }
-  .mc-chip-bar { bottom: 10px; padding: 6px 8px; gap: 4px; }
   .mc-chip { padding: 4px 8px; font-size: 0.68rem; }
+  /* The chip bar has to clear the bottom sheet instead of floating over it. */
+  .mc-chip-bar {
+    bottom: calc(min(34dvh, 280px) + 18px);
+    padding: 6px 8px; gap: 4px;
+  }
 }

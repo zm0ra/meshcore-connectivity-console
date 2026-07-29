@@ -821,6 +821,10 @@ INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
 ADMIN_HTML = (_STATIC_DIR / "admin.html").read_text(encoding="utf-8")
 APP_CSS = (_STATIC_DIR / "app.css").read_text(encoding="utf-8")
 APP_JS = (_STATIC_DIR / "app.js").read_text(encoding="utf-8")
+# Cache-bust the extracted assets: without it a browser can pair a fresh
+# index.html with a stale app.css/app.js after a deploy.
+ASSET_VERSION = hashlib.sha256(f"{APP_CSS}{APP_JS}".encode("utf-8")).hexdigest()[:12]
+INDEX_HTML = INDEX_HTML.replace("__ASSET_VERSION__", ASSET_VERSION)
 # Markup plus behaviour, for tests that assert on the whole dashboard bundle.
 DASHBOARD_BUNDLE = f"{INDEX_HTML}\n{APP_CSS}\n{APP_JS}"
 

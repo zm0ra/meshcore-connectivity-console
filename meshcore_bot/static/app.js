@@ -1525,18 +1525,10 @@ function buildPanelSummary(state) {
   };
 }
 
-function renderSummary(state) {
-  const summary = buildPanelSummary(state);
-  document.getElementById('summary').innerHTML = `
-    <div class="summary-head">
-      <div class="summary-copy">
-        <strong>${summary.title}</strong>
-        <span>${summary.subtitle}</span>
-      </div>
-      ${summary.status ? `<span class="summary-badge">${summary.status}</span>` : ''}
-    </div>
-    <div class="summary-grid">${renderSummaryMetrics(summary.cards, 'summary-card')}</div>
-  `;
+// Stats only. Title, subtitle and status live in the toolbar head, which is the
+// single place the panel identifies itself.
+function renderSummaryCards(summary) {
+  return `<div class="summary-grid">${renderSummaryMetrics(summary.cards, 'summary-card')}</div>`;
 }
 
 function renderPrimaryTabs() {
@@ -1602,22 +1594,6 @@ function activeRouteHint() {
   if (routeActiveEndpoint === 'source') return tr('routeTapTargetSource');
   if (routeActiveEndpoint === 'target') return tr('routeTapTargetTarget');
   return tr('routeTapTargetReady');
-}
-
-function renderMobileOverview(state) {
-  const summary = buildPanelSummary(state);
-  return `
-    <div class="mobile-overview-card">
-      <div class="mobile-overview-head">
-        <div class="mobile-overview-copy">
-          <strong>${summary.title}</strong>
-          <span>${summary.subtitle}</span>
-        </div>
-        ${summary.status ? `<span class="mobile-overview-status">${summary.status}</span>` : ''}
-      </div>
-      <div class="mobile-overview-grid">${renderSummaryMetrics(summary.cards, 'mobile-overview-metric')}</div>
-    </div>
-  `;
 }
 
 function connectivityVisibleRows(state, nodeId) {
@@ -2580,9 +2556,9 @@ function renderNodeSections(state) {
   const nodes = listNodes(state);
   const selectedNode = selectedSourceId ? allNodes.find((node) => node.identity_hex === selectedSourceId) : null;
   const others = nodes.filter((node) => node.identity_hex !== selectedSourceId);
-  const panelCopy = currentPanelCopy();
-  const panelTitle = panelCopy.title;
-  const panelSubtitle = panelCopy.subtitle;
+  const summary = buildPanelSummary(state);
+  const panelTitle = summary.title;
+  const panelSubtitle = summary.subtitle;
   const archivedCount = archivedNodeCount(state);
   const archivedAutoFallback = autoShowArchived(state);
   let html = '';
@@ -2620,21 +2596,20 @@ function renderNodeSections(state) {
           <span class="toolbar-subtitle">${panelSubtitle}</span>
         </div>
         <div class="toolbar-head-actions">
+          ${summary.status ? `<span class="summary-badge">${summary.status}</span>` : ''}
           ${archivedHtml}
           ${langHtml}
         </div>
       </div>
       ${archivedNoteHtml}
       ${renderPrimaryTabs()}
+      ${renderSummaryCards(summary)}
       <div class="toolbar-meta">
         ${metaHtml}
       </div>
     </div>
   `;
   html += renderAnalysisTabs();
-  if (isPortraitMobileView()) {
-    html += renderMobileOverview(state);
-  }
   if (currentPanel === 'connectivity') {
     html += renderConnectivityPanel(state);
   } else if (currentPanel === 'route') {
@@ -3143,7 +3118,6 @@ function render(state) {
   latestState = state;
   normalizeVisibleSelections(state);
   renderLegend();
-  renderSummary(state);
   renderNodeSections(state);
   for (const button of document.querySelectorAll('[data-global-language]')) {
     button.classList.toggle('active', button.dataset.globalLanguage === currentLanguage);
@@ -3366,13 +3340,17 @@ renderLegend();
 (function setupTheme() {
   const root = document.documentElement;
   const stored = (() => { try { return localStorage.getItem('mc_theme'); } catch { return null; } })();
+  const systemQuery = matchMedia('(prefers-color-scheme: dark)');
+  const hasStoredChoice = stored === 'light' || stored === 'dark' || stored === 'blackout';
   if (stored === 'light' || stored === 'dark') root.setAttribute('data-theme', stored);
   else if (stored === 'blackout') { root.setAttribute('data-theme', 'dark'); root.setAttribute('data-blackout', '1'); }
+  // data-theme must always be set: the palette follows prefers-color-scheme, but
+  // component rules key off [data-theme="dark"]. Leaving it unset gives dark
+  // variables with light component surfaces (white text on white panels).
+  else root.setAttribute('data-theme', systemQuery.matches ? 'dark' : 'light');
   const button = document.getElementById('themeToggle');
   function effective() {
-    const explicit = root.getAttribute('data-theme');
-    if (explicit) return explicit;
-    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return root.getAttribute('data-theme') || 'light';
   }
   function syncIcon() {
     if (!button) return;
@@ -3387,7 +3365,10 @@ renderLegend();
     syncIcon();
     try { const u = new URL(location.href); if (u.searchParams.get('theme') === 'blackout') { u.searchParams.delete('theme'); history.replaceState(null, '', u.toString()); } } catch {}
   });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncIcon);
+  systemQuery.addEventListener?.('change', () => {
+    if (!hasStoredChoice) root.setAttribute('data-theme', systemQuery.matches ? 'dark' : 'light');
+    syncIcon();
+  });
 })();
 
 let lastHealthOkMs = 0;
@@ -3813,46 +3794,11 @@ void refresh(true);
     refreshHeatLayer();
   });
 
-  // ------- 10. map search -------
-  function renderSearchResults(q) {
-    const box = $('mcSearchResults'); if (!box) return;
-    const norm = (s) => String(s || '').toLowerCase();
-    const query = norm(q).trim();
-    box.innerHTML = '';
-    if (query.length < 2) { box.classList.remove('is-open'); return; }
-    const matches = nodesArr().filter((n) => {
-      return norm(n.name).includes(query) || norm(n.identity_hex).includes(query) || norm(n.short_name).includes(query) || norm(n.role).includes(query);
-    }).slice(0, 25);
-    if (!matches.length) { box.classList.remove('is-open'); return; }
-    for (const n of matches) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      const pk = nodeKey(n);
-      b.innerHTML = `${escapeText(n.name || pk.slice(0,10))}<span class="mc-mini">${escapeText(pk.slice(0,10))}</span>`;
-      b.addEventListener('click', () => {
-        box.classList.remove('is-open');
-        $('mcSearchInput').value = n.name || pk;
-        if (isFiniteCoordinate(n.latitude, n.longitude)) {
-          map.setView([n.latitude, n.longitude], Math.max(map.getZoom(), 13), { animate: true });
-        }
-        try { selectNode(pk); } catch { selectedSourceId = pk; render(latestState); }
-      });
-      box.appendChild(b);
-    }
-    box.classList.add('is-open');
-  }
+  // The floating map search is gone; the sidebar search filters the node list,
+  // and picking a row selects and focuses the node.
   function escapeText(s) {
     return String(s || '').replace(/[<>&"']/g, (c) => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
   }
-  const searchInput = $('mcSearchInput');
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => renderSearchResults(e.target.value));
-    searchInput.addEventListener('focus', (e) => renderSearchResults(e.target.value));
-    document.addEventListener('click', (e) => {
-      if (!$('mcMapSearch').contains(e.target)) $('mcSearchResults').classList.remove('is-open');
-    });
-  }
-
   // ------- 11. CSV export -------
   $('mcBtnCsv')?.addEventListener('click', () => {
     const cols = ['identity_hex','name','role','last_advert_at','first_seen_at','latitude','longitude','rssi','snr'];
@@ -4182,7 +4128,6 @@ void refresh(true);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       document.querySelector('.mc-modal-backdrop')?.remove();
-      const r = $('mcSearchResults'); if (r) r.classList.remove('is-open');
     }
   });
 

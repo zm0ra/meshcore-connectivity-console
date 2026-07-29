@@ -3303,7 +3303,9 @@ def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> Non
     assert 'data-panel="connectivity"' in DASHBOARD_BUNDLE
     assert 'data-panel="route"' in DASHBOARD_BUNDLE
     assert 'function buildPanelSummary(state)' in DASHBOARD_BUNDLE
-    assert 'function renderMobileOverview(state)' in DASHBOARD_BUNDLE
+    # Mobile and desktop now share one summary renderer instead of a separate
+    # mobile overview card that repeated the panel title.
+    assert 'function renderSummaryCards(summary)' in DASHBOARD_BUNDLE
     assert 'function armBlankMapClear()' in DASHBOARD_BUNDLE
     assert 'function suppressUpcomingDoubleClickZoom()' in DASHBOARD_BUNDLE
 

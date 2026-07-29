@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=__ASSET_VERSION__">
 </head>
 <body>
   <div class="top-utility-bar">
@@ -17,21 +17,28 @@
   </div>
   <div class="mc-util-extra" id="mcUtilExtra" role="toolbar" aria-label="Dodatkowe akcje">
     <span class="mc-countdown" id="mcCountdown" title="Następne odświeżenie"></span>
-    <button class="mc-util-btn" id="mcBtnBlackout" type="button" title="Tryb OLED / blackout">⬛</button>
-    <button class="mc-util-btn" id="mcBtnFavOnly" type="button" title="Pokaż tylko ulubione" aria-pressed="false">★</button>
-    <button class="mc-util-btn" id="mcBtnWatchOnly" type="button" title="Tylko obserwowane" aria-pressed="false">👁</button>
-    <button class="mc-util-btn" id="mcBtnNotif" type="button" title="Włącz powiadomienia o zniknięciu obserwowanych">🔔</button>
-    <button class="mc-util-btn" id="mcBtnRepeatersOnly" type="button" title="Tylko aktywne repeatery" aria-pressed="false">📡</button>
-    <button class="mc-util-btn" id="mcBtnMatrix" type="button" title="Macierz jakości linków">▦</button>
-    <button class="mc-util-btn" id="mcBtnCompare" type="button" title="Porównaj dwa node">⇄</button>
-    <button class="mc-util-btn" id="mcBtnHeatmap" type="button" title="Heatmapa pokrycia" aria-pressed="false">🌡</button>
-    <button class="mc-util-btn" id="mcBtnCsv" type="button" title="Eksport CSV">⬇ CSV</button>
-    <button class="mc-util-btn" id="mcBtnPng" type="button" title="Zrzut mapy (PNG)">⬇ PNG</button>
-  </div>
-  <div class="mc-map-search" id="mcMapSearch" role="search">
-    <span aria-hidden="true">🔎</span>
-    <input id="mcSearchInput" type="search" placeholder="Szukaj na mapie (nazwa, prefix, hex)" aria-label="Wyszukiwarka na mapie">
-    <div class="mc-map-search-results" id="mcSearchResults" role="listbox"></div>
+    <div class="mc-util-group" role="group" aria-label="Filtry">
+      <span class="mc-util-group-label">Filtry</span>
+      <button class="mc-util-btn" id="mcBtnFavOnly" type="button" title="Pokaż tylko ulubione" aria-pressed="false"><span aria-hidden="true">★</span> Ulubione</button>
+      <button class="mc-util-btn" id="mcBtnWatchOnly" type="button" title="Tylko obserwowane" aria-pressed="false"><span aria-hidden="true">👁</span> Obserwowane</button>
+      <button class="mc-util-btn" id="mcBtnRepeatersOnly" type="button" title="Tylko aktywne repeatery" aria-pressed="false"><span aria-hidden="true">📡</span> Repeatery</button>
+    </div>
+    <div class="mc-util-group" role="group" aria-label="Widoki">
+      <span class="mc-util-group-label">Widoki</span>
+      <button class="mc-util-btn" id="mcBtnMatrix" type="button" title="Macierz jakości linków"><span aria-hidden="true">▦</span> Macierz</button>
+      <button class="mc-util-btn" id="mcBtnCompare" type="button" title="Porównaj dwa node"><span aria-hidden="true">⇄</span> Porównaj</button>
+      <button class="mc-util-btn" id="mcBtnHeatmap" type="button" title="Heatmapa pokrycia" aria-pressed="false"><span aria-hidden="true">🌡</span> Heatmapa</button>
+    </div>
+    <div class="mc-util-group" role="group" aria-label="Eksport">
+      <span class="mc-util-group-label">Eksport</span>
+      <button class="mc-util-btn mc-util-btn-text" id="mcBtnCsv" type="button" title="Eksport CSV">⬇ CSV</button>
+      <button class="mc-util-btn mc-util-btn-text" id="mcBtnPng" type="button" title="Zrzut mapy (PNG)">⬇ PNG</button>
+    </div>
+    <div class="mc-util-group" role="group" aria-label="Inne">
+      <span class="mc-util-group-label">Inne</span>
+      <button class="mc-util-btn" id="mcBtnNotif" type="button" title="Włącz powiadomienia o zniknięciu obserwowanych"><span aria-hidden="true">🔔</span> Alerty</button>
+      <button class="mc-util-btn" id="mcBtnBlackout" type="button" title="Tryb OLED / blackout"><span aria-hidden="true">⬛</span> OLED</button>
+    </div>
   </div>
   <nav class="mc-chip-bar" id="mcChipBar" aria-label="Filtry online"></nav>
   <div id="app">
@@ -39,9 +46,6 @@
     <div id="map-legend" class="overlay"></div>
     <aside id="sidebar" class="overlay">
       <button id="sheet-toggle" class="sheet-toggle" type="button" aria-expanded="false"><span class="sheet-handle"></span><span class="sheet-label"></span></button>
-      <section class="summary-strip">
-        <div id="summary" class="summary-shell"></div>
-      </section>
       <section class="list-shell">
         <div id="node-sections"></div>
       </section>
@@ -51,6 +55,6 @@
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>
