@@ -18,3 +18,4 @@ logs/
 config/config.toml
 docker-compose.yml
 docker-compose.override.yml
+graphify-out/

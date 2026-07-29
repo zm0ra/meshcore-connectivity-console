@@ -17,6 +17,7 @@ from typing import Any, Callable
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import AppConfig, load_config, load_raw_config, save_raw_config
@@ -818,6 +819,10 @@ def _build_admin_logs_payload(database: BotDatabase, *, config_path: Path) -> di
 _STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
 ADMIN_HTML = (_STATIC_DIR / "admin.html").read_text(encoding="utf-8")
+APP_CSS = (_STATIC_DIR / "app.css").read_text(encoding="utf-8")
+APP_JS = (_STATIC_DIR / "app.js").read_text(encoding="utf-8")
+# Markup plus behaviour, for tests that assert on the whole dashboard bundle.
+DASHBOARD_BUNDLE = f"{INDEX_HTML}\n{APP_CSS}\n{APP_JS}"
 
 
 def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | Path = "config/config.toml") -> FastAPI:
@@ -1051,5 +1056,7 @@ def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | P
     @app.get("/", response_class=HTMLResponse)
     async def root() -> HTMLResponse:
         return HTMLResponse(INDEX_HTML)
+
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     return app

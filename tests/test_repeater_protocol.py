@@ -46,7 +46,7 @@ from meshcore_bot.repeater_protocol import (
 )
 from meshcore_bot.tcp_client import MeshcoreTCPClient
 from meshcore_bot.tcp_client import ReceivedPacket
-from meshcore_bot.web_service import INDEX_HTML, ProbeJobCreatePayload, create_app
+from meshcore_bot.web_service import DASHBOARD_BUNDLE, ProbeJobCreatePayload, create_app
 
 
 class FakeTCPClient:
@@ -3229,29 +3229,29 @@ def test_web_history_queries_keep_latest_neighbor_snapshot_and_signal_history(tm
 
 
 def test_dashboard_html_keeps_route_helper_search_and_map_coord_warning() -> None:
-    assert 'function buildRouteResult(state, sourceId, targetId)' in INDEX_HTML
-    assert 'function buildHistoricalRouteResult(state, sourceId, targetId)' in INDEX_HTML
-    assert 'function buildRouteReachability(state, sourceId)' in INDEX_HTML
-    assert 'function renderRouteProbePathSection(state)' in INDEX_HTML
-    assert 'function renderProbeQueueCard(state, node)' in INDEX_HTML
-    assert 'data-queue-probe=' in INDEX_HTML
-    assert 'data-node-search="1"' in INDEX_HTML
-    assert 'const MIN_NODE_SEARCH_QUERY_LENGTH = 2;' in INDEX_HTML
-    assert "function effectiveNodeSearchQuery()" in INDEX_HTML
-    assert "function hasActiveNodeSearchQuery()" in INDEX_HTML
-    assert 'data-route-destination=' in INDEX_HTML
-    assert 'routeReachabilityTitle' in INDEX_HTML
-    assert 'routeProbePathTitle' in INDEX_HTML
-    assert 'routeHistoricalRoute' in INDEX_HTML
-    assert 'mapNodePositionMissing' in INDEX_HTML
-    assert 'mapNeighborPositionsMissing' in INDEX_HTML
-    assert 'nazwa, prefix, hex (min. 2 znaki)' in INDEX_HTML
-    assert 'data-panel="connectivity"' in INDEX_HTML
-    assert 'data-panel="route"' in INDEX_HTML
-    assert 'function buildPanelSummary(state)' in INDEX_HTML
-    assert 'function renderMobileOverview(state)' in INDEX_HTML
-    assert 'function armBlankMapClear()' in INDEX_HTML
-    assert 'function suppressUpcomingDoubleClickZoom()' in INDEX_HTML
+    assert 'function buildRouteResult(state, sourceId, targetId)' in DASHBOARD_BUNDLE
+    assert 'function buildHistoricalRouteResult(state, sourceId, targetId)' in DASHBOARD_BUNDLE
+    assert 'function buildRouteReachability(state, sourceId)' in DASHBOARD_BUNDLE
+    assert 'function renderRouteProbePathSection(state)' in DASHBOARD_BUNDLE
+    assert 'function renderProbeQueueCard(state, node)' in DASHBOARD_BUNDLE
+    assert 'data-queue-probe=' in DASHBOARD_BUNDLE
+    assert 'data-node-search="1"' in DASHBOARD_BUNDLE
+    assert 'const MIN_NODE_SEARCH_QUERY_LENGTH = 2;' in DASHBOARD_BUNDLE
+    assert "function effectiveNodeSearchQuery()" in DASHBOARD_BUNDLE
+    assert "function hasActiveNodeSearchQuery()" in DASHBOARD_BUNDLE
+    assert 'data-route-destination=' in DASHBOARD_BUNDLE
+    assert 'routeReachabilityTitle' in DASHBOARD_BUNDLE
+    assert 'routeProbePathTitle' in DASHBOARD_BUNDLE
+    assert 'routeHistoricalRoute' in DASHBOARD_BUNDLE
+    assert 'mapNodePositionMissing' in DASHBOARD_BUNDLE
+    assert 'mapNeighborPositionsMissing' in DASHBOARD_BUNDLE
+    assert 'nazwa, prefix, hex (min. 2 znaki)' in DASHBOARD_BUNDLE
+    assert 'data-panel="connectivity"' in DASHBOARD_BUNDLE
+    assert 'data-panel="route"' in DASHBOARD_BUNDLE
+    assert 'function buildPanelSummary(state)' in DASHBOARD_BUNDLE
+    assert 'function renderMobileOverview(state)' in DASHBOARD_BUNDLE
+    assert 'function armBlankMapClear()' in DASHBOARD_BUNDLE
+    assert 'function suppressUpcomingDoubleClickZoom()' in DASHBOARD_BUNDLE
 
 
 def test_web_api_manual_probe_queue_respects_pending_and_cooldown(tmp_path) -> None:
