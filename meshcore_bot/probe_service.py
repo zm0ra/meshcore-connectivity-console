@@ -352,7 +352,9 @@ class GuestProbeWorker:
             normal_seen_within_secs = max(interval_secs * 3, interval_secs)
             if seen_within_cap_secs > 0:
                 normal_seen_within_secs = min(normal_seen_within_secs, seen_within_cap_secs)
-            recovery_seen_within_secs = normal_seen_within_secs
+            # Recovery falls back to the full configured window, so repeaters that
+            # went quiet for longer than the short window still get picked up.
+            recovery_seen_within_secs = seen_within_cap_secs if seen_within_cap_secs > 0 else normal_seen_within_secs
             selected_seen_within_secs = normal_seen_within_secs
             enqueued = self.database.schedule_stale_repeater_probe_jobs(
                 endpoint_names=endpoint_names,

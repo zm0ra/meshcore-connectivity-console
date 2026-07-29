@@ -101,6 +101,12 @@ def test_build_management_payload_excludes_signal_history() -> None:
     assert "signal_history" not in payload
     assert payload["map_links"]
     assert payload["route_hints"]
+
+
+def test_build_management_payload_loads_historical_links_only_on_demand() -> None:
+    assert "historical_links" not in _build_management_payload(_DummyDatabase())
+
+    payload = _build_management_payload(_DummyDatabase(), include_historical=True)
     assert payload["historical_links"]
 
 

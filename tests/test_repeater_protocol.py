@@ -3,6 +3,8 @@ import json
 import struct
 import sys
 
+import pytest
+
 from datetime import UTC, datetime, timedelta
 from dataclasses import replace
 from pathlib import Path
@@ -19,11 +21,13 @@ from meshcore_bot.identity import LocalIdentity
 from meshcore_bot.ingest_service import AdvertIngestService
 from meshcore_bot.mesh_builders import (
     build_advert_packet,
+    build_anon_request_payload,
     build_datagram_payload,
     build_group_text_packet,
     build_login_packet,
     build_mesh_packet,
     build_private_text_packet,
+    build_request_packet,
     next_request_tag,
     next_wire_timestamp,
     parse_anon_request,
@@ -417,9 +421,11 @@ def test_select_login_candidates_prefers_szn_admin_password() -> None:
         advert_path_change_cooldown_secs=300.0,
         automatic_probe_max_per_day=3,
         scheduled_reprobe_interval_secs=28800.0,
+        scheduled_reprobe_max_batch=24,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
+        night_failed_retry_max_batch=12,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -452,9 +458,11 @@ def test_select_login_candidates_fall_back_to_empty_guest_for_non_szn() -> None:
         advert_path_change_cooldown_secs=300.0,
         automatic_probe_max_per_day=3,
         scheduled_reprobe_interval_secs=28800.0,
+        scheduled_reprobe_max_batch=24,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
+        night_failed_retry_max_batch=12,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -487,9 +495,11 @@ def test_select_login_candidates_puts_learned_login_first() -> None:
         advert_path_change_cooldown_secs=300.0,
         automatic_probe_max_per_day=3,
         scheduled_reprobe_interval_secs=28800.0,
+        scheduled_reprobe_max_batch=24,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
+        night_failed_retry_max_batch=12,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
@@ -1262,6 +1272,7 @@ def test_await_tagged_response_extends_deadline_after_echoed_own_request(tmp_pat
         path_hex="35",
         raw_packet_hex="00",
     )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
     request_tag = 0x10203040
     echoed_request = build_request_packet(
         identity=worker.identity,
@@ -1309,7 +1320,7 @@ def test_await_tagged_response_extends_deadline_after_echoed_own_request(tmp_pat
         payload, path_len, path_bytes = await worker._await_tagged_response(
             client=cast(Any, client),
             endpoint_name="test-endpoint",
-            probe_run_id=1,
+            probe_run_id=probe_run_id,
             repeater_id=repeater_id,
             remote_pubkey=remote_identity.public_key,
             shared_secret=shared_secret,
@@ -1321,7 +1332,11 @@ def test_await_tagged_response_extends_deadline_after_echoed_own_request(tmp_pat
 
     payload, path_len, path_bytes, elapsed = asyncio.run(run_probe())
 
-    assert payload == struct.pack("<I", request_tag) + b"OK"
+    # Payloads are zero-padded to the AES block size and never unpadded, so the
+    # decrypted response carries trailing zeros after the tagged body.
+    expected = struct.pack("<I", request_tag) + b"OK"
+    assert payload.startswith(expected)
+    assert set(payload[len(expected):]) <= {0}
     assert path_len == 1
     assert path_bytes == bytes.fromhex("35")
     assert elapsed >= 0.14
@@ -1335,6 +1350,19 @@ def test_await_login_response_extends_deadline_after_echoed_own_anon_request(tmp
     worker = GuestProbeWorker(config, database)
     remote_identity = LocalIdentity.generate()
     shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="login-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
     echoed_login = build_login_packet(
         identity=worker.identity,
         remote_public_key=remote_identity.public_key,
@@ -1380,7 +1408,7 @@ def test_await_login_response_extends_deadline_after_echoed_own_anon_request(tmp
         payload, path_len, path_bytes = await worker._await_login_response(
             client=cast(Any, client),
             endpoint_name="test-endpoint",
-            probe_run_id=1,
+            probe_run_id=probe_run_id,
             remote_pubkey=remote_identity.public_key,
             shared_secret=shared_secret,
         )
@@ -1403,10 +1431,23 @@ def test_await_login_response_extends_deadline_after_decryptable_foreign_anon_re
     remote_identity = LocalIdentity.generate()
     foreign_identity = LocalIdentity.generate()
     shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="login-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
     foreign_anon_request = build_mesh_packet(
         route_type=RouteType.FLOOD,
         payload_type=PayloadType.ANON_REQ,
-        payload=build_datagram_payload(
+        payload=build_anon_request_payload(
             destination_public_key=remote_identity.public_key,
             source_identity=foreign_identity,
             shared_secret=shared_secret,
@@ -1453,7 +1494,7 @@ def test_await_login_response_extends_deadline_after_decryptable_foreign_anon_re
         payload, path_len, path_bytes = await worker._await_login_response(
             client=cast(Any, client),
             endpoint_name="test-endpoint",
-            probe_run_id=1,
+            probe_run_id=probe_run_id,
             remote_pubkey=remote_identity.public_key,
             shared_secret=shared_secret,
         )
@@ -1475,6 +1516,19 @@ def test_await_login_response_fails_fast_on_echo_loop(tmp_path) -> None:
     worker = GuestProbeWorker(config, database)
     remote_identity = LocalIdentity.generate()
     shared_secret = worker.identity.calc_shared_secret(remote_identity.public_key)
+    repeater_id = database.upsert_repeater_from_advert(
+        endpoint_name="test-endpoint",
+        observed_at=datetime.now(tz=UTC).isoformat(),
+        public_key=remote_identity.public_key,
+        advert_name="login-target",
+        advert_lat=None,
+        advert_lon=None,
+        advert_timestamp_remote=1,
+        path_len=1,
+        path_hex="35",
+        raw_packet_hex="00",
+    )
+    probe_run_id = database.create_probe_run(repeater_id=repeater_id, endpoint_name="test-endpoint")
     client = TimedReceiveClient(
         [
             (
@@ -1506,7 +1560,7 @@ def test_await_login_response_fails_fast_on_echo_loop(tmp_path) -> None:
                     ),
                 ),
                 (
-                    0.4,
+                    0.2,
                     build_login_packet(
                         identity=worker.identity,
                         remote_public_key=remote_identity.public_key,
@@ -1516,7 +1570,7 @@ def test_await_login_response_fails_fast_on_echo_loop(tmp_path) -> None:
                     ),
                 ),
                 (
-                    0.6,
+                    0.2,
                     build_login_packet(
                         identity=worker.identity,
                         remote_public_key=remote_identity.public_key,
@@ -1535,7 +1589,7 @@ def test_await_login_response_fails_fast_on_echo_loop(tmp_path) -> None:
             await worker._await_login_response(
                 client=cast(Any, client),
                 endpoint_name="test-endpoint",
-                probe_run_id=1,
+                probe_run_id=probe_run_id,
                 remote_pubkey=remote_identity.public_key,
                 shared_secret=shared_secret,
             )
@@ -4793,6 +4847,7 @@ def test_schedule_stale_reprobes_uses_short_window_before_recovery_window(tmp_pa
         probe=replace(
             build_multi_endpoint_test_app_config(tmp_path).probe,
             scheduled_reprobe_interval_secs=3600.0,
+            scheduled_reprobe_max_batch=24,
             scheduled_reprobe_seen_within_secs=30 * 24 * 3600.0,
         ),
     )
@@ -4819,6 +4874,7 @@ def test_schedule_stale_reprobes_skips_recovery_window_when_short_window_enqueue
         probe=replace(
             build_multi_endpoint_test_app_config(tmp_path).probe,
             scheduled_reprobe_interval_secs=3600.0,
+            scheduled_reprobe_max_batch=24,
             scheduled_reprobe_seen_within_secs=30 * 24 * 3600.0,
         ),
     )
@@ -4985,9 +5041,11 @@ def test_select_login_candidates_forced_login_disables_empty_fallback() -> None:
         advert_path_change_cooldown_secs=300.0,
         automatic_probe_max_per_day=3,
         scheduled_reprobe_interval_secs=28800.0,
+        scheduled_reprobe_max_batch=24,
         night_failed_retry_start_hour=1,
         night_failed_retry_end_hour=7,
         night_failed_retry_interval_secs=3600.0,
+        night_failed_retry_max_batch=12,
         poll_interval_secs=2.0,
         request_timeout_secs=8.0,
         route_freshness_secs=1800.0,
