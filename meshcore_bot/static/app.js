@@ -1026,7 +1026,10 @@ function normalizeVisibleSelections(state) {
 
 function connectivityData(state) {
   const nodes = sortNodes(relevantNodes(state));
-  const nodeIndex = new Map(nodes.map((node) => [node.identity_hex, node]));
+  // Endpoints resolve against EVERY known node, not just the filtered ones: an
+  // age filter narrows the browsing list, it must not amputate the neighbours of
+  // a node the operator explicitly selected.
+  const nodeIndex = new Map((state.nodes || []).map((node) => [node.identity_hex, node]));
   const edges = [];
   const pairSet = new Set();
   for (const link of (state.management?.map_links || [])) {
