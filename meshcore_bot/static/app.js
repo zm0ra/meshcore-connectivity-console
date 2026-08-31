@@ -438,10 +438,10 @@ const TRANSLATIONS = {
   },
 };
 const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([53.43, 14.55], 8);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  subdomains: 'abcd',
-  maxZoom: 20,
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+// ponytail: CARTO basemaps now demand an API key; OSM standard tiles are keyless
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 const markersLayer = (typeof L.markerClusterGroup === 'function')
   ? L.markerClusterGroup({
