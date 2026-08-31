@@ -5,9 +5,11 @@
   --panel-strong: #ffffff;
   --section: rgba(21, 33, 42, 0.045);
   --ink: #15212a;
-  --muted: #6a7883;
+  /* Contrast-checked against --panel: muted text 5.1:1 (was 4.3:1, under the 4.5
+     floor), component borders 3.9:1 (was ~1.5:1, under the 3:1 floor). */
+  --muted: #5f6d78;
   --line: rgba(21, 33, 42, 0.1);
-  --line-strong: rgba(21, 33, 42, 0.16);
+  --line-strong: #767f88;
   --green: #2e8b57;
   --blue: #2c71d1;
   --red: #c64a3d;
@@ -276,7 +278,7 @@ body {
   --ink: #e6ecf2;
   --muted: #8b97a3;
   --line: rgba(var(--surface-rgb), 0.1);
-  --line-strong: rgba(var(--surface-rgb), 0.18);
+  --line-strong: rgba(var(--surface-rgb), 0.40);
   --green: #4cb87a;
   --blue: #5b9cf0;
   --red: #e57262;
@@ -306,7 +308,7 @@ body {
     --ink: #e6ecf2;
     --muted: #8b97a3;
     --line: rgba(var(--surface-rgb), 0.1);
-    --line-strong: rgba(var(--surface-rgb), 0.18);
+    --line-strong: rgba(var(--surface-rgb), 0.40);
     --green: #4cb87a;
     --blue: #5b9cf0;
     --red: #e57262;
@@ -1896,6 +1898,9 @@ textarea:focus-visible {
     order: 1;
     flex: 0 0 clamp(180px, 26dvh, 240px);
     min-height: clamp(180px, 26dvh, 240px);
+    /* Embedded in a scrolling page: a vertical swipe belongs to the page, not the map.
+       Horizontal drag and pinch-zoom still reach Leaflet. */
+    touch-action: pan-y;
   }
   #sidebar {
     position: relative;
@@ -2082,6 +2087,8 @@ textarea:focus-visible {
     display: block;
     min-height: auto;
     height: auto;
+    /* Full-screen map: it IS the page, so one-finger pan is the expected gesture. */
+    touch-action: none;
   }
   #sidebar {
     position: absolute;
@@ -2099,8 +2106,10 @@ textarea:focus-visible {
     transition: height 180ms ease, max-height 180ms ease, transform 180ms ease;
   }
   #sidebar.sheet-collapsed {
-    height: min(18dvh, 148px);
-    max-height: min(18dvh, 148px);
+    /* 18dvh showed the header and nothing else, so the list read as empty. Two
+       rows peek out now: enough to show there is something to pull up. */
+    height: min(26dvh, 214px);
+    max-height: min(26dvh, 214px);
   }
   #sidebar.sheet-expanded {
     height: min(74dvh, 640px);
@@ -2114,6 +2123,10 @@ textarea:focus-visible {
   }
   #map-legend {
     display: none;
+  }
+  /* Attribution is a legal requirement, so it rides above the sheet, not under it. */
+  .leaflet-control-attribution {
+    margin-bottom: calc(var(--sheet-h, 0px) + 14px);
   }
   .summary-strip {
     display: none;
@@ -2181,7 +2194,7 @@ textarea:focus-visible {
   --panel-strong: #050505;
   --section: rgba(255,255,255,0.04);
   --line: rgba(255,255,255,0.08);
-  --line-strong: rgba(255,255,255,0.14);
+  --line-strong: rgba(255,255,255,0.42);
   --shadow: 0 12px 28px rgba(0,0,0,0.85);
   --shadow-soft: 0 4px 12px rgba(0,0,0,0.6);
   --surface-rgb: 0,0,0;
@@ -2211,7 +2224,9 @@ textarea:focus-visible {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(21,33,42,0.14);
+  /* Token, not a hardcoded light-theme ink: on the blackout background the old
+     value dropped to ~1:1 and the button border vanished. */
+  border: 1px solid var(--line-strong, var(--line));
   background: rgba(var(--surface-rgb), 0.88);
   color: var(--ink);
   font-size: 0.78rem; font-weight: 600;
@@ -2318,7 +2333,10 @@ textarea:focus-visible {
 .mc-map-search-results .mc-mini { color: var(--muted); font-size: 0.72rem; margin-left: 6px; }
 /* Chip filter bar */
 .mc-chip-bar {
-  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  position: fixed;
+  /* --sheet-h is published by app.js from the sheet's measured height (0 on desktop). */
+  bottom: calc(18px + var(--sheet-h, 0px));
+  left: 50%; transform: translateX(-50%);
   z-index: 1300;
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 8px 10px;
@@ -2425,14 +2443,106 @@ textarea:focus-visible {
     top: 108px; left: 16px; right: 16px; width: auto;
   }
 }
+/* Legend swatches mirror the marker outline pattern, so the legend teaches the
+   non-colour cue instead of only naming the colour. */
+.legend-node-solid { outline: 2px solid var(--ink); outline-offset: 1px; }
+.legend-node-dashed { outline: 2px dashed var(--ink); outline-offset: 1px; }
+.legend-node-dotted { outline: 2px dotted var(--ink); outline-offset: 1px; }
+/* Screen-reader-only text: present in the a11y tree, absent on screen. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+.skip-link {
+  position: fixed; top: -100px; left: 12px;
+  z-index: 2100;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--blue); color: #fff; font-weight: 700;
+  text-decoration: none;
+}
+.skip-link:focus { top: 12px; }
+/* Backend trouble is announced, not just logged. */
+.data-error {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  z-index: 2000;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--red);
+  background: rgba(var(--surface-rgb), 0.97);
+  color: var(--ink);
+  font-size: 0.82rem; font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.data-error[hidden] { display: none; }
+.data-error-close {
+  min-width: 32px; min-height: 32px;
+  border: none; border-radius: 8px;
+  background: transparent; color: var(--muted);
+  font-size: 0.9rem; cursor: pointer;
+}
+.data-error-close:hover { background: rgba(var(--surface-rgb), 0.2); color: var(--ink); }
+.data-error-close:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Touch input: every control gets a 44px hit area and every field a 16px font,
+   the two thresholds a finger and iOS Safari actually enforce. Last block in the
+   file so it wins over the per-breakpoint padding tweaks above. */
+@media (pointer: coarse) {
+  .mc-util-extra .util-button,
+  .mc-util-extra .mc-util-btn,
+  .mc-util-extra .admin-link,
+  .mc-chip,
+  .view-button,
+  .lang-button,
+  .sort-select,
+  .route-select,
+  .sheet-toggle,
+  .mc-fav-star,
+  .mc-watch-btn,
+  .mc-qr-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .mc-util-extra .mc-util-btn,
+  .mc-chip,
+  .view-button,
+  .lang-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .toolbar-search-input,
+  .sort-select,
+  .route-select,
+  .mc-map-search input {
+    font-size: 1rem;
+    min-height: 44px;
+  }
+  /* No hover on touch, so a bare icon has no way to explain itself: the label
+     comes back and the toolbar scrolls sideways instead of stacking over the map. */
+  .mc-util-extra .mc-util-group .mc-util-btn:not(.mc-util-btn-text) {
+    font-size: 0.72rem;
+    gap: 6px;
+    padding: 6px 12px;
+  }
+  .mc-util-extra {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .mc-util-extra::-webkit-scrollbar { display: none; }
+  .mc-util-group { flex: 0 0 auto; }
+}
 /* Mobile tweak */
 @media (max-width: 640px) {
   .mc-util-extra { top: 56px; left: 8px; right: 8px; gap: 4px; }
   .mc-util-extra .mc-util-btn { padding: 6px 8px; font-size: 0.7rem; }
   .mc-chip { padding: 4px 8px; font-size: 0.68rem; }
-  /* The chip bar has to clear the bottom sheet instead of floating over it. */
+  /* Clearance comes from --sheet-h in the base rule; only spacing changes here. */
   .mc-chip-bar {
-    bottom: calc(min(34dvh, 280px) + 18px);
     padding: 6px 8px; gap: 4px;
   }
 }

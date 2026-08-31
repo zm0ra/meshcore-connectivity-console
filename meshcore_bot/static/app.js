@@ -196,6 +196,9 @@ const TRANSLATIONS = {
     languageLabel: 'Język',
     sheetExpand: 'Rozwiń',
     sheetCollapse: 'Zwin',
+    dataErrorStale: (detail) => `Brak świeżych danych z serwera (${detail}). Widok pokazuje ostatni znany stan.`,
+    dataErrorRetry: 'Spróbuj ponownie',
+    dataErrorDismiss: 'Zamknij komunikat',
     toolbarMapTitle: 'Mapa sieci',
     toolbarMapSubtitle: 'Wybierz punkt z mapy lub listy, aby zobaczyć jego bezpośrednie połączenia.',
     toolbarNewTitle: 'Nowe punkty',
@@ -412,6 +415,9 @@ const TRANSLATIONS = {
     languageLabel: 'Language',
     sheetExpand: 'Expand',
     sheetCollapse: 'Collapse',
+    dataErrorStale: (detail) => `No fresh data from the server (${detail}). You are looking at the last known state.`,
+    dataErrorRetry: 'Try again',
+    dataErrorDismiss: 'Dismiss message',
     toolbarMapTitle: 'Network map',
     toolbarMapSubtitle: 'Select a node on the map or from the list to inspect direct links.',
     toolbarNewTitle: 'New nodes',
@@ -708,6 +714,24 @@ function flushPendingRefresh() {
   render(state);
 }
 
+// The chip bar floats above the sheet, so it needs the sheet's REAL height, not a
+// second formula that guesses it. One observer, one variable, no drift.
+function publishSheetHeight() {
+  const sidebar = document.getElementById('sidebar');
+  const root = document.documentElement;
+  if (!sidebar || !isPortraitMobileView()) {
+    root.style.setProperty('--sheet-h', '0px');
+    return;
+  }
+  root.style.setProperty('--sheet-h', `${Math.round(sidebar.getBoundingClientRect().height)}px`);
+}
+
+function watchSheetHeight() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar || typeof ResizeObserver !== 'function') return;
+  new ResizeObserver(publishSheetHeight).observe(sidebar);
+}
+
 function syncSidebarSheetState() {
   const sidebar = document.getElementById('sidebar');
   const toggle = document.getElementById('sheet-toggle');
@@ -717,6 +741,7 @@ function syncSidebarSheetState() {
     toggle.setAttribute('aria-expanded', 'true');
     const label = toggle.querySelector('.sheet-label');
     if (label) label.textContent = '';
+    publishSheetHeight();
     return;
   }
   sidebar.classList.toggle('sheet-collapsed', sidebarSheetState === 'collapsed');
@@ -725,6 +750,7 @@ function syncSidebarSheetState() {
   const label = toggle.querySelector('.sheet-label');
   if (label) label.textContent = sidebarSheetState === 'collapsed' ? tr('sheetExpand') : tr('sheetCollapse');
   localStorage.setItem('meshcoreDashboardSheetState', sidebarSheetState);
+  publishSheetHeight();
 }
 
 function toggleSidebarSheet() {
@@ -802,9 +828,9 @@ function renderLegend() {
   legend.innerHTML = `
     <div class="legend-group">
       <span class="legend-title">${tr('legendRepeaters')}</span>
-      <div class="legend-row"><span class="legend-node" style="background:#2e8b57"></span><span>${tr('legendDataAvailable')}</span></div>
-      <div class="legend-row"><span class="legend-node" style="background:#2c71d1"></span><span>${tr('legendKnownNoData')}</span></div>
-      <div class="legend-row"><span class="legend-node" style="background:#c64a3d"></span><span>${tr('legendInactive')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-solid" style="background:#2e8b57"></span><span>${tr('legendDataAvailable')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-dashed" style="background:#2c71d1"></span><span>${tr('legendKnownNoData')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-dotted" style="background:#c64a3d"></span><span>${tr('legendInactive')}</span></div>
     </div>
     <div class="legend-group">
       <span class="legend-title">${tr('legendLinks')}</span>
@@ -2060,6 +2086,8 @@ async function queueProbeJob(repeaterId) {
       identityHex: node.identity_hex,
       status: 'error',
       scheduledAt: null,
+      // The backend's own `detail` was thrown away here; the user saw a generic hint.
+      detail: error && error.message ? error.message : null,
     };
     if (latestState) render(latestState);
   } finally {
@@ -2125,18 +2153,28 @@ function lineColor(link) {
   return '#c64a3d';
 }
 
+// Status must survive colour blindness, so the outline carries it too:
+// solid ring = fresh data, dashed = known but no data, dotted = silent >24h.
+function statusDash(node) {
+  const state = nodeState(node);
+  if (state === 'ok') return null;
+  if (state === 'missing') return '4 3';
+  return '1 3';
+}
+
 function markerStyle(node, isolated, selected, neighbor) {
   const color = nodeColor(node);
+  const dashArray = statusDash(node);
   if (selected) {
-    return { radius: 12, color: '#15212a', weight: 3.6, fillColor: color, fillOpacity: 1, opacity: 1 };
+    return { radius: 12, color: '#15212a', weight: 3.6, fillColor: color, fillOpacity: 1, opacity: 1, dashArray };
   }
   if (neighbor) {
-    return { radius: 7.5, color, weight: 2, fillColor: color, fillOpacity: 0.9, opacity: 0.94 };
+    return { radius: 7.5, color, weight: 2, fillColor: color, fillOpacity: 0.9, opacity: 0.94, dashArray };
   }
   if (isolated) {
-    return { radius: 4, color, weight: 1, fillColor: color, fillOpacity: 0.16, opacity: 0.2 };
+    return { radius: 4, color, weight: 1, fillColor: color, fillOpacity: 0.16, opacity: 0.2, dashArray };
   }
-  return { radius: 5, color, weight: 1.2, fillColor: color, fillOpacity: 0.82, opacity: 0.85 };
+  return { radius: 5, color, weight: 1.2, fillColor: color, fillOpacity: 0.82, opacity: 0.85, dashArray };
 }
 
 function drawFocusHalo(node, strokeColor, fillColor, outerRadius = 18, innerRadius = 13) {
@@ -2387,7 +2425,7 @@ function probeQueueSummary(state, node) {
     return {
       chip: tr('probeQueueError'),
       chipClass: 'error',
-      note: tr('probeQueueHintError'),
+      note: feedback.detail ? `${tr('probeQueueHintError')} ${feedback.detail}` : tr('probeQueueHintError'),
     };
   }
   return null;
@@ -3166,7 +3204,7 @@ async function refresh(force = false) {
       return;
     }
     if (!response.ok) {
-      markHealth('bad');
+      markHealth('bad', `HTTP ${response.status}`);
       throw new Error(`state refresh failed: ${response.status}`);
     }
     latestStateEtag = response.headers.get('etag') || latestStateEtag;
@@ -3183,7 +3221,7 @@ async function refresh(force = false) {
     await refreshInFlight;
   } catch (error) {
     console.error('Dashboard refresh failed', error);
-    markHealth('bad');
+    markHealth('bad', error && error.message ? error.message : error);
     scheduleRefresh(ERROR_REFRESH_INTERVAL_MS);
   } finally {
     refreshInFlight = null;
@@ -3310,6 +3348,9 @@ const sheetToggle = document.getElementById('sheet-toggle');
 if (sheetToggle) {
   sheetToggle.addEventListener('click', toggleSidebarSheet);
 }
+watchSheetHeight();
+publishSheetHeight();
+document.getElementById('dataErrorClose')?.addEventListener('click', clearDataError);
 window.addEventListener('resize', () => {
   applyMobileView();
   syncSidebarSheetState();
@@ -3371,9 +3412,26 @@ renderLegend();
   });
 })();
 
+// A failed fetch used to be console-only: the dashboard kept showing stale data
+// with no sign anything was wrong. Now it says so, with the actual cause.
+function showDataError(detail) {
+  const banner = document.getElementById('dataError');
+  if (!banner) return;
+  const text = banner.querySelector('.data-error-text');
+  if (text) text.textContent = trFormat('dataErrorStale', String(detail || 'brak odpowiedzi'));
+  banner.hidden = false;
+}
+
+function clearDataError() {
+  const banner = document.getElementById('dataError');
+  if (banner) banner.hidden = true;
+}
+
 let lastHealthOkMs = 0;
-function markHealth(state) {
+function markHealth(state, detail) {
   const pill = document.getElementById('healthPill');
+  if (state === 'ok') clearDataError();
+  else if (state === 'bad') showDataError(detail);
   if (!pill) return;
   if (state === 'ok') lastHealthOkMs = Date.now();
   pill.classList.toggle('health-ok', state === 'ok');
@@ -3833,7 +3891,10 @@ void refresh(true);
     return html2canvasLoading;
   }
   $('mcBtnPng')?.addEventListener('click', async () => {
-    const btn = $('mcBtnPng'); const orig = btn.textContent; btn.textContent = '...';
+    const btn = $('mcBtnPng'); const orig = btn.textContent;
+    // Disabled, not just relabelled: '...' alone let a second click start a
+    // parallel render of the same map.
+    btn.disabled = true; btn.textContent = '...';
     try {
       const h2c = await ensureHtml2canvas();
       const canvas = await h2c(document.getElementById('map'), { useCORS: true, allowTaint: true, backgroundColor: null });
@@ -3841,20 +3902,42 @@ void refresh(true);
       a.href = canvas.toDataURL('image/png');
       a.download = `meshcore-map-${new Date().toISOString().slice(0,16).replace(':','')}.png`;
       document.body.appendChild(a); a.click(); a.remove();
-    } catch (e) { console.warn('png export', e); alert('Nie udało się wygenerować PNG.'); }
-    finally { btn.textContent = orig; }
+    } catch (e) {
+      console.warn('png export', e);
+      // Inline banner instead of a blocking alert(), matching every other message in the UI.
+      showDataError(`PNG: ${e && e.message ? e.message : 'export failed'}`);
+    }
+    finally { btn.disabled = false; btn.textContent = orig; }
   });
 
   // ------- 13. modal helper -------
   function showModal(html) {
     const old = document.querySelector('.mc-modal-backdrop');
     if (old) old.remove();
+    // Keyboard users were dropped at the top of the page on close: remember the
+    // trigger, move focus in, hand it back on the way out.
+    const opener = document.activeElement;
     const back = document.createElement('div');
     back.className = 'mc-modal-backdrop';
     back.innerHTML = `<div class="mc-modal" role="dialog" aria-modal="true"><button class="mc-modal-close" aria-label="Zamknij">×</button>${html}</div>`;
-    back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
-    back.querySelector('.mc-modal-close').addEventListener('click', () => back.remove());
+    const close = () => {
+      back.remove();
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+    };
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    back.querySelector('.mc-modal-close').addEventListener('click', close);
+    back.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const stops = back.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!stops.length) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
     document.body.appendChild(back);
+    back.querySelector('.mc-modal-close').focus();
+    back.close = close;
     return back;
   }
 
@@ -4127,7 +4210,10 @@ void refresh(true);
   // Escape key closes modals
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      document.querySelector('.mc-modal-backdrop')?.remove();
+      const back = document.querySelector('.mc-modal-backdrop');
+      if (!back) return;
+      if (typeof back.close === 'function') back.close();
+      else back.remove();
     }
   });
 

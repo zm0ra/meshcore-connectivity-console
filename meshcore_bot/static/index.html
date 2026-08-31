@@ -3,17 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MeshCore Bot</title>
+  <title>MeshCore — konsola łączności mesh</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <link rel="stylesheet" href="/static/app.css?v=__ASSET_VERSION__">
 </head>
 <body>
-  <div class="top-utility-bar">
+  <a class="skip-link" href="#node-sections">Przejdź do listy punktów</a>
+  <h1 class="visually-hidden">MeshCore — konsola łączności mesh</h1>
+  <header class="top-utility-bar">
     <a class="admin-link" href="/admin">Admin</a>
     <button id="themeToggle" class="util-button" type="button" aria-label="Przełącz motyw" title="Przełącz motyw (jasny / ciemny)">☽</button>
-    <span id="healthPill" class="health-pill" title="Stan połączenia z API">—</span>
+    <span id="healthPill" class="health-pill" role="status" aria-live="polite" title="Stan połączenia z API">—</span>
+  </header>
+  <div class="data-error" id="dataError" role="alert" hidden>
+    <span class="data-error-text"></span>
+    <button type="button" class="data-error-close" id="dataErrorClose" aria-label="Zamknij komunikat">✕</button>
   </div>
   <div class="mc-util-extra" id="mcUtilExtra" role="toolbar" aria-label="Dodatkowe akcje">
     <span class="mc-countdown" id="mcCountdown" title="Następne odświeżenie"></span>
@@ -41,16 +47,17 @@
     </div>
   </div>
   <nav class="mc-chip-bar" id="mcChipBar" aria-label="Filtry online"></nav>
-  <div id="app">
-    <div id="map"></div>
+  <main id="app">
+    <h2 class="visually-hidden">Mapa sieci</h2>
+    <div id="map" role="application" aria-label="Mapa punktów sieci mesh"></div>
     <div id="map-legend" class="overlay"></div>
-    <aside id="sidebar" class="overlay">
+    <aside id="sidebar" class="overlay" aria-label="Lista punktów">
       <button id="sheet-toggle" class="sheet-toggle" type="button" aria-expanded="false"><span class="sheet-handle"></span><span class="sheet-label"></span></button>
       <section class="list-shell">
         <div id="node-sections"></div>
       </section>
     </aside>
-  </div>
+  </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
