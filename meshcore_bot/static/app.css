@@ -2124,8 +2124,9 @@ textarea:focus-visible {
   #map-legend {
     display: none;
   }
-  /* Attribution is a legal requirement, so it rides above the sheet, not under it. */
-  .leaflet-control-attribution {
+  /* Attribution is a legal requirement, so it rides above the sheet, not under it.
+     Two classes deep to outrank Leaflet's own `.leaflet-bottom .leaflet-control`. */
+  .leaflet-bottom .leaflet-control-attribution {
     margin-bottom: calc(var(--sheet-h, 0px) + 14px);
   }
   .summary-strip {
@@ -2543,7 +2544,9 @@ textarea:focus-visible {
 }
 /* Mobile tweak */
 @media (max-width: 640px) {
-  .mc-util-extra { top: 56px; left: 8px; right: 8px; gap: 4px; }
+  /* 56px was tuned to a 36px-tall utility bar; 44px touch targets made it 66px,
+     so the first filter button ended up under it. */
+  .mc-util-extra { top: 94px; left: 8px; right: 8px; gap: 4px; }
   .mc-util-extra .mc-util-btn { padding: 6px 8px; font-size: 0.7rem; }
   .mc-chip { padding: 4px 8px; font-size: 0.68rem; }
   /* Clearance comes from --sheet-h in the base rule; only spacing changes here. */
