@@ -1760,6 +1760,131 @@ class BotDatabase:
             }
         return route_hints
 
+    def recent_packet_paths(self, *, limit: int = 120, hours: int = 24) -> list[dict[str, object]]:
+        """Adverts that actually travelled, with each hop resolved where it can be.
+
+        A path byte is one byte of a forwarder's public key, which on its own
+        matches several nodes. The browser cannot do better than "ambiguous"; here
+        we can narrow candidates by who was actually alive around that time and by
+        who is a known neighbour of the previous hop.
+        """
+        since = (datetime.now(tz=UTC) - timedelta(hours=max(1, hours))).isoformat()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT a.id,
+                       a.observed_at,
+                       a.endpoint_name,
+                       a.path_len,
+                       a.path_hex,
+                       r.pubkey_hex AS origin_identity_hex,
+                       COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS origin_name,
+                       r.last_lat AS origin_latitude,
+                       r.last_lon AS origin_longitude
+                FROM repeater_adverts a
+                JOIN repeaters r ON r.id = a.repeater_id
+                WHERE a.observed_at >= ?
+                  AND a.path_hex IS NOT NULL
+                  AND TRIM(a.path_hex) <> ''
+                  AND a.path_len > 0
+                ORDER BY a.observed_at DESC, a.id DESC
+                LIMIT ?
+                """,
+                (since, max(1, min(limit, 500))),
+            ).fetchall()
+            if not rows:
+                return []
+            nodes = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT r.pubkey_hex AS identity_hex,
+                           COALESCE(NULLIF(TRIM(r.last_name_from_advert), ''), SUBSTR(r.pubkey_hex, 1, 8)) AS name,
+                           r.last_lat AS latitude,
+                           r.last_lon AS longitude,
+                           r.last_seen_at
+                    FROM repeaters r
+                    """
+                ).fetchall()
+            ]
+
+        by_prefix: dict[str, list[dict[str, object]]] = {}
+        for node in nodes:
+            identity = str(node["identity_hex"] or "").upper()
+            if len(identity) >= 2:
+                by_prefix.setdefault(identity[:2], []).append(node)
+
+        adjacency = self._neighbour_adjacency()
+        return [
+            self._resolve_packet_path(dict(row), by_prefix, adjacency)
+            for row in rows
+        ]
+
+    def _neighbour_adjacency(self) -> dict[str, set[str]]:
+        """Who has ever been heard next to whom, as identity_hex -> {identity_hex}."""
+        adjacency: dict[str, set[str]] = {}
+        for link in self.latest_repeater_neighbor_links(limit_repeaters=256):
+            source = str(link.get("source_identity_hex") or "").upper()
+            target = str(link.get("target_identity_hex") or "").upper()
+            if len(source) < 8 or len(target) < 8:
+                continue
+            adjacency.setdefault(source, set()).add(target)
+            adjacency.setdefault(target, set()).add(source)
+        return adjacency
+
+    @staticmethod
+    def _resolve_packet_path(
+        row: dict[str, object],
+        by_prefix: dict[str, list[dict[str, object]]],
+        adjacency: dict[str, set[str]],
+    ) -> dict[str, object]:
+        path_hex = str(row.get("path_hex") or "").strip().upper()
+        path_len = int(row.get("path_len") or 0)
+        prefixes = [path_hex[index:index + 2] for index in range(0, len(path_hex), 2)]
+        prefixes = [prefix for prefix in prefixes if len(prefix) == 2][:path_len or None]
+
+        hops: list[dict[str, object]] = []
+        previous_identity = str(row.get("origin_identity_hex") or "").upper() or None
+        for prefix in prefixes:
+            candidates = by_prefix.get(prefix, [])
+            chosen: dict[str, object] | None = None
+            if len(candidates) == 1:
+                chosen = candidates[0]
+            elif candidates and previous_identity:
+                neighbours = adjacency.get(previous_identity, set())
+                narrowed = [c for c in candidates if str(c["identity_hex"]).upper() in neighbours]
+                if len(narrowed) == 1:
+                    chosen = narrowed[0]
+            hops.append(
+                {
+                    "prefix_hex": prefix,
+                    "identity_hex": chosen["identity_hex"] if chosen else None,
+                    "name": chosen["name"] if chosen else None,
+                    "latitude": chosen["latitude"] if chosen else None,
+                    "longitude": chosen["longitude"] if chosen else None,
+                    "candidate_count": len(candidates),
+                    "resolved_by": ("unique" if len(candidates) == 1 else "adjacency") if chosen else None,
+                }
+            )
+            if chosen:
+                previous_identity = str(chosen["identity_hex"]).upper()
+
+        return {
+            "id": row.get("id"),
+            "observed_at": row.get("observed_at"),
+            "endpoint_name": row.get("endpoint_name"),
+            "path_len": path_len,
+            "path_hex": path_hex,
+            "origin": {
+                "identity_hex": row.get("origin_identity_hex"),
+                "name": row.get("origin_name"),
+                "latitude": row.get("origin_latitude"),
+                "longitude": row.get("origin_longitude"),
+            },
+            "hops": hops,
+            "resolved_hops": sum(1 for hop in hops if hop["identity_hex"]),
+        }
+
     def repeater_historical_neighbor_links(self, limit_repeaters: int = 128) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(

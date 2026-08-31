@@ -955,6 +955,25 @@ def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | P
             return Response(status_code=304, headers=headers)
         return Response(content=snapshot.payload_bytes, media_type="application/json", headers=headers)
 
+    @app.get("/api/packet-paths")
+    async def api_packet_paths(limit: int = 120, hours: int = 24) -> JSONResponse:
+        rows = database.recent_packet_paths(limit=limit, hours=hours)
+        return JSONResponse(
+            {
+                "rows": rows,
+                "hours": hours,
+                "resolved_share": (
+                    round(
+                        sum(row["resolved_hops"] for row in rows)
+                        / max(1, sum(row["path_len"] for row in rows)),
+                        3,
+                    )
+                    if rows
+                    else 0
+                ),
+            }
+        )
+
     @app.get("/api/repeaters/{repeater_id}/signal-history")
     async def api_repeater_signal_history(repeater_id: int) -> JSONResponse:
         repeater = database.repeater_full_state(repeater_id=repeater_id)
