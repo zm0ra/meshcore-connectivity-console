@@ -83,6 +83,50 @@ body {
   background: rgba(246, 248, 246, 0.98);
   border-color: rgba(21, 33, 42, 0.08);
 }
+/* Collapse the side panel to give the map the full window. The handle stays
+   docked to the panel edge and rides along, so the way back is never hidden. */
+#sidebar {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+#sidebar.panel-hidden {
+  transform: translateX(calc(100% + 24px));
+}
+.panel-toggle {
+  position: absolute;
+  top: 50%;
+  right: calc(min(438px, 100vw - 32px) + 22px);
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 64px;
+  margin-top: -32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+  transition: right 220ms cubic-bezier(0.22, 1, 0.36, 1), color 140ms ease;
+}
+.panel-toggle:hover { color: var(--ink); }
+.panel-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.panel-toggle span {
+  display: block;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.panel-toggle.is-collapsed {
+  right: 16px;
+  border-right: 1px solid var(--line);
+  border-radius: 10px;
+}
+.panel-toggle.is-collapsed span { transform: rotate(180deg); }
 .sheet-toggle {
   display: none;
   width: 100%;
@@ -2124,6 +2168,14 @@ textarea:focus-visible {
   #map-legend {
     display: none;
   }
+  /* The bottom sheet has its own pull handle; a second collapse control would
+     just be two ways to do the same thing. */
+  .panel-toggle {
+    display: none;
+  }
+  #sidebar.panel-hidden {
+    transform: none;
+  }
   /* Attribution is a legal requirement, so it rides above the sheet, not under it.
      Two classes deep to outrank Leaflet's own `.leaflet-bottom .leaflet-control`. */
   .leaflet-bottom .leaflet-control-attribution {
@@ -2166,28 +2218,35 @@ textarea:focus-visible {
 
 /* === Big feature batch (2026-05-11): clusters, chips, favs, watchlist, etc. === */
 .mc-cluster-icon { background: transparent; border: none; }
+/* Status mix as a ring, count as a solid disc: the ring is the chart, the disc
+   is the label, and neither fights the other for the same pixels. */
 .mc-cluster-bubble {
-  width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, rgba(44,113,209,0.92), rgba(21,33,42,0.85));
-  color: #fff; font-weight: 700; font-size: 0.82rem; line-height: 1.05;
-  border: 2px solid rgba(255,255,255,0.85);
-  box-shadow: 0 4px 14px rgba(21,33,42,0.32);
+  background: var(--mix, #5b9cf0);
+  box-shadow: 0 6px 16px rgba(21,33,42,0.38), 0 0 0 1px rgba(21,33,42,0.25);
   text-align: center;
 }
-.mc-cluster-bubble .mc-cluster-total { font-size: 0.95rem; }
-.mc-cluster-bubble .mc-cluster-split {
-  display: inline-flex; gap: 6px; margin-top: 2px;
-  font-size: 0.66rem; font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+.mc-cluster-bubble::after {
+  content: '';
+  position: absolute; inset: 5px;
+  border-radius: 50%;
+  background: #1b2634;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
 }
-.mc-cluster-bubble .mc-cluster-split .g { color: #b9f5cf; }
-.mc-cluster-bubble .mc-cluster-split .b { color: #c8def7; }
-.mc-cluster-bubble .mc-cluster-split .r { color: #fbc6bd; }
-[data-theme="dark"] .mc-cluster-bubble {
-  border-color: rgba(255,255,255,0.6);
-  background: radial-gradient(circle at 30% 30%, rgba(70,140,230,0.92), rgba(10,18,28,0.92));
+.mc-cluster-bubble .mc-cluster-total {
+  position: relative; z-index: 1;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
 }
+.mc-cluster-icon:hover .mc-cluster-bubble { filter: brightness(1.12); }
+[data-theme="dark"] .mc-cluster-bubble::after { background: #141c27; }
 /* Blackout (OLED) override — layered on top of data-theme="dark" */
 [data-blackout="1"] {
   --bg: #000;
@@ -2205,9 +2264,9 @@ textarea:focus-visible {
 [data-blackout="1"] .leaflet-tile {
   filter: brightness(0.55) contrast(1.15) hue-rotate(180deg) invert(0.96) saturate(0.7);
 }
-[data-blackout="1"] .mc-cluster-bubble {
-  background: radial-gradient(circle at 30% 30%, #2e8b57, #000);
-  border-color: rgba(255,255,255,0.4);
+[data-blackout="1"] .mc-cluster-bubble::after {
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
 }
 /* Top utility bar extras — positioned to the left of the sidebar */
 .mc-util-extra {
@@ -2220,6 +2279,8 @@ textarea:focus-visible {
   pointer-events: none;
 }
 .mc-util-extra > * { pointer-events: auto; }
+/* Panel out of the way: the toolbar takes the width it left behind. */
+body.panel-collapsed .mc-util-extra { right: 56px; }
 .mc-util-extra .util-button,
 .mc-util-extra .mc-util-btn {
   display: inline-flex; align-items: center; gap: 6px;

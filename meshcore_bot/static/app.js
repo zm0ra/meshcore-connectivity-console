@@ -199,6 +199,9 @@ const TRANSLATIONS = {
     dataErrorStale: (detail) => `Brak świeżych danych z serwera (${detail}). Widok pokazuje ostatni znany stan.`,
     dataErrorRetry: 'Spróbuj ponownie',
     dataErrorDismiss: 'Zamknij komunikat',
+    panelHide: 'Ukryj panel',
+    panelShow: 'Pokaż panel',
+    clusterSummary: (total, ok, missing, stale) => `Grupa ${total} punktów: ${ok} z danymi, ${missing} bez danych, ${stale} nieaktywnych`,
     toolbarMapTitle: 'Mapa sieci',
     toolbarMapSubtitle: 'Wybierz punkt z mapy lub listy, aby zobaczyć jego bezpośrednie połączenia.',
     toolbarNewTitle: 'Nowe punkty',
@@ -418,6 +421,9 @@ const TRANSLATIONS = {
     dataErrorStale: (detail) => `No fresh data from the server (${detail}). You are looking at the last known state.`,
     dataErrorRetry: 'Try again',
     dataErrorDismiss: 'Dismiss message',
+    panelHide: 'Hide panel',
+    panelShow: 'Show panel',
+    clusterSummary: (total, ok, missing, stale) => `Cluster of ${total} nodes: ${ok} with data, ${missing} without data, ${stale} inactive`,
     toolbarMapTitle: 'Network map',
     toolbarMapSubtitle: 'Select a node on the map or from the list to inspect direct links.',
     toolbarNewTitle: 'New nodes',
@@ -469,14 +475,22 @@ const markersLayer = (typeof L.markerClusterGroup === 'function')
           }
         } catch {}
         const n = g + b + r || cluster.getChildCount();
-        const size = n < 10 ? 38 : n < 50 ? 46 : n < 200 ? 54 : 62;
-        const parts = [];
-        if (g) parts.push(`<b class="g">●${g}</b>`);
-        if (b) parts.push(`<b class="b">●${b}</b>`);
-        if (r) parts.push(`<b class="r">●${r}</b>`);
-        const split = parts.length > 1 ? `<span class="mc-cluster-split">${parts.join('')}</span>` : '';
+        const size = n < 10 ? 40 : n < 50 ? 48 : n < 200 ? 56 : 64;
+        // The old bubble crammed "●5 ●1 ●8" inside a 38px circle, which was
+        // unreadable at map scale. The mix is a ring around the count instead:
+        // proportion is legible at a glance, the number stays the loud part.
+        const stops = [];
+        let at = 0;
+        for (const [count, color] of [[g, '#3fbf78'], [b, '#5b9cf0'], [r, '#e0604f']]) {
+          if (!count) continue;
+          const end = at + (count / n) * 360;
+          stops.push(`${color} ${at}deg ${end}deg`);
+          at = end;
+        }
+        if (!stops.length) stops.push('#5b9cf0 0deg 360deg');
+        const label = trFormat('clusterSummary', n, g, b, r);
         return L.divIcon({
-          html: `<div class="mc-cluster-bubble"><span class="mc-cluster-total">${n}</span>${split}</div>`,
+          html: `<div class="mc-cluster-bubble" style="--mix: conic-gradient(from -90deg, ${stops.join(', ')})" role="img" aria-label="${label}" title="${label}"><span class="mc-cluster-total">${n}</span></div>`,
           className: 'mc-cluster-icon',
           iconSize: [size, size],
         });
@@ -659,9 +673,9 @@ function tr(key) {
   return strings()[key];
 }
 
-function trFormat(key, value) {
+function trFormat(key, ...values) {
   const entry = tr(key);
-  return typeof entry === 'function' ? entry(value) : entry;
+  return typeof entry === 'function' ? entry(...values) : entry;
 }
 
 function normalizeSearchText(value) {
@@ -756,6 +770,30 @@ function syncSidebarSheetState() {
 function toggleSidebarSheet() {
   sidebarSheetState = sidebarSheetState === 'collapsed' ? 'expanded' : 'collapsed';
   syncSidebarSheetState();
+}
+
+let panelCollapsed = localStorage.getItem('meshcoreDashboardPanelCollapsed') === 'true';
+
+function syncPanelCollapsed() {
+  const sidebar = document.getElementById('sidebar');
+  const toggle = document.getElementById('panel-toggle');
+  if (!sidebar || !toggle) return;
+  sidebar.classList.toggle('panel-hidden', panelCollapsed);
+  toggle.classList.toggle('is-collapsed', panelCollapsed);
+  document.body.classList.toggle('panel-collapsed', panelCollapsed);
+  toggle.setAttribute('aria-expanded', panelCollapsed ? 'false' : 'true');
+  const label = panelCollapsed ? tr('panelShow') : tr('panelHide');
+  toggle.setAttribute('aria-label', label);
+  toggle.title = label;
+  sidebar.setAttribute('aria-hidden', panelCollapsed ? 'true' : 'false');
+  // Leaflet sizes itself from the container, so it needs a nudge after the slide.
+  setTimeout(() => map.invalidateSize({ pan: false }), 240);
+}
+
+function togglePanelCollapsed() {
+  panelCollapsed = !panelCollapsed;
+  localStorage.setItem('meshcoreDashboardPanelCollapsed', panelCollapsed ? 'true' : 'false');
+  syncPanelCollapsed();
 }
 
 function setLanguage(language) {
@@ -3351,6 +3389,8 @@ if (sheetToggle) {
 watchSheetHeight();
 publishSheetHeight();
 document.getElementById('dataErrorClose')?.addEventListener('click', clearDataError);
+document.getElementById('panel-toggle')?.addEventListener('click', togglePanelCollapsed);
+syncPanelCollapsed();
 window.addEventListener('resize', () => {
   applyMobileView();
   syncSidebarSheetState();
