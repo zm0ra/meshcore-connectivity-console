@@ -1071,7 +1071,9 @@ function connectivityData(state) {
   for (const edge of edges) {
     edge.mutual = pairSet.has(`${edge.target_identity_hex}|${edge.source_identity_hex}`);
   }
-  const relationMap = new Map(nodes.map((node) => [node.identity_hex, { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] }]));
+  // Keyed by every known node for the same reason as nodeIndex: relations belong
+  // to the node, not to whatever slice of the list is on screen.
+  const relationMap = new Map([...nodeIndex.keys()].map((identityHex) => [identityHex, { outgoing: [], incoming: [], mutual: [], oneWayOutgoing: [], oneWayIncoming: [] }]));
   for (const edge of edges) {
     relationMap.get(edge.source_identity_hex)?.outgoing.push(edge);
     relationMap.get(edge.target_identity_hex)?.incoming.push(edge);
