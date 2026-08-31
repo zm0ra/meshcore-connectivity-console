@@ -2489,9 +2489,12 @@ textarea:focus-visible {
    the two thresholds a finger and iOS Safari actually enforce. Last block in the
    file so it wins over the per-breakpoint padding tweaks above. */
 @media (pointer: coarse) {
-  .mc-util-extra .util-button,
+  .util-button,
+  .admin-link,
+  .skip-link,
+  .segmented-button,
+  .leaflet-control-zoom a,
   .mc-util-extra .mc-util-btn,
-  .mc-util-extra .admin-link,
   .mc-chip,
   .view-button,
   .lang-button,
@@ -2507,7 +2510,9 @@ textarea:focus-visible {
   .mc-util-extra .mc-util-btn,
   .mc-chip,
   .view-button,
-  .lang-button {
+  .lang-button,
+  .segmented-button,
+  .leaflet-control-zoom a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
