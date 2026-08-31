@@ -3577,17 +3577,28 @@ void refresh(true);
   }
 
   // ------- 2. quick filter chips -------
+  // 24h used to be the last rung, so 1390 of 1423 nodes fell into one ">24h"
+  // bucket that said nothing. The scale now keeps going: days, then a month.
+  const HOUR = 3600e3;
   const CHIPS = [
     { id: 'all',  label: 'Wszystkie',  test: () => true },
-    { id: 'h1',   label: '≤1h',        test: (n) => ageMs(n.last_advert_at) <= 3600e3 },
-    { id: 'h6',   label: '≤6h',        test: (n) => ageMs(n.last_advert_at) <= 6*3600e3 },
-    { id: 'h24',  label: '≤24h',       test: (n) => ageMs(n.last_advert_at) <= 24*3600e3 },
-    { id: 'old',  label: '>24h',       test: (n) => ageMs(n.last_advert_at) > 24*3600e3 },
+    { id: 'h1',   label: '≤1h',        test: (n) => ageMs(n.last_advert_at) <= HOUR },
+    { id: 'h7',   label: '≤7h',        test: (n) => ageMs(n.last_advert_at) <= 7*HOUR },
+    { id: 'h24',  label: '≤24h',       test: (n) => ageMs(n.last_advert_at) <= 24*HOUR },
+    { id: 'd7',   label: '≤7d',        test: (n) => ageMs(n.last_advert_at) <= 7*24*HOUR },
+    { id: 'd30',  label: '≤30d',       test: (n) => ageMs(n.last_advert_at) <= 30*24*HOUR },
+    { id: 'old',  label: '>30d',       test: (n) => ageMs(n.last_advert_at) > 30*24*HOUR },
     { id: 'none', label: 'b/d',        test: (n) => !n.last_advert_at },
   ];
   function renderChips() {
     const bar = $('mcChipBar');
     if (!bar) return;
+    // Old ids (h6) survive in bookmarks and localStorage; land them on the
+    // nearest live bucket instead of silently selecting nothing.
+    if (!CHIPS.some((c) => c.id === state.chip)) {
+      state.chip = state.chip === 'h6' ? 'h7' : 'all';
+      LSset('mc_chip', state.chip);
+    }
     const nodes = nodesArr();
     bar.innerHTML = '';
     for (const c of CHIPS) {
