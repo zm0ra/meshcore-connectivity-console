@@ -1005,7 +1005,9 @@ function archivedNodeCount(state) {
 }
 
 function normalizeVisibleSelections(state) {
-  const visibleIds = new Set(relevantNodes(state).map((node) => node.identity_hex));
+  // A node picked by hand or arriving in the URL outranks the age filter - the
+  // filter decides what to browse, not what the operator is allowed to look at.
+  const visibleIds = new Set((state.nodes || []).map((node) => node.identity_hex));
   if (selectedSourceId && !visibleIds.has(selectedSourceId)) {
     selectedSourceId = null;
     selectedNeighborId = null;
