@@ -868,16 +868,16 @@ function renderLegend() {
   legend.innerHTML = `
     <div class="legend-group">
       <span class="legend-title">${tr('legendRepeaters')}</span>
-      <div class="legend-row"><span class="legend-node legend-node-solid" style="background:#2e8b57"></span><span>${tr('legendDataAvailable')}</span></div>
-      <div class="legend-row"><span class="legend-node legend-node-dashed" style="background:#2c71d1"></span><span>${tr('legendKnownNoData')}</span></div>
-      <div class="legend-row"><span class="legend-node legend-node-dotted" style="background:#c64a3d"></span><span>${tr('legendInactive')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-solid" style="background:${STATUS_COLORS.ok}"></span><span>${tr('legendDataAvailable')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-dashed" style="background:${STATUS_COLORS.missing}"></span><span>${tr('legendKnownNoData')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-dotted" style="background:${STATUS_COLORS.silent}"></span><span>${tr('legendInactive')}</span></div>
     </div>
     <div class="legend-group">
       <span class="legend-title">${tr('legendLinks')}</span>
-      <div class="legend-row"><span class="legend-line" style="border-top-color:#2e8b57"></span><span>${tr('legendStrong')}</span></div>
-      <div class="legend-row"><span class="legend-line" style="border-top-color:#cfaa38"></span><span>${tr('legendMedium')}</span></div>
-      <div class="legend-row"><span class="legend-line" style="border-top-color:#db7d31"></span><span>${tr('legendWeak')}</span></div>
-      <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
+      <div class="legend-row"><span class="legend-line" style="border-top-color:${snrColor(12)}"></span><span>${tr('legendStrong')}</span></div>
+      <div class="legend-row"><span class="legend-line" style="border-top-color:${snrColor(7)}"></span><span>${tr('legendMedium')}</span></div>
+      <div class="legend-row"><span class="legend-line" style="border-top-color:${snrColor(2)}"></span><span>${tr('legendWeak')}</span></div>
+      <div class="legend-row"><span class="legend-line" style="border-top-color:${snrColor(-6)}"></span><span>${tr('legendVeryWeak')}</span></div>
       <div class="legend-row"><span class="legend-arrow">➜</span><span>${tr('legendArrow')}</span></div>
       <div class="legend-row"><span class="legend-line dashed" style="border-top-color:#6a7883"></span><span>${tr('legendDashed')}</span></div>
       <div class="legend-row"><span class="legend-line legend-line-thick" style="border-top-color:#b45ef0"></span><span>${tr('legendObserved')}</span></div>
@@ -955,11 +955,20 @@ function nodeStateRank(node) {
   return 2;
 }
 
+// Node status and link quality used to share the same five hexes, so a green dot
+// and a green line meant unrelated things. Status now lives on a teal-to-slate
+// axis; the warm red-to-green ramp belongs to SNR alone (see SNR_RAMP).
+const STATUS_COLORS = {
+  ok: '#17a2a2',
+  missing: '#5b6cd6',
+  silent: '#7d8896',
+};
+
 function nodeColor(node) {
   const state = nodeState(node);
-  if (state === 'ok') return '#2e8b57';
-  if (state === 'missing') return '#2c71d1';
-  return '#c64a3d';
+  if (state === 'ok') return STATUS_COLORS.ok;
+  if (state === 'missing') return STATUS_COLORS.missing;
+  return STATUS_COLORS.silent;
 }
 
 function isFiniteCoordinate(latitude, longitude) {
