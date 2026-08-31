@@ -438,12 +438,10 @@ const TRANSLATIONS = {
   },
 };
 const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([53.43, 14.55], 8);
-// ponytail: CARTO basemaps now demand an API key; Esri light gray is keyless and
-// stays neutral under the dark-mode invert filter (native tiles stop at z16)
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+// ponytail: CARTO basemaps now demand an API key; OSM standard tiles are keyless
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
-  maxNativeZoom: 16,
-  attribution: '&copy; OpenStreetMap contributors &copy; Esri'
+  attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 const markersLayer = (typeof L.markerClusterGroup === 'function')
   ? L.markerClusterGroup({
