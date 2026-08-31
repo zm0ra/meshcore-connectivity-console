@@ -696,6 +696,14 @@ function trFormat(key, ...values) {
   return typeof entry === 'function' ? entry(...values) : entry;
 }
 
+// Shared HTML escaper: the feature module had its own copy, the main render path
+// had none, which is how an escape call reached a scope that never defined it.
+function escapeMarkupText(value) {
+  return String(value ?? '').replace(/[<>&"']/g, (character) => ({
+    '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+}
+
 function normalizeSearchText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -3519,7 +3527,7 @@ function renderPacketPathsSection() {
   }
   const rows = packetPaths.slice(0, 20).map((row) => {
     const chain = [row.origin?.name || '?', ...row.hops.map((hop) => hop.name || `?·${hop.prefix_hex}`)]
-      .map((label) => escapeText(String(label)))
+      .map((label) => escapeMarkupText(label))
       .join(' <span class="packet-arrow">&rarr;</span> ');
     const unresolved = row.path_len - row.resolved_hops;
     return `
