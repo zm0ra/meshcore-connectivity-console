@@ -2507,6 +2507,7 @@ body.panel-collapsed .mc-util-extra { right: 56px; }
 }
 /* Legend swatches mirror the marker outline pattern, so the legend teaches the
    non-colour cue instead of only naming the colour. */
+.legend-line-thick { border-top-width: 4px !important; }
 .legend-node-solid { outline: 2px solid var(--ink); outline-offset: 1px; }
 .legend-node-dashed { outline: 2px dashed var(--ink); outline-offset: 1px; }
 .legend-node-dotted { outline: 2px dotted var(--ink); outline-offset: 1px; }

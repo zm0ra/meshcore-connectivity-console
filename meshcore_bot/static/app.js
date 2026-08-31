@@ -17,6 +17,7 @@ const TRANSLATIONS = {
     legendVeryWeak: 'bardzo słabe',
     legendDashed: 'stare dane',
     legendArrow: 'kierunek',
+    legendObserved: 'trasa pakietu (zaobserwowana)',
     summaryKnown: 'znane',
     summaryNew: 'nowe 24h',
     summaryWithData: 'z danymi',
@@ -239,6 +240,7 @@ const TRANSLATIONS = {
     legendVeryWeak: 'very weak',
     legendDashed: 'stale data',
     legendArrow: 'direction',
+    legendObserved: 'packet path (observed)',
     summaryKnown: 'known',
     summaryNew: 'new 24h',
     summaryWithData: 'with data',
@@ -878,6 +880,7 @@ function renderLegend() {
       <div class="legend-row"><span class="legend-line" style="border-top-color:#c64a3d"></span><span>${tr('legendVeryWeak')}</span></div>
       <div class="legend-row"><span class="legend-arrow">➜</span><span>${tr('legendArrow')}</span></div>
       <div class="legend-row"><span class="legend-line dashed" style="border-top-color:#6a7883"></span><span>${tr('legendDashed')}</span></div>
+      <div class="legend-row"><span class="legend-line legend-line-thick" style="border-top-color:#b45ef0"></span><span>${tr('legendObserved')}</span></div>
     </div>
   `;
 }
@@ -986,13 +989,14 @@ function deriveMapNodes(nodes) {
   return candidates.filter((node) => haversineKm(centerLat, centerLon, node.latitude, node.longitude) <= 1200);
 }
 
+// Single source of truth for "what is visible right now". The summary cards used
+// to count from the unfiltered set while the list and map were filtered by a
+// separate DOM-hiding pass, so the numbers contradicted the rows underneath them.
 function relevantNodes(state) {
-  if (currentPanel === 'new') {
-    return newRepeaterNodes(state);
-  }
-  const nodes = state.nodes || [];
-  if (archivedVisible(state)) return nodes;
-  return nodes.filter((node) => !isInactive(node));
+  const base = currentPanel === 'new' ? newRepeaterNodes(state) : (state.nodes || []);
+  const passes = window._nodePasses;
+  if (typeof passes !== 'function') return base;
+  return base.filter(passes);
 }
 
 function archivedNodeCount(state) {
@@ -1241,6 +1245,49 @@ function routeHintForNode(state, identityHex) {
   return (state.management?.route_hints || {})[identityHex] || null;
 }
 
+// Plot the hops a packet really passed through. Hex prefixes that resolve to
+// exactly one node become map points; ambiguous or unknown ones break the chain,
+// so the drawn line never pretends to know a hop it could not identify.
+function drawObservedPath(state, data) {
+  const targetId = routeTargetId || routeSourceId;
+  if (!targetId) return;
+  const hint = routeHintForNode(state, targetId);
+  const pathRow = hint?.latest_saved_path || hint?.latest_advert_path;
+  if (!pathRow) return;
+  const decoded = decodeHintPath(state, targetId, pathRow);
+  const hops = [];
+  for (const step of decoded.steps) {
+    if (step.kind !== 'resolved' || !step.node) { hops.push(null); continue; }
+    hops.push(isFiniteCoordinate(step.node.latitude, step.node.longitude) ? step.node : null);
+  }
+  if (decoded.targetNode && isFiniteCoordinate(decoded.targetNode.latitude, decoded.targetNode.longitude)) {
+    hops.push(decoded.targetNode);
+  }
+  const color = '#b45ef0';
+  let drawn = 0;
+  for (let index = 0; index < hops.length - 1; index += 1) {
+    const from = hops[index];
+    const to = hops[index + 1];
+    if (!from || !to) continue;
+    L.polyline([[from.latitude, from.longitude], [to.latitude, to.longitude]], {
+      color,
+      weight: 5,
+      opacity: 0.92,
+      lineCap: 'round',
+    }).addTo(linksLayer);
+    addDirectionalArrow(from, to, color, 0.5);
+    drawn += 1;
+  }
+  if (drawn) {
+    for (const hop of hops) {
+      if (!hop) continue;
+      L.circleMarker([hop.latitude, hop.longitude], {
+        radius: 6, color, weight: 2, fillColor: '#fff', fillOpacity: 1,
+      }).addTo(linksLayer);
+    }
+  }
+}
+
 function decodeHintPath(state, targetId, pathRow) {
   const targetNode = (state.nodes || []).find((node) => node.identity_hex === targetId) || null;
   const normalizedHex = String(pathRow?.path_hex || '').trim().toUpperCase();
@@ -1256,6 +1303,8 @@ function decodeHintPath(state, targetId, pathRow) {
       return {
         kind: 'resolved',
         label: matches[0].name || matches[0].hash_prefix_hex || prefixHex,
+        // Kept so the hop can be plotted, not just printed.
+        node: matches[0],
       };
     }
     if (matches.length > 1) {
@@ -2182,13 +2231,45 @@ function linkLabel(link, sourceNode) {
   return `<strong>${forwardLine}</strong><span>${distanceLine}</span>`;
 }
 
+// Four buckets painted SNR 2 and SNR 9 the same colour. This is a continuous
+// ramp over the usable range (-10..+15 dB), so neighbouring links differ visibly.
+const SNR_RAMP = [
+  { at: -10, rgb: [198, 74, 61] },
+  { at: 0, rgb: [219, 125, 49] },
+  { at: 5, rgb: [207, 170, 56] },
+  { at: 10, rgb: [70, 160, 110] },
+  { at: 15, rgb: [46, 139, 87] },
+];
+
+function snrColor(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '#98a4ad';
+  const v = Math.max(SNR_RAMP[0].at, Math.min(SNR_RAMP[SNR_RAMP.length - 1].at, value));
+  for (let i = 0; i < SNR_RAMP.length - 1; i += 1) {
+    const a = SNR_RAMP[i];
+    const b = SNR_RAMP[i + 1];
+    if (v > b.at) continue;
+    const t = (v - a.at) / (b.at - a.at || 1);
+    const mix = a.rgb.map((channel, idx) => Math.round(channel + (b.rgb[idx] - channel) * t));
+    return `rgb(${mix.join(',')})`;
+  }
+  return `rgb(${SNR_RAMP[SNR_RAMP.length - 1].rgb.join(',')})`;
+}
+
 function lineColor(link) {
-  const metric = lineSignalMetric(link);
-  if (metric.value === null) return '#98a4ad';
-  if (metric.value >= 10) return '#2e8b57';
-  if (metric.value >= 5) return '#cfaa38';
-  if (metric.value >= 0) return '#db7d31';
-  return '#c64a3d';
+  return snrColor(lineSignalMetric(link).value);
+}
+
+// Neighbour data can be minutes or months old. Freshness fades continuously
+// instead of flipping at a single 6h threshold: full strength up to an hour,
+// then down to a faint trace at a week.
+function linkFreshness(link) {
+  const seconds = Number(link?.last_heard_seconds);
+  if (!Number.isFinite(seconds) || seconds < 0) return 0.45;
+  const hours = seconds / 3600;
+  if (hours <= 1) return 1;
+  if (hours >= 24 * 7) return 0.16;
+  const ratio = Math.log(hours) / Math.log(24 * 7);
+  return Math.max(0.16, 1 - 0.84 * ratio);
 }
 
 // Status must survive colour blindness, so the outline carries it too:
@@ -2909,14 +2990,28 @@ function renderMap(state) {
     const linkKey = link.target_identity_hex || `${link.target_latitude},${link.target_longitude}`;
     if (drawnLinks.has(linkKey)) continue;
     drawnLinks.add(linkKey);
+    const fresh = linkFreshness(link);
+    const dimmed = selectedNeighborId && link.target_identity_hex !== selectedNeighborId;
     const polyline = L.polyline([
       [link.source_latitude, link.source_longitude],
       [link.target_latitude, link.target_longitude],
     ], {
       color: lineColor(link),
-      weight: selectedNeighborId && link.target_identity_hex === selectedNeighborId ? 3.2 : 2,
-      opacity: selectedNeighborId && link.target_identity_hex !== selectedNeighborId ? 0.18 : 0.82,
+      // Strong signal also draws thicker, so quality survives a colour-blind eye.
+      weight: selectedNeighborId && link.target_identity_hex === selectedNeighborId
+        ? 3.6
+        : 1.4 + 2.2 * Math.max(0, Math.min(1, ((lineSignalMetric(link).value ?? -10) + 10) / 25)),
+      opacity: dimmed ? 0.18 : Math.max(0.22, 0.9 * fresh),
     }).addTo(linksLayer);
+    // Direction used to live only in the hover label. One arrowhead means the
+    // link was heard one way; two mean both ends hear each other.
+    if (!dimmed) {
+      const from = { latitude: link.source_latitude, longitude: link.source_longitude };
+      const to = { latitude: link.target_latitude, longitude: link.target_longitude };
+      const reverse = findReverseLink(link);
+      addDirectionalArrow(from, to, lineColor(link), reverse ? 0.62 : 0.56);
+      if (reverse) addDirectionalArrow(to, from, lineColor(reverse), 0.38);
+    }
     polyline.on('mouseover', () => {
       if (selectedLinks.length > 6) {
         const midpoint = [
@@ -3183,6 +3278,10 @@ function renderRouteMap(state) {
   drawRoute(backward, '#cfaa38');
   drawRoute(historicalForward, 'rgba(44, 113, 209, 0.72)', '7 7');
   drawRoute(historicalBackward, 'rgba(207, 170, 56, 0.78)', '7 7');
+  // The routes above are computed from the neighbour graph - a proposal. This one
+  // is the path a packet actually took, decoded from path_hex; it used to exist
+  // only as a row of text chips while the map showed the computed guess.
+  drawObservedPath(state, data);
   const labelNodes = routeSourceId
     ? allMapNodes.filter((node) => highlightedIds.has(node.identity_hex))
     : allMapNodes;
@@ -3609,7 +3708,7 @@ void refresh(true);
       btn.innerHTML = `${c.label}<span class="mc-chip-count">${n}</span>`;
       btn.setAttribute('aria-pressed', state.chip === c.id ? 'true' : 'false');
       btn.addEventListener('click', () => {
-        state.chip = c.id; LSset('mc_chip', c.id); syncUrl(); applyAll(); fitMapToFiltered();
+        state.chip = c.id; LSset('mc_chip', c.id); syncUrl(); rerenderFiltered(); fitMapToFiltered();
       });
       bar.appendChild(btn);
     }
@@ -3828,7 +3927,7 @@ void refresh(true);
     btn.addEventListener('click', () => {
       state[key] = !state[key];
       LSset('mc_' + key, state[key] ? '1' : '0');
-      sync(); onChange && onChange(); syncUrl(); applyAll(); fitMapToFiltered();
+      sync(); onChange && onChange(); syncUrl(); rerenderFiltered(); fitMapToFiltered();
     });
   }
   bindToggle('mcBtnFavOnly', 'favOnly');
@@ -4199,6 +4298,12 @@ void refresh(true);
   }
 
   // ------- master apply hook -------
+  // Filters now cut the data at the source (relevantNodes), so a filter change
+  // has to rebuild the view; hiding rows after the fact is no longer enough.
+  function rerenderFiltered() {
+    if (latestState) render(latestState);
+    else applyAll();
+  }
   function applyAll() {
     try { ingestBuffers(); } catch (e) { console.warn('ingestBuffers', e); }
     try { renderChips(); } catch (e) { console.warn('renderChips', e); }
