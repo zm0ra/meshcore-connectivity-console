@@ -200,6 +200,11 @@ const TRANSLATIONS = {
     dataErrorStale: (detail) => `Brak świeżych danych z serwera (${detail}). Widok pokazuje ostatni znany stan.`,
     dataErrorRetry: 'Spróbuj ponownie',
     dataErrorDismiss: 'Zamknij komunikat',
+    packetPathsTitle: 'Realne trasy pakietów',
+    packetPathsHint: 'Ścieżki, którymi faktycznie przeszły adverty. Kliknij, aby zobaczyć trasę na mapie.',
+    packetPathsLoading: 'Wczytuję trasy...',
+    packetPathsEmpty: 'Brak zaobserwowanych tras w ostatnich 48 godzinach.',
+    packetPathsUnresolved: (count) => `${count} hop${count === 1 ? '' : 'ów'} nierozpoznanych`,
     panelHide: 'Ukryj panel',
     panelShow: 'Pokaż panel',
     clusterSummary: (total, ok, missing, stale) => `Grupa ${total} punktów: ${ok} z danymi, ${missing} bez danych, ${stale} nieaktywnych`,
@@ -423,6 +428,11 @@ const TRANSLATIONS = {
     dataErrorStale: (detail) => `No fresh data from the server (${detail}). You are looking at the last known state.`,
     dataErrorRetry: 'Try again',
     dataErrorDismiss: 'Dismiss message',
+    packetPathsTitle: 'Observed packet paths',
+    packetPathsHint: 'Paths adverts actually travelled. Click one to draw it on the map.',
+    packetPathsLoading: 'Loading paths...',
+    packetPathsEmpty: 'No observed paths in the last 48 hours.',
+    packetPathsUnresolved: (count) => `${count} hop${count === 1 ? '' : 's'} unidentified`,
     panelHide: 'Hide panel',
     panelShow: 'Show panel',
     clusterSummary: (total, ok, missing, stale) => `Cluster of ${total} nodes: ${ok} with data, ${missing} without data, ${stale} inactive`,
@@ -573,6 +583,12 @@ let managementRefreshInFlight = null;
 let latestStateEtag = null;
 let latestManagementEtag = null;
 let latestManagementLoaded = false;
+// Observed packet paths come from the server already hop-resolved; the browser
+// only has one byte per hop and cannot disambiguate them on its own.
+let packetPaths = [];
+let packetPathsLoaded = false;
+let packetPathsInFlight = null;
+let selectedPacketPathId = null;
 let latestManagementIncludesHistorical = false;
 let signalHistoryRefreshInFlightByNode = new Map();
 let signalHistoryLoadedNodes = new Set();
@@ -1261,24 +1277,49 @@ function routeHintForNode(state, identityHex) {
   return (state.management?.route_hints || {})[identityHex] || null;
 }
 
-// Plot the hops a packet really passed through. Hex prefixes that resolve to
-// exactly one node become map points; ambiguous or unknown ones break the chain,
-// so the drawn line never pretends to know a hop it could not identify.
-function drawObservedPath(state, data) {
+// Hops the server resolved for the path the operator picked. Unresolved ones stay
+// null so the chain breaks instead of inventing a waypoint.
+function observedHopsFromServer() {
+  const row = packetPathById(selectedPacketPathId);
+  if (!row) return null;
+  const points = [];
+  const origin = row.origin || {};
+  points.push(isFiniteCoordinate(origin.latitude, origin.longitude)
+    ? { latitude: origin.latitude, longitude: origin.longitude, name: origin.name }
+    : null);
+  for (const hop of row.hops || []) {
+    points.push(isFiniteCoordinate(hop.latitude, hop.longitude)
+      ? { latitude: hop.latitude, longitude: hop.longitude, name: hop.name }
+      : null);
+  }
+  return points;
+}
+
+// Fallback for a node's own stored route hint, where the browser can only match
+// one-byte prefixes and usually has to give up.
+function observedHopsFromHint(state) {
   const targetId = routeTargetId || routeSourceId;
-  if (!targetId) return;
+  if (!targetId) return null;
   const hint = routeHintForNode(state, targetId);
   const pathRow = hint?.latest_saved_path || hint?.latest_advert_path;
-  if (!pathRow) return;
+  if (!pathRow) return null;
   const decoded = decodeHintPath(state, targetId, pathRow);
-  const hops = [];
-  for (const step of decoded.steps) {
-    if (step.kind !== 'resolved' || !step.node) { hops.push(null); continue; }
-    hops.push(isFiniteCoordinate(step.node.latitude, step.node.longitude) ? step.node : null);
-  }
+  const points = decoded.steps.map((step) => (
+    step.kind === 'resolved' && step.node && isFiniteCoordinate(step.node.latitude, step.node.longitude)
+      ? step.node
+      : null
+  ));
   if (decoded.targetNode && isFiniteCoordinate(decoded.targetNode.latitude, decoded.targetNode.longitude)) {
-    hops.push(decoded.targetNode);
+    points.push(decoded.targetNode);
   }
+  return points;
+}
+
+// Plot the hops a packet really passed through: resolved hops become map points,
+// unresolved ones break the chain so the line never fakes a hop.
+function drawObservedPath(state, data) {
+  const hops = selectedPacketPathId ? observedHopsFromServer() : observedHopsFromHint(state);
+  if (!hops || hops.length < 2) return;
   const color = '#b45ef0';
   let drawn = 0;
   for (let index = 0; index < hops.length - 1; index += 1) {
@@ -2046,6 +2087,7 @@ function renderRoutePanel(state) {
   } else if (!routeSourceId && !routeTargetId) {
     body += `<div class="panel-section">${renderAnswerStrip(tr('routeResultsTitle'), '', tr('routeStateIdle'))}</div>`;
   }
+  body += renderPacketPathsSection();
   body += renderRouteReachabilitySection(state);
   body += renderRouteProbePathSection(state);
   const sourceName = data.nodeIndex.get(routeSourceId)?.name || '-';
@@ -2913,6 +2955,20 @@ function renderNodeSections(state) {
       render(latestState);
     });
   }
+  for (const button of container.querySelectorAll('[data-packet-path]')) {
+    button.addEventListener('click', () => {
+      const id = button.dataset.packetPath;
+      selectedPacketPathId = String(selectedPacketPathId) === String(id) ? null : id;
+      const row = packetPathById(selectedPacketPathId);
+      if (row) {
+        const points = [row.origin, ...(row.hops || [])]
+          .filter((hop) => hop && isFiniteCoordinate(hop.latitude, hop.longitude))
+          .map((hop) => [hop.latitude, hop.longitude]);
+        if (points.length > 1) map.fitBounds(points, { padding: [60, 60], maxZoom: 12 });
+      }
+      render(latestState);
+    });
+  }
   for (const button of container.querySelectorAll('[data-route-destination]')) {
     button.addEventListener('click', () => {
       routeActiveEndpoint = 'target';
@@ -3429,6 +3485,57 @@ async function refreshManagement(force = false) {
   }
 }
 
+async function refreshPacketPaths(force = false) {
+  if (packetPathsInFlight) return packetPathsInFlight;
+  if (packetPathsLoaded && !force) return;
+  packetPathsInFlight = (async () => {
+    try {
+      const response = await fetch('/api/packet-paths?limit=60&hours=48', { cache: force ? 'no-store' : 'default' });
+      if (!response.ok) throw new Error(`packet paths failed: ${response.status}`);
+      const payload = await response.json();
+      packetPaths = Array.isArray(payload.rows) ? payload.rows : [];
+      packetPathsLoaded = true;
+      if (latestState) render(latestState);
+    } catch (error) {
+      console.error('Packet paths refresh failed', error);
+      showDataError(error && error.message ? error.message : 'packet paths');
+    } finally {
+      packetPathsInFlight = null;
+    }
+  })();
+  return packetPathsInFlight;
+}
+
+function packetPathById(id) {
+  return packetPaths.find((row) => String(row.id) === String(id)) || null;
+}
+
+function renderPacketPathsSection() {
+  if (!packetPathsLoaded) {
+    return `<div class="panel-section"><div class="section-heading">${tr('packetPathsTitle')}</div><p class="panel-note">${tr('packetPathsLoading')}</p></div>`;
+  }
+  if (!packetPaths.length) {
+    return `<div class="panel-section"><div class="section-heading">${tr('packetPathsTitle')}</div><p class="panel-note">${tr('packetPathsEmpty')}</p></div>`;
+  }
+  const rows = packetPaths.slice(0, 20).map((row) => {
+    const chain = [row.origin?.name || '?', ...row.hops.map((hop) => hop.name || `?·${hop.prefix_hex}`)]
+      .map((label) => escapeText(String(label)))
+      .join(' <span class="packet-arrow">&rarr;</span> ');
+    const unresolved = row.path_len - row.resolved_hops;
+    return `
+      <button type="button" class="packet-path-row${String(selectedPacketPathId) === String(row.id) ? ' is-on' : ''}" data-packet-path="${row.id}">
+        <span class="packet-path-chain">${chain}</span>
+        <span class="packet-path-meta">${formatShortWhen(row.observed_at)} · ${row.path_len} ${tr('routeHopCount')}${unresolved ? ` · ${trFormat('packetPathsUnresolved', unresolved)}` : ''}</span>
+      </button>`;
+  }).join('');
+  return `
+    <div class="panel-section">
+      <div class="section-heading">${tr('packetPathsTitle')}</div>
+      <p class="panel-note">${tr('packetPathsHint')}</p>
+      <div class="packet-path-list">${rows}</div>
+    </div>`;
+}
+
 async function refreshSignalHistory(node, force = false) {
   if (!node) return;
   const nodeKey = selectedHistoryNodeKey(node);
@@ -3478,6 +3585,9 @@ async function refreshFocusedDataIfNeeded(options = {}) {
   const needsManagementRefresh = force || !latestManagementLoaded || (includeHistorical && !latestManagementIncludesHistorical);
   if (currentPanelNeedsManagement() && needsManagementRefresh) {
     await refreshManagement(force);
+  }
+  if (currentPanel === 'route') {
+    void refreshPacketPaths(force);
   }
   const selectedNode = getSelectedNode(latestState);
   if (selectedNodeNeedsManagement() && selectedNeighborId && selectedNode) {

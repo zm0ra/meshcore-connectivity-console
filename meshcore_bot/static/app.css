@@ -2536,6 +2536,30 @@ body.panel-collapsed .mc-util-extra { right: 56px; }
 }
 /* Legend swatches mirror the marker outline pattern, so the legend teaches the
    non-colour cue instead of only naming the colour. */
+/* Observed packet paths: a chain per row, so the hop sequence reads left to
+   right the way it travelled. */
+.packet-path-list { display: flex; flex-direction: column; gap: 6px; }
+.packet-path-row {
+  display: flex; flex-direction: column; gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.packet-path-row:hover { border-color: var(--line-strong); }
+.packet-path-row.is-on { border-color: #b45ef0; box-shadow: inset 0 0 0 1px #b45ef0; }
+.packet-path-row:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.packet-path-chain { font-size: var(--text-sm); font-weight: 600; line-height: 1.35; }
+.packet-arrow { color: #b45ef0; padding: 0 2px; }
+.packet-path-meta {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
 .legend-line-thick { border-top-width: 4px !important; }
 .legend-node-solid { outline: 2px solid var(--ink); outline-offset: 1px; }
 .legend-node-dashed { outline: 2px dashed var(--ink); outline-offset: 1px; }
