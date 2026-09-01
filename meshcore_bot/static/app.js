@@ -2515,9 +2515,12 @@ function renderLinkLabels(selectedLinks, sourceNode) {
     const key = link.target_identity_hex || `${link.target_latitude},${link.target_longitude}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    // Anchored at 72% toward the far end rather than the midpoint: around a hub
+    // every midpoint collapses onto the same spot, while the far ends fan out.
+    const ratio = 0.72;
     const midpoint = [
-      (link.source_latitude + link.target_latitude) / 2,
-      (link.source_longitude + link.target_longitude) / 2,
+      link.source_latitude + (link.target_latitude - link.source_latitude) * ratio,
+      link.source_longitude + (link.target_longitude - link.source_longitude) * ratio,
     ];
     candidates.push({
       link,
