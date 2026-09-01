@@ -3555,7 +3555,6 @@ async function refreshSignalHistory(node, force = false) {
     return;
   }
   signalHistoryPendingNodes.add(nodeKey);
-  if (latestState) render(latestState);
   const requestPromise = (async () => {
     const response = await fetch(`/api/repeaters/${encodeURIComponent(node.id)}/signal-history`, {
       cache: force ? 'no-store' : 'default',
@@ -3570,7 +3569,13 @@ async function refreshSignalHistory(node, force = false) {
     };
     signalHistoryLoadedNodes.add(nodeKey);
   })();
+  // The guard has to be armed BEFORE anything can re-enter this function. The
+  // render below reaches refreshFocusedDataIfNeeded, which calls straight back
+  // in here; with the guard registered afterwards every level fired its own
+  // fetch and its own full re-render - one click turned into dozens of requests
+  // and a frozen tab.
   signalHistoryRefreshInFlightByNode.set(nodeKey, requestPromise);
+  if (latestState) render(latestState);
   try {
     await requestPromise;
   } catch (error) {
@@ -3584,11 +3589,28 @@ async function refreshSignalHistory(node, force = false) {
   }
 }
 
+// Belt to the braces above: render() calls this, and the fetches it starts can
+// render again. One level at a time is enough; a nested call would only repeat
+// work the outer one is already doing.
+let focusedRefreshRunning = false;
+
 async function refreshFocusedDataIfNeeded(options = {}) {
   const force = Boolean(options.force);
   if (!latestState || document.hidden) {
     return;
   }
+  if (focusedRefreshRunning && !force) {
+    return;
+  }
+  focusedRefreshRunning = true;
+  try {
+    await runFocusedDataRefresh(force);
+  } finally {
+    focusedRefreshRunning = false;
+  }
+}
+
+async function runFocusedDataRefresh(force) {
   const includeHistorical = currentPanel === 'connectivity';
   const needsManagementRefresh = force || !latestManagementLoaded || (includeHistorical && !latestManagementIncludesHistorical);
   if (currentPanelNeedsManagement() && needsManagementRefresh) {
