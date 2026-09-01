@@ -2561,6 +2561,7 @@ body.panel-collapsed .mc-util-extra { right: 56px; }
   color: var(--muted);
 }
 .legend-line-thick { border-top-width: 4px !important; }
+.legend-node-ghost { outline: 2px dashed #8b95a1; outline-offset: 1px; opacity: 0.55; }
 .legend-node-solid { outline: 2px solid var(--ink); outline-offset: 1px; }
 .legend-node-dashed { outline: 2px dashed var(--ink); outline-offset: 1px; }
 .legend-node-dotted { outline: 2px dotted var(--ink); outline-offset: 1px; }

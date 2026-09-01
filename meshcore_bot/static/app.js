@@ -11,6 +11,7 @@ const TRANSLATIONS = {
     legendDataAvailable: 'dane dostępne',
     legendKnownNoData: 'znany / bez pobranych danych',
     legendInactive: 'nieaktywny > 24h',
+    legendOutsideWindow: 'poza wybranym oknem czasu',
     legendStrong: 'mocne',
     legendMedium: 'średnie',
     legendWeak: 'słabe',
@@ -239,6 +240,7 @@ const TRANSLATIONS = {
     legendDataAvailable: 'data available',
     legendKnownNoData: 'known / no data fetched',
     legendInactive: 'inactive > 24h',
+    legendOutsideWindow: 'outside the selected time window',
     legendStrong: 'strong',
     legendMedium: 'medium',
     legendWeak: 'weak',
@@ -895,6 +897,7 @@ function renderLegend() {
       <div class="legend-row"><span class="legend-node legend-node-solid" style="background:${STATUS_COLORS.ok}"></span><span>${tr('legendDataAvailable')}</span></div>
       <div class="legend-row"><span class="legend-node legend-node-dashed" style="background:${STATUS_COLORS.missing}"></span><span>${tr('legendKnownNoData')}</span></div>
       <div class="legend-row"><span class="legend-node legend-node-dotted" style="background:${STATUS_COLORS.silent}"></span><span>${tr('legendInactive')}</span></div>
+      <div class="legend-row"><span class="legend-node legend-node-ghost" style="background:#8b95a1"></span><span>${tr('legendOutsideWindow')}</span></div>
     </div>
     <div class="legend-group">
       <span class="legend-title">${tr('legendLinks')}</span>
@@ -2348,6 +2351,18 @@ function statusDash(node) {
 }
 
 function markerStyle(node, isolated, selected, neighbor) {
+  // Outside the chosen time window: shown, but visibly not part of the answer.
+  if (node && node.outsideFilter && !selected) {
+    return {
+      radius: neighbor ? 6 : 4.5,
+      color: '#8b95a1',
+      weight: 1.4,
+      dashArray: '2 2',
+      fillColor: '#8b95a1',
+      fillOpacity: 0.18,
+      opacity: 0.75,
+    };
+  }
   const color = nodeColor(node);
   const dashArray = statusDash(node);
   if (selected) {
@@ -3034,11 +3049,17 @@ function renderMap(state) {
   const selectedLinks = getSelectedMapLinks(state);
   const sourceNode = getSelectedNode(state);
   const passes = (n) => (typeof window._nodePasses === 'function') ? window._nodePasses(n) : true;
-  const nodes = selectedSourceId
+  const baseNodes = selectedSourceId
     ? allMapNodes.filter((node) => node.identity_hex === selectedSourceId || neighborIds.has(node.identity_hex))
     : (hasActiveNodeSearchQuery()
         ? allMapNodes.filter((node) => nodeMatchesSearch(node))
         : allMapNodes.filter(passes));
+  // Neighbours reported by the selected node may sit outside the time window;
+  // they still get a ghost marker so their link has a visible far end.
+  const fullNodeIndex = new Map((state.nodes || []).map((node) => [node.identity_hex, node]));
+  const nodes = selectedSourceId
+    ? withGhostEndpoints(baseNodes, neighborIds, fullNodeIndex)
+    : baseNodes;
   const bounds = [];
   for (const node of nodes) {
     const selected = node.identity_hex === selectedSourceId;
@@ -3119,6 +3140,23 @@ function renderMap(state) {
   if (!hasFitBounds && bounds.length) fitInitialBounds(bounds);
 }
 
+// A link whose far end is outside the current time window used to be drawn to
+// nowhere: the line was there, the node was filtered away. The endpoint comes
+// back as a ghost - visibly not part of the filtered set, but present, labelled
+// and clickable - so no line ever ends in empty space.
+function withGhostEndpoints(nodes, requiredIds, nodeIndex) {
+  if (!requiredIds || !requiredIds.size) return nodes;
+  const present = new Set(nodes.map((node) => node.identity_hex));
+  const ghosts = [];
+  for (const identityHex of requiredIds) {
+    if (present.has(identityHex)) continue;
+    const node = nodeIndex.get(identityHex);
+    if (!node || !isFiniteCoordinate(node.latitude, node.longitude)) continue;
+    ghosts.push({ ...node, outsideFilter: true });
+  }
+  return ghosts.length ? nodes.concat(ghosts) : nodes;
+}
+
 function drawMapNodes(nodeMap, focusId, highlightedIds = new Set()) {
   const bounds = [];
   for (const node of nodeMap) {
@@ -3174,9 +3212,11 @@ function renderConnectivityMap(state) {
     highlightedIds.add(edge.source_identity_hex);
     highlightedIds.add(edge.target_identity_hex);
   }
-  const nodes = focusId
-    ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex))
-    : data.nodes;
+  const nodes = withGhostEndpoints(
+    focusId ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex)) : data.nodes,
+    highlightedIds,
+    data.nodeIndex,
+  );
   const bounds = drawMapNodes(nodes, focusId, highlightedIds);
   if (focusId) {
     const focusNode = data.nodeIndex.get(focusId);
@@ -3231,7 +3271,11 @@ function renderMobileDirectionalMap(state) {
     highlightedIds.add(edge.source_identity_hex);
     highlightedIds.add(edge.target_identity_hex);
   }
-  const nodes = focusId ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex)) : data.nodes;
+  const nodes = withGhostEndpoints(
+    focusId ? data.nodes.filter((node) => highlightedIds.has(node.identity_hex)) : data.nodes,
+    highlightedIds,
+    data.nodeIndex,
+  );
   const bounds = drawMapNodes(nodes, focusId, highlightedIds);
   if (focusNode) {
     drawFocusHalo(focusNode, '#15212a', '#15212a', 19, 14);
@@ -3283,7 +3327,7 @@ function renderRouteMap(state) {
   for (const identityHex of (historicalForward?.path || [])) pathIds.add(identityHex);
   for (const identityHex of (historicalBackward?.path || [])) pathIds.add(identityHex);
   for (const identityHex of pathIds) highlightedIds.add(identityHex);
-  const bounds = drawMapNodes(allMapNodes, routeSourceId, highlightedIds);
+  const bounds = drawMapNodes(withGhostEndpoints(allMapNodes, highlightedIds, data.nodeIndex), routeSourceId, highlightedIds);
   if (routeSourceId) {
     const sourceNode = data.nodeIndex.get(routeSourceId);
     drawFocusHalo(sourceNode, '#2c71d1', '#2c71d1', 16, 12);
