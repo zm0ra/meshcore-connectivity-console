@@ -206,6 +206,8 @@ const TRANSLATIONS = {
     packetPathsLoading: 'Wczytuję trasy...',
     packetPathsEmpty: 'Brak zaobserwowanych tras w ostatnich 48 godzinach.',
     packetPathsUnresolved: (count) => `${count} hop${count === 1 ? '' : 'ów'} nierozpoznanych`,
+    linkLabelsHover: 'Odczyty: po najechaniu',
+    linkLabelsAll: 'Odczyty: wszystkie',
     panelHide: 'Ukryj panel',
     panelShow: 'Pokaż panel',
     clusterSummary: (total, ok, missing, stale) => `Grupa ${total} punktów: ${ok} z danymi, ${missing} bez danych, ${stale} nieaktywnych`,
@@ -435,6 +437,8 @@ const TRANSLATIONS = {
     packetPathsLoading: 'Loading paths...',
     packetPathsEmpty: 'No observed paths in the last 48 hours.',
     packetPathsUnresolved: (count) => `${count} hop${count === 1 ? '' : 's'} unidentified`,
+    linkLabelsHover: 'Readings: on hover',
+    linkLabelsAll: 'Readings: all',
     panelHide: 'Hide panel',
     panelShow: 'Show panel',
     clusterSummary: (total, ok, missing, stale) => `Cluster of ${total} nodes: ${ok} with data, ${missing} without data, ${stale} inactive`,
@@ -587,6 +591,12 @@ let latestManagementEtag = null;
 let latestManagementLoaded = false;
 // Observed packet paths come from the server already hop-resolved; the browser
 // only has one byte per hop and cannot disambiguate them on its own.
+// Readings on the map: 'hover' shows a link's SNR only while pointing at it,
+// 'all' pins every label that fits. The side table always has the full list.
+let linkLabelsMode = (() => {
+  try { return localStorage.getItem('mc_linkLabels') === 'all' ? 'all' : 'hover'; } catch { return 'hover'; }
+})();
+
 let packetPaths = [];
 let packetPathsLoaded = false;
 let packetPathsInFlight = null;
@@ -2525,6 +2535,9 @@ function estimateLinkLabelRect(point, html) {
 // already placed label is dropped. A picked neighbour always keeps its label.
 function renderLinkLabels(selectedLinks, sourceNode) {
   linkLabelsLayer.clearLayers();
+  // In hover mode nothing is pinned; the polyline handlers show one reading at a
+  // time, which keeps a hub's map readable without hiding any data.
+  if (linkLabelsMode !== 'all' && !selectedNeighborId) return;
   const alwaysVisible = Boolean(selectedSourceId);
   const seen = new Set();
   const candidates = [];
@@ -3156,7 +3169,8 @@ function renderMap(state) {
       if (reverse) addDirectionalArrow(to, from, lineColor(reverse), 0.38);
     }
     polyline.on('mouseover', () => {
-      if (selectedLinks.length > 6) {
+      // Hover is the primary way to read a link when labels are not pinned.
+      if (linkLabelsMode !== 'all' || selectedLinks.length > 6) {
         const midpoint = [
           (link.source_latitude + link.target_latitude) / 2,
           (link.source_longitude + link.target_longitude) / 2,
@@ -3730,6 +3744,23 @@ if (sheetToggle) {
 watchSheetHeight();
 publishSheetHeight();
 document.getElementById('dataErrorClose')?.addEventListener('click', clearDataError);
+// Readings toggle: hover-only by default, pinned labels on demand.
+function syncLinkLabelsButton() {
+  const button = document.getElementById('mcBtnLinkLabels');
+  if (!button) return;
+  const all = linkLabelsMode === 'all';
+  button.classList.toggle('is-on', all);
+  button.setAttribute('aria-pressed', all ? 'true' : 'false');
+  button.title = all ? tr('linkLabelsAll') : tr('linkLabelsHover');
+}
+
+document.getElementById('mcBtnLinkLabels')?.addEventListener('click', () => {
+  linkLabelsMode = linkLabelsMode === 'all' ? 'hover' : 'all';
+  try { localStorage.setItem('mc_linkLabels', linkLabelsMode); } catch {}
+  syncLinkLabelsButton();
+  if (latestState) render(latestState);
+});
+syncLinkLabelsButton();
 document.getElementById('panel-toggle')?.addEventListener('click', togglePanelCollapsed);
 syncPanelCollapsed();
 window.addEventListener('resize', () => {
