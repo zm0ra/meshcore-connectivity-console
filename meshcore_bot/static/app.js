@@ -2500,6 +2500,25 @@ function renderLabels(nodes, neighborIds) {
   }
 }
 
+// Node labels sit ABOVE their point and hold one line; a link chip is CENTRED on
+// its anchor and holds two or three. Measuring it with the node geometry
+// underestimated the box, which is how chips still landed on each other.
+function estimateLinkLabelRect(point, html) {
+  const lines = (html.match(/<strong|<span/g) || ['x']).length;
+  const longest = html
+    .replace(/<[^>]+>/g, '\n')
+    .split('\n')
+    .reduce((best, line) => Math.max(best, line.trim().length), 0);
+  const width = Math.min(200, Math.max(78, longest * 6.4)) + 18;
+  const height = lines * 15 + 12;
+  return {
+    left: point.x - (width / 2),
+    right: point.x + (width / 2),
+    top: point.y - (height / 2),
+    bottom: point.y + (height / 2),
+  };
+}
+
 // Every link used to get a label at its midpoint. Around a hub in a city those
 // midpoints sit on top of each other and the readings become an unreadable pile,
 // so labels now compete: strongest signal first, anything that would overlap an
@@ -2534,7 +2553,7 @@ function renderLinkLabels(selectedLinks, sourceNode) {
   candidates.sort((left, right) => Number(right.forced) - Number(left.forced) || right.strength - left.strength);
   const occupied = [];
   for (const candidate of candidates) {
-    const rect = estimateLabelRect(candidate.point, candidate.html);
+    const rect = estimateLinkLabelRect(candidate.point, candidate.html);
     if (!candidate.forced && occupied.some((item) => rectsOverlap(item, rect))) continue;
     occupied.push(rect);
     L.marker(candidate.midpoint, {
