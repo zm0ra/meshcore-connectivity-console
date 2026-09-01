@@ -2500,10 +2500,15 @@ function renderLabels(nodes, neighborIds) {
   }
 }
 
+// Every link used to get a label at its midpoint. Around a hub in a city those
+// midpoints sit on top of each other and the readings become an unreadable pile,
+// so labels now compete: strongest signal first, anything that would overlap an
+// already placed label is dropped. A picked neighbour always keeps its label.
 function renderLinkLabels(selectedLinks, sourceNode) {
   linkLabelsLayer.clearLayers();
   const alwaysVisible = Boolean(selectedSourceId);
   const seen = new Set();
+  const candidates = [];
   for (const link of selectedLinks) {
     if (selectedNeighborId && link.target_identity_hex !== selectedNeighborId) continue;
     if (link.source_identity_hex === link.target_identity_hex) continue;
@@ -2514,8 +2519,23 @@ function renderLinkLabels(selectedLinks, sourceNode) {
       (link.source_latitude + link.target_latitude) / 2,
       (link.source_longitude + link.target_longitude) / 2,
     ];
-    L.marker(midpoint, {
-      icon: L.divIcon({ className: 'link-label-icon', html: `<div class="signal-label-chip">${linkLabel(link, sourceNode)}</div>`, iconSize: null }),
+    candidates.push({
+      link,
+      midpoint,
+      html: `<div class="signal-label-chip">${linkLabel(link, sourceNode)}</div>`,
+      forced: Boolean(selectedNeighborId) && link.target_identity_hex === selectedNeighborId,
+      strength: lineSignalMetric(link).value ?? -999,
+      point: map.latLngToContainerPoint(midpoint),
+    });
+  }
+  candidates.sort((left, right) => Number(right.forced) - Number(left.forced) || right.strength - left.strength);
+  const occupied = [];
+  for (const candidate of candidates) {
+    const rect = estimateLabelRect(candidate.point, candidate.html);
+    if (!candidate.forced && occupied.some((item) => rectsOverlap(item, rect))) continue;
+    occupied.push(rect);
+    L.marker(candidate.midpoint, {
+      icon: L.divIcon({ className: 'link-label-icon', html: candidate.html, iconSize: null }),
       interactive: false,
       opacity: alwaysVisible ? 1 : 0,
       zIndexOffset: 2000,

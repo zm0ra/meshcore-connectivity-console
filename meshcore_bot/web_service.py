@@ -1072,13 +1072,18 @@ def create_app(database: BotDatabase, config: AppConfig, *, config_path: str | P
       _require_admin(request, active_config())
       return JSONResponse(await enqueue_manual_probe(int(payload.repeater_id)))
 
+    # The HTML carries the content-hashed asset URLs, so a browser holding a stale
+    # copy of it keeps loading the previous app.js no matter how often we deploy.
+    # It must always be revalidated; the hashed assets stay cacheable.
+    _NO_STORE_HTML = {"Cache-Control": "no-cache, must-revalidate"}
+
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_root() -> HTMLResponse:
-      return HTMLResponse(ADMIN_HTML)
+      return HTMLResponse(ADMIN_HTML, headers=_NO_STORE_HTML)
 
     @app.get("/", response_class=HTMLResponse)
     async def root() -> HTMLResponse:
-        return HTMLResponse(INDEX_HTML)
+        return HTMLResponse(INDEX_HTML, headers=_NO_STORE_HTML)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
