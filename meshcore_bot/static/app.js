@@ -2351,6 +2351,28 @@ function linkFreshness(link) {
   return Math.max(0.16, 1 - 0.84 * ratio);
 }
 
+// Freshness modulates a link, it must never erase it. Fading straight to 0.16
+// opacity on a 1.5px line made week-old links invisible on the grey basemap, so
+// age now rides mostly on the dash pattern while opacity stays readable.
+function linkOpacity(link) {
+  return 0.58 + (0.37 * linkFreshness(link));
+}
+
+function linkDash(link) {
+  const fresh = linkFreshness(link);
+  if (fresh > 0.8) return null;
+  if (fresh > 0.5) return '10 5';
+  if (fresh > 0.3) return '6 5';
+  return '3 5';
+}
+
+function linkWeight(link, emphasised) {
+  if (emphasised) return 4;
+  const snr = lineSignalMetric(link).value ?? -10;
+  const normalised = Math.max(0, Math.min(1, (snr + 10) / 25));
+  return 2.2 + (2.3 * normalised);
+}
+
 // Status must survive colour blindness, so the outline carries it too:
 // solid ring = fresh data, dashed = known but no data, dotted = silent >24h.
 function statusDash(node) {
@@ -3146,18 +3168,17 @@ function renderMap(state) {
     const linkKey = link.target_identity_hex || `${link.target_latitude},${link.target_longitude}`;
     if (drawnLinks.has(linkKey)) continue;
     drawnLinks.add(linkKey);
-    const fresh = linkFreshness(link);
     const dimmed = selectedNeighborId && link.target_identity_hex !== selectedNeighborId;
+    const emphasised = Boolean(selectedNeighborId) && link.target_identity_hex === selectedNeighborId;
     const polyline = L.polyline([
       [link.source_latitude, link.source_longitude],
       [link.target_latitude, link.target_longitude],
     ], {
       color: lineColor(link),
-      // Strong signal also draws thicker, so quality survives a colour-blind eye.
-      weight: selectedNeighborId && link.target_identity_hex === selectedNeighborId
-        ? 3.6
-        : 1.4 + 2.2 * Math.max(0, Math.min(1, ((lineSignalMetric(link).value ?? -10) + 10) / 25)),
-      opacity: dimmed ? 0.18 : Math.max(0.22, 0.9 * fresh),
+      // Strong signal draws thicker, age shows as dashes - both stay visible.
+      weight: linkWeight(link, emphasised),
+      opacity: dimmed ? 0.25 : linkOpacity(link),
+      dashArray: emphasised ? null : linkDash(link),
     }).addTo(linksLayer);
     // Direction used to live only in the hover label. One arrowhead means the
     // link was heard one way; two mean both ends hear each other.
@@ -3289,9 +3310,10 @@ function renderConnectivityMap(state) {
       [targetNode.latitude, targetNode.longitude],
     ], {
       color,
-      weight: edge.stale ? 1.5 : 2.6,
-      opacity: edge.stale ? 0.4 : 0.84,
-      dashArray: edge.stale ? '5 5' : null,
+      // Same rule as the map view: old links go dashed, not near-invisible.
+      weight: edge.stale ? 2.2 : 3,
+      opacity: edge.stale ? 0.66 : 0.9,
+      dashArray: edge.stale ? '6 5' : null,
     }).addTo(linksLayer);
     if (connectivityDirection === 'mutual') {
       addDirectionalArrow(sourceNode, targetNode, color, 0.42);
